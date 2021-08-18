@@ -65,3 +65,7 @@ python -m dense.faiss_retriever.reducer \
   --query encoding/qry.pt \
   --save_ranking_to ranking/rank.txt
 ```
+Finally format the retrieval result,
+```
+python score_to_marco.py ranking/rank.txt
+```
