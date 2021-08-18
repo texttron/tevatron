@@ -1,0 +1,4 @@
+pytorch<=1.8.0
+faiss-cpu>=1.6.5
+transformers==4.2.0
+datasets==1.1.3
