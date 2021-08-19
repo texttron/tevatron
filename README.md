@@ -6,8 +6,8 @@ Dense is a simple and efficient toolkit for training and running dense retriever
 ## Features
 - Command line interface for dense retriever training/encoding and dense index search.
 - Flexible and extendable Pytorch retriever models. 
-- Highly efficient Trainer, a subclass of  Huggingface Trainer, that naively support training performance features like mixed precision and distributed training.
-- Fast and memory-efficient train/inference data access with memory memory mapping with Apache Arrow through Huggingface datasets.
+- Highly efficient Trainer, a subclass of  Huggingface Trainer, that naively support training performance features like mixed precision and distributed data parallel.
+- Fast and memory-efficient train/inference data access based on memory mapping with Apache Arrow through Huggingface datasets.
 
 ## Installation
 First install the dependencies. The current code base has been testes with,
