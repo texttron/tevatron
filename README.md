@@ -1,5 +1,5 @@
 # Dense
-Dense is a simple and efficient toolkit for training and running dense retrievers with deep language models. The toolkit also has a modularized design for easy research; a set of command line tools are provided for fast development and testing. A set of easy-to-use interfaces to Huggingface🤗's state-of-the-art pre-trained transformers ensures Dense's superior performance.
+Dense is a simple and efficient toolkit for training and running dense retrievers with deep language models. The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast development and testing. A set of easy-to-use interfaces to Huggingface🤗's state-of-the-art pre-trained transformers ensures Dense's superior performance.
 
 *Dense is currently under initial development stage. We will be actively adding new features and API changes may happen.*
 
