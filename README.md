@@ -100,7 +100,19 @@ python -m dense.driver.encode \
 done
 ```
 ## Index Search
-Search over the shards,
+Call the `dense.faiss_retriever` module,
+```
+python -m dense.faiss_retriever \  
+--query_reps $ENCODE_QRY_DIR/qry.pt \  
+--passage_reps $ENCODE_DIR/'*.pt' \  
+--depth $DEPTH \
+--batch_size -1 \
+--save_text \
+--save_ranking_to rank.tsv
+```
+Encoded corpus or corpus shards are loaded based on glob pattern matching of argument `--passage_reps`. Argument `--batch_size` controls number of queries passed to the FAISS index each search call and `-1` will pass all queries in one call. Larger batches typically run faster (due to better memory access patterns and hardware utilization.) Setting flag `--save_text` will save the ranking to a tsv file with each line being `qid pid score`.
+
+Alternatively paralleize search over the shards,
 ```
 for s in shard1 shar2 shard3
 do
@@ -111,11 +123,10 @@ python -m dense.faiss_retriever \
 --save_ranking_to $INTERMEDIATE_DIR/$s
 done
 ```
-Then combine the results,
+Then combine the results using the reducer module,
 ```
 python -m dense.faiss_retriever.reducer \  
 --score_dir $INTERMEDIATE_DIR \  
 --query $ENCODE_QRY_DIR/qry.pt \  
 --save_ranking_to rank.txt  
 ```
-For a single shard, you can still run the reducer to get results in a text file.
