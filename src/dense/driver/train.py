@@ -12,7 +12,7 @@ from dense.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from dense.data import TrainDataset, QPCollator
 from dense.modeling import DenseModel
-from dense.trainer import DenseTrainer as Trainer
+from dense.trainer import DenseTrainer as Trainer, GCTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,8 @@ def main():
         data_args, data_args.train_path, tokenizer,
     )
 
-    trainer = Trainer(
+    trainer_cls = GCTrainer if training_args.grad_cache else Trainer
+    trainer = trainer_cls(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
