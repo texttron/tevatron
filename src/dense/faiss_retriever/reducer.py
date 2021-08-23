@@ -20,6 +20,15 @@ def combine_faiss_results(results: Iterable[Tuple[ndarray, ndarray]]):
     return corpus_scores, corpus_indices
 
 
+def write_ranking(corpus_indices, corpus_scores, q_lookup, ranking_save_file):
+    with open(ranking_save_file, 'w') as f:
+        for qid, q_doc_scores, q_doc_indices in zip(q_lookup, corpus_scores, corpus_indices):
+            score_list = [(s, idx) for s, idx in zip(q_doc_scores, q_doc_indices)]
+            score_list = sorted(score_list, key=lambda x: x[0], reverse=True)
+            for s, idx in score_list:
+                f.write(f'{qid}\t{idx}\t{s}\n')
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument('--score_dir', required=True)
@@ -32,13 +41,7 @@ def main():
     corpus_scores, corpus_indices = combine_faiss_results(map(torch.load, tqdm(partitions)))
 
     _, q_lookup = torch.load(args.query)
-
-    with open(args.save_ranking_to, 'w') as f:
-        for qid, q_doc_scores, q_doc_indices in zip(q_lookup, corpus_scores, corpus_indices):
-            score_list = [(s, idx) for s, idx in zip(q_doc_scores, q_doc_indices)]
-            score_list = sorted(score_list, key=lambda x: x[0], reverse=True)
-            for s, idx in score_list:
-                f.write(f'{qid}\t{idx}\t{s}\n')
+    write_ranking(corpus_indices, corpus_scores, q_lookup, args.save_ranking_to)
 
 
 if __name__ == '__main__':
