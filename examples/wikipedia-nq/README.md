@@ -35,52 +35,90 @@ python -m torch.distributed.launch --nproc_per_node=4 -m dense.driver.train \
   --negatives_x_device
 ```
 
-The model checkpoint can be directly used in [Pyserini](https://github.com/castorini/pyserini/) for encoding and evaluation.
-Please follow the guidance in Pyserini repo to install.
 ### Encode (with Pyserini)
 Download wikipedia corpus
 ```bash
-wget https://www.dropbox.com/s/n0c0ypuo25zdks0/wikipedia-dpr-jsonl.tar.gz
+wget https://www.dropbox.com/s/8ocbt0qpykszgeu/wikipedia-corpus.tar.gz
+tar -xvf wikipedia-corpus.tar.gz
 ```
 
-Run encoding and save as Faiss index
+Encode Corpus
 ```bash
-for i in $(seq -f "%02g" 0 21)
+ENCODE_DIR=embeddings-nq
+OUTDIR=temp
+MODEL_DIR=model-nq
+CORPUS_DIR=wikipedia-corpus
+mkdir $ENCODE_DIR
+for s in $(seq -f "%02g" 0 21)
 do
-python -m pyserini.encode input   --corpus wikipedia-dpr-jsonl/docs${i}.json \
-                                  --fields title text \
-                          output  --embeddings dense-nq-faiss-${i} \
-                                  --to-faiss \
-                          encoder --encoder model-nq \
-                                  --fields title text \
-                                  --batch 32 \
-                                  --fp16
+python -m dense.driver.encode \
+  --output_dir=$OUTDIR \
+  --model_name_or_path $MODEL_DIR \
+  --fp16 \
+  --per_device_eval_batch_size 156 \
+  --encode_in_path $CORPUS_DIR/docs$s.json \
+  --encoded_save_path $ENCODE_DIR/$s.pt
 done
 ```
 
-Merge index
+Download queries
 ```bash
-$ python -m pyserini.dindex.merge_indexes --prefix dense-nq-faiss- --shard-num 22
+wget https://www.dropbox.com/s/x4abrhszjssq6gl/nq-test-queries.json
+wget https://www.dropbox.com/s/b64e07jzlji8zhl/trivia-test-queries.json
 ```
 
-### Search (with Pyserini)
+Encode Query
 ```bash
-$ python -m pyserini.dsearch --topics dpr-nq-test \
-                             --index dense-nq-faiss-full \
-                             --encoder model-nq \
-	                         --output runs/run.dense.nq.trec \
-                             --batch-size 36 --threads 12
+ENCODE_QRY_DIR=embeddings-nq-queries
+OUTDIR=temp
+MODEL_DIR=model-nq
+QUERY=nq-test-queries.json
+mkdir $ENCODE_QRY_DIR
+python -m dense.driver.encode \
+  --output_dir=$OUTDIR \
+  --model_name_or_path $MODEL_DIR \
+  --fp16 \
+  --per_device_eval_batch_size 156 \
+  --encode_in_path $QUERY \
+  --encoded_save_path $ENCODE_QRY_DIR/query.pt
 ```
 
-### Evaluation (with Pyserini)
+
+### Search
 ```bash
+ENCODE_QRY_DIR=embeddings-nq-queries
+ENCODE_DIR=embeddings-nq
+DEPTH=1000
+RUN=run.nq.test.txt
+python -m dense.faiss_retriever \
+--query_reps $ENCODE_QRY_DIR/query.pt \
+--passage_reps $ENCODE_DIR/'*.pt' \
+--depth $DEPTH \
+--batch_size -1 \
+--save_text \
+--save_ranking_to $RUN
+```
+
+### Evaluation
+Convert result to trec format
+```bash
+RUN=run.nq.test.txt
+TREC_RUN=run.nq.test.trec
+python -m dense.utils.format.result_to_trec --input $RUN --output $TREC_RUN
+```
+
+Evaluate with Pyserini for now, `pip install pyserini`
+Recover query and passage contents
+```bash
+TREC_RUN=run.nq.test.trec
+JSON_RUN=run.nq.test.json
 $ python -m pyserini.eval.convert_trec_run_to_dpr_retrieval_run --topics dpr-nq-test \
                                                                 --index wikipedia-dpr \
-                                                                --input runs/run.dense.nq.trec \
-                                                                --output runs/run.dense.nq.json
+                                                                --input $TREC_RUN \
+                                                                --output $JSON_RUN
 ```
 ```bash
-$ python -m pyserini.eval.evaluate_dpr_retrieval --retrieval runs/run.dense.nq.json --topk 20 100
+$ python -m pyserini.eval.evaluate_dpr_retrieval --retrieval $JSON_RUN --topk 20 100
 Top20	accuracy: 0.8002770083102493
 Top100	accuracy: 0.871191135734072
 ```
