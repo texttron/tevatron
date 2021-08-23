@@ -35,5 +35,5 @@ with open(os.path.join(args.output, 'train_data.json'), 'w') as f:
             text = neg['title'] + " " + neg['text']
             text = tokenizer.encode(text, add_special_tokens=False, max_length=256, truncation=True)
             group['negatives'].append(text)
-        if len(group['negatives']) >= args.minimum_negatives:
+        if len(group['negatives']) >= args.minimum_negatives and len(group['positives']) >= 1:
             f.write(json.dumps(group) + '\n')
