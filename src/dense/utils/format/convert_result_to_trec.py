@@ -14,4 +14,4 @@ with open(args.input) as f_in, open(args.output, 'w') as f_out:
             cur_qid = qid
             rank = 0
         rank += 1
-        f_out.write(f'{qid} Q0 {docid} {rank} {score} dense')
+        f_out.write(f'{qid} Q0 {docid} {rank} {score} dense\n')

@@ -1,4 +1,7 @@
-# Wikipedia Natural Questions
+# Wikipedia Natural Questions & TriviaQA
+
+## NQ
+We will use NQ as an example to show the process.
 
 ### 1. Prepare train data
 We use the train data provided by [DPR repo](https://github.com/facebookresearch/DPR).
@@ -123,10 +126,24 @@ Top20	accuracy: 0.8002770083102493
 Top100	accuracy: 0.871191135734072
 ```
 
-# Wikipedia TriviaQA
+## TriviaQA
 To train dense retriever for TriviaQA, simply replace all the `nq` in above command with `trivia`
 The retrieval accuracy we get by using our repo is:
 ```bash
 Top20   accuracy: 0.8112790594890834
 Top100  accuracy: 0.8629010872447627
 ```
+
+## Un-tie model
+Un-tie model is that the query encoder and passage encoder do not share parameters.
+To train untie models, simply add `--untie_encoder` option to the training command.
+
+## Summary
+Using the process above should be able to obtain `top-k` retrieval accuracy as below:
+
+| Dataset/Model  | Top20 | Top100 |
+|----------------|-------|--------|
+| NQ             | 0.81  | 0.86   |
+| NQ-untie       | 0.80  | 0.87   |
+| TriviaQA       | 0.81  | 0.86   |
+| TriviaQA-untie | 0.81  | 0.86   |
