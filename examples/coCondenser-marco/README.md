@@ -1,4 +1,16 @@
 # coCondenser MS-MARCO Passage Retrieval
+## coCondenser
+You can find details about coCondenser pre-training in its [paper](https://arxiv.org/abs/2108.05540) and [open source code](https://github.com/luyug/Condenser),
+```
+@misc{gao2021unsupervised,
+      title={Unsupervised Corpus Aware Language Model Pre-training for Dense Passage Retrieval}, 
+      author={Luyu Gao and Jamie Callan},
+      year={2021},
+      eprint={2108.05540},
+      archivePrefix={arXiv},
+      primaryClass={cs.IR}
+}
+```
 ## Get Data
 Run,
 ```
