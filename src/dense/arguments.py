@@ -46,15 +46,15 @@ class DataArguments:
     dataset_name: str = field(
         default=None, metadata={"help": "huggingface dataset name"}
     )
-    dataset_split: str = field(
-        default='train', metadata={"help": "huggingface dataset split"}
+    dataset_proc_num: int = field(
+        default=12, metadata={"help": "number of proc used in dataset preprocess"}
     )
     train_n_passages: int = field(default=8)
 
     encode_in_path: List[str] = field(default=None, metadata={"help": "Path to data to encode"})
     encoded_save_path: str = field(default=None, metadata={"help": "where to save the encode"})
     encode_is_qry: bool = field(default=False)
-    encode_shard_num: int = field(default=1)
+    encode_num_shard: int = field(default=1)
     encode_shard_index: int = field(default=0)
 
     q_max_len: int = field(
@@ -80,6 +80,10 @@ class DataArguments:
                 for f in files
                 if f.endswith('tsv') or f.endswith('json')
             ]
+        if self.dataset_name is not None:
+            info = self.dataset_name.split('/')
+            self.dataset_split = info[-1] if len(info) == 3 else 'train'
+            self.dataset_name = "/".join(info[:-1]) if len(info) == 3 else '/'.join(info)
 
 
 @dataclass
