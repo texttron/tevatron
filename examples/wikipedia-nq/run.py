@@ -91,9 +91,9 @@ def main():
                 data_args, data_args.train_dir, tokenizer,
             )
         else:
-            train_dataset = datasets.load_dataset(data_args.dataset_name, "queries")['train']
+            train_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']
             train_dataset = train_dataset.map(
-                TrainProcessor(tokenizer),
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer),
                 batched=False,
                 num_proc=12,
                 remove_columns=train_dataset.column_names,
@@ -133,14 +133,13 @@ def main():
         text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
         if data_args.encode_in_path:
             encode_dataset = EncodeDataset(data_args.encode_in_path, tokenizer, max_len=text_max_length)
+            encode_dataset.encode_data = encode_dataset.encode_data\
+                .shard(data_args.encode_num_shard, data_args.encode_shard_index)
         else:
-            name = 'corpus' if data_args.dataset_split == 'corpus' else 'queries'
-            split = 'train' if data_args.dataset_split == 'corpus' else data_args.dataset_split
-            print(datasets.load_dataset(data_args.dataset_name, name))
-            encode_dataset = datasets.load_dataset(data_args.dataset_name, name)[split]\
-                .shard(data_args.encode_shard_num, data_args.encode_shard_index)
+            encode_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']\
+                .shard(data_args.encode_num_shard, data_args.encode_shard_index)
             encode_dataset = encode_dataset.map(
-                PROCESSOR_INFO[data_args.dataset_name][split](tokenizer),
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer),
                 batched=False,
                 num_proc=12,
                 remove_columns=encode_dataset.column_names,
