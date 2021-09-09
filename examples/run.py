@@ -84,7 +84,7 @@ def main():
 
     if training_args.do_train:
         train_dataset = TrainDataset(
-            data_args, data_args.train_path, tokenizer,
+            data_args, data_args.train_dir, tokenizer
         )
     else:
         train_dataset = None

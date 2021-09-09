@@ -40,9 +40,6 @@ class DataArguments:
     train_dir: str = field(
         default=None, metadata={"help": "Path to train directory"}
     )
-    train_path: Union[str] = field(
-        default=None, metadata={"help": "Path to train data"}
-    )
     dataset_name: str = field(
         default=None, metadata={"help": "huggingface dataset name"}
     )
@@ -73,13 +70,6 @@ class DataArguments:
     )
 
     def __post_init__(self):
-        if self.train_dir is not None:
-            files = os.listdir(self.train_dir)
-            self.train_path = [
-                os.path.join(self.train_dir, f)
-                for f in files
-                if f.endswith('tsv') or f.endswith('json')
-            ]
         if self.dataset_name is not None:
             info = self.dataset_name.split('/')
             self.dataset_split = info[-1] if len(info) == 3 else 'train'

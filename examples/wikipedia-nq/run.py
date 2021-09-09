@@ -86,16 +86,18 @@ def main():
     )
 
     if training_args.do_train:
-        if os.path.exists(data_args.train_dir):
+        if data_args.train_dir is not None:
             train_dataset = TrainDataset(
-                data_args, data_args.train_dir, tokenizer,
+                data_args, data_args.train_dir, tokenizer
             )
         else:
             train_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']
             train_dataset = train_dataset.map(
-                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer),
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer,
+                                                                                data_args.q_max_len,
+                                                                                data_args.p_max_len),
                 batched=False,
-                num_proc=12,
+                num_proc=data_args.dataset_proc_num,
                 remove_columns=train_dataset.column_names,
                 desc="Running tokenizer on train dataset",
             )
@@ -139,9 +141,9 @@ def main():
             encode_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']\
                 .shard(data_args.encode_num_shard, data_args.encode_shard_index)
             encode_dataset = encode_dataset.map(
-                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer),
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer, text_max_length),
                 batched=False,
-                num_proc=12,
+                num_proc=data_args.dataset_proc_num,
                 remove_columns=encode_dataset.column_names,
                 desc="Running tokenization",
             )
