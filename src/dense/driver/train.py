@@ -77,7 +77,7 @@ def main():
     )
 
     train_dataset = TrainDataset(
-        data_args, data_args.train_path, tokenizer,
+        data_args, data_args.train_dir, tokenizer,
     )
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
