@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Union, List
+from typing import Optional, List, Union
 from transformers import TrainingArguments
 
 
@@ -43,11 +43,19 @@ class DataArguments:
     train_path: Union[str] = field(
         default=None, metadata={"help": "Path to train data"}
     )
+    dataset_name: str = field(
+        default=None, metadata={"help": "huggingface dataset name"}
+    )
+    dataset_split: str = field(
+        default='train', metadata={"help": "huggingface dataset split"}
+    )
     train_n_passages: int = field(default=8)
 
     encode_in_path: List[str] = field(default=None, metadata={"help": "Path to data to encode"})
     encoded_save_path: str = field(default=None, metadata={"help": "where to save the encode"})
     encode_is_qry: bool = field(default=False)
+    encode_shard_num: int = field(default=1)
+    encode_shard_index: int = field(default=0)
 
     q_max_len: int = field(
         default=32,

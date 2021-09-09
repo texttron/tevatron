@@ -18,11 +18,11 @@ class TrainDataset(Dataset):
     def __init__(
             self,
             data_args: DataArguments,
-            path_to_data: Union[List[str], str, Dataset],
+            path_to_data: Union[List[str], str, datasets.Dataset],
             tokenizer: PreTrainedTokenizer,
             trainer: DenseTrainer = None,
     ):
-        if isinstance(path_to_data, Dataset):
+        if isinstance(path_to_data, datasets.Dataset):
             self.train_data = path_to_data
         else:
             self.train_data = datasets.load_dataset(
@@ -88,8 +88,8 @@ class TrainDataset(Dataset):
 class EncodeDataset(Dataset):
     input_keys = ['text_id', 'text']
 
-    def __init__(self, path_to_json: Union[List[str], Dataset], tokenizer: PreTrainedTokenizer, max_len=128):
-        if isinstance(path_to_json, Dataset):
+    def __init__(self, path_to_json: Union[List[str], datasets.Dataset], tokenizer: PreTrainedTokenizer, max_len=128):
+        if isinstance(path_to_json, datasets.Dataset):
             self.encode_data = path_to_json
         else:
             self.encode_data = datasets.load_dataset(
