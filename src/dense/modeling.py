@@ -107,6 +107,12 @@ class DenseModel(nn.Module):
         q_hidden, q_reps = self.encode_query(query)
         p_hidden, p_reps = self.encode_passage(passage)
 
+        if q_reps is None or p_reps is None:
+            return DenseOutput(
+                q_reps=q_reps,
+                p_reps=p_reps
+            )
+
         if self.training:
             if self.train_args.negatives_x_device:
                 q_reps = self.dist_gather_tensor(q_reps)
