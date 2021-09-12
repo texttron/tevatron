@@ -85,4 +85,4 @@ Following results can be reproduced by following the instructions above:
 recip_rank              all     0.7322
 ndcg_cut_10             all     0.7473
 ```
-Comparing with BM25 baseline: `NDCG@10=0.665` (Copied from [BEIR](https://docs.google.com/spreadsheets/d/1L8aACyPaXrL8iEelJLGqlMqXKPX2oSP_R10pZoy77Ns/edit#gid=0) repo)
+Comparing with BM25 baseline: `NDCG@10=0.665`
