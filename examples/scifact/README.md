@@ -86,3 +86,13 @@ recip_rank              all     0.7322
 ndcg_cut_10             all     0.7473
 ```
 Comparing with BM25 baseline: `NDCG@10=0.665`
+
+### Condenser
+By `bert-base-uncased` with Condenser checkpoint `Luyu/condenser` (See details at [here](https://github.com/luyug/Condenser)),
+we are able to get results as below:
+
+```bash
+recip_rank              all     0.7679
+ndcg_cut_10             all     0.7841
+```
+
