@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Union, List
+from typing import Optional, List, Union
 from transformers import TrainingArguments
 
 
@@ -40,14 +40,19 @@ class DataArguments:
     train_dir: str = field(
         default=None, metadata={"help": "Path to train directory"}
     )
-    train_path: Union[str] = field(
-        default=None, metadata={"help": "Path to train data"}
+    dataset_name: str = field(
+        default=None, metadata={"help": "huggingface dataset name"}
+    )
+    dataset_proc_num: int = field(
+        default=12, metadata={"help": "number of proc used in dataset preprocess"}
     )
     train_n_passages: int = field(default=8)
 
     encode_in_path: List[str] = field(default=None, metadata={"help": "Path to data to encode"})
     encoded_save_path: str = field(default=None, metadata={"help": "where to save the encode"})
     encode_is_qry: bool = field(default=False)
+    encode_num_shard: int = field(default=1)
+    encode_shard_index: int = field(default=0)
 
     q_max_len: int = field(
         default=32,
@@ -65,13 +70,10 @@ class DataArguments:
     )
 
     def __post_init__(self):
-        if self.train_dir is not None:
-            files = os.listdir(self.train_dir)
-            self.train_path = [
-                os.path.join(self.train_dir, f)
-                for f in files
-                if f.endswith('tsv') or f.endswith('json')
-            ]
+        if self.dataset_name is not None:
+            info = self.dataset_name.split('/')
+            self.dataset_split = info[-1] if len(info) == 3 else 'train'
+            self.dataset_name = "/".join(info[:-1]) if len(info) == 3 else '/'.join(info)
 
 
 @dataclass

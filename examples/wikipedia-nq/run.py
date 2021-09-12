@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 from contextlib import nullcontext
+
+import datasets
 from tqdm import tqdm
 
 import torch
@@ -18,6 +20,7 @@ from dense.arguments import ModelArguments, DataArguments, \
 from dense.data import TrainDataset, EncodeDataset, QPCollator, EncodeCollator
 from dense.modeling import DenseModel, DenseOutput
 from dense.trainer import DenseTrainer as Trainer
+from dense.dataset import PROCESSOR_INFO, TrainProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +86,22 @@ def main():
     )
 
     if training_args.do_train:
-        train_dataset = TrainDataset(
-            data_args, data_args.train_dir, tokenizer
-        )
+        if data_args.train_dir is not None:
+            train_dataset = TrainDataset(
+                data_args, data_args.train_dir, tokenizer
+            )
+        else:
+            train_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']
+            train_dataset = train_dataset.map(
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer,
+                                                                                data_args.q_max_len,
+                                                                                data_args.p_max_len),
+                batched=False,
+                num_proc=data_args.dataset_proc_num,
+                remove_columns=train_dataset.column_names,
+                desc="Running tokenizer on train dataset",
+            )
+            train_dataset = TrainDataset(data_args, train_dataset, tokenizer)
     else:
         train_dataset = None
 
@@ -117,8 +133,21 @@ def main():
             raise NotImplementedError('Parallel encoding is not supported.')
 
         text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-
-        encode_dataset = EncodeDataset(data_args.encode_in_path, tokenizer, max_len=text_max_length)
+        if data_args.encode_in_path:
+            encode_dataset = EncodeDataset(data_args.encode_in_path, tokenizer, max_len=text_max_length)
+            encode_dataset.encode_data = encode_dataset.encode_data\
+                .shard(data_args.encode_num_shard, data_args.encode_shard_index)
+        else:
+            encode_dataset = datasets.load_dataset(data_args.dataset_name, data_args.dataset_split)['train']\
+                .shard(data_args.encode_num_shard, data_args.encode_shard_index)
+            encode_dataset = encode_dataset.map(
+                PROCESSOR_INFO[data_args.dataset_name][data_args.dataset_split](tokenizer, text_max_length),
+                batched=False,
+                num_proc=data_args.dataset_proc_num,
+                remove_columns=encode_dataset.column_names,
+                desc="Running tokenization",
+            )
+            encode_dataset = EncodeDataset(encode_dataset, tokenizer, max_len=text_max_length)
         encode_loader = DataLoader(
             encode_dataset,
             batch_size=training_args.per_device_eval_batch_size,
