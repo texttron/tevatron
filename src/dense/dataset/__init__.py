@@ -17,5 +17,11 @@ PROCESSOR_INFO = {
         'train': TrainProcessor,
         'dev': TestProcessor,
         'corpus': CorpusProcessor,
-    }
+    },
+    'Tevatron/scifact': {
+        'train': TrainProcessor,
+        'dev': TestProcessor,
+        'test': TestProcessor,
+        'corpus': CorpusProcessor,
+    },
 }
