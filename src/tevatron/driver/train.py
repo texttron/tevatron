@@ -8,11 +8,11 @@ from transformers import (
     set_seed,
 )
 
-from dense.arguments import ModelArguments, DataArguments, \
+from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
-from dense.data import TrainDataset, QPCollator
-from dense.modeling import DenseModel
-from dense.trainer import DenseTrainer as Trainer, GCTrainer
+from tevatron.data import TrainDataset, QPCollator
+from tevatron.modeling import DenseModel
+from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
 
 logger = logging.getLogger(__name__)
 

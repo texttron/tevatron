@@ -59,7 +59,7 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 
 ## Search
 ```bash
-python -m dense.faiss_retriever \
+python -m tevatron.faiss_retriever \
 --query_reps queries_emb/queries.pt \
 --passage_reps docs_emb/docs.pt \
 --depth 20 \
@@ -76,7 +76,7 @@ wget https://www.dropbox.com/s/lpq8mfynqzsuyy5/dev_qrels.txt
 
 Evaluate
 ```bash
-python -m dense.utils.format.convert_result_to_trec --input run.scifact.dev.txt --output run.scifact.dev.trec
+python -m tevatron.utils.format.convert_result_to_trec --input run.scifact.dev.txt --output run.scifact.dev.trec
 python -m pyserini.eval.trec_eval -c -mrecip_rank -mndcg_cut.10 dev_qrels.txt run.scifact.dev.trec
 ```
 

@@ -15,12 +15,12 @@ from transformers import (
     set_seed,
 )
 
-from dense.arguments import ModelArguments, DataArguments, \
+from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
-from dense.data import TrainDataset, EncodeDataset, QPCollator, EncodeCollator
-from dense.modeling import DenseModel, DenseOutput
-from dense.trainer import DenseTrainer as Trainer, GCTrainer
-from dense.dataset import PROCESSOR_INFO, TrainProcessor
+from tevatron.data import TrainDataset, EncodeDataset, QPCollator, EncodeCollator
+from tevatron.modeling import DenseModel, DenseOutput
+from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
+from tevatron.dataset import PROCESSOR_INFO, TrainProcessor
 
 logger = logging.getLogger(__name__)
 

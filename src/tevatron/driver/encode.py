@@ -12,10 +12,10 @@ from transformers import (
     HfArgumentParser,
 )
 
-from dense.arguments import ModelArguments, DataArguments, \
+from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
-from dense.data import EncodeDataset, EncodeCollator
-from dense.modeling import DenseOutput, DenseModelForInference
+from tevatron.data import EncodeDataset, EncodeCollator
+from tevatron.modeling import DenseOutput, DenseModelForInference
 
 logger = logging.getLogger(__name__)
 
