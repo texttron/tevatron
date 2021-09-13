@@ -38,9 +38,9 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
   --model_name_or_path scifact_model_e80_64x2 \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/scifact/corpus \
+  --dataset_name Tevatron/scifact-corpus \
   --p_max_len 512 \
-  --encoded_save_path docs_emb/docs.pt 
+  --encoded_save_path corpus_emb.pt 
 ```
 
 ## Encode Query
@@ -52,16 +52,16 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/scifact/dev \
-  --encode_is_qry
+  --encode_is_qry \
   --q_max_len 64 \
-  --encoded_save_path queries_emb/queries.pt 
+  --encoded_save_path queries_emb.pt 
 ```
 
 ## Search
 ```bash
 python -m tevatron.faiss_retriever \
---query_reps queries_emb/queries.pt \
---passage_reps docs_emb/docs.pt \
+--query_reps queries_emb.pt \
+--passage_reps docs_emb.pt \
 --depth 20 \
 --batch_size -1 \
 --save_text \
