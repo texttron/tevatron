@@ -9,7 +9,7 @@ This downloads the cleaned corpus, generate BM25 negatives and tokenize train/in
 ## Train a BERT Model
 Train a BERT(`bert-base-uncased`) with mixed precision.
 ```
-python -m dense.driver.train \  
+python -m tevatron.driver.train \  
   --output_dir ./retriever_model \  
   --model_name_or_path bert-base-uncased \  
   --save_steps 20000 \  
@@ -26,7 +26,7 @@ python -m dense.driver.train \
 mkdir encoding
 for i in $(seq -f "%02g" 0 9)
 do
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model \
   --fp16 \
@@ -36,7 +36,7 @@ python -m dense.driver.encode \
 done
 
 
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model \
   --fp16 \
@@ -53,14 +53,14 @@ mkdir -p ranking/intermediate
 
 for i in $(seq -f "%02g" 0 9)
 do
-python -m dense.faiss_retriever \
+python -m tevatron.faiss_retriever \
   --query_reps encoding/qry.pt \
   --passage_reps encoding/split${i}.pt \
   --depth 10 \
   --save_ranking_to ranking/intermediate/split${i}
 done
 
-python -m dense.faiss_retriever.reducer \
+python -m tevatron.faiss_retriever.reducer \
   --score_dir ranking/intermediate \
   --query encoding/qry.pt \
   --save_ranking_to ranking/rank.txt

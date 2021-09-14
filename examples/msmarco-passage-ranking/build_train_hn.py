@@ -5,7 +5,7 @@ import random
 from tqdm import tqdm
 from datetime import datetime
 from multiprocessing import Pool
-from dense.processor import MarcoPassageTrainProcessor as TrainProcessor
+from tevatron.processor import MarcoPassageTrainProcessor as TrainProcessor
 
 
 def load_ranking(rank_file, relevance, n_sample, depth):

@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from transformers import AutoTokenizer
 import os
 from tqdm import tqdm
-from dense.processor import SimpleCollectionProcessor
+from tevatron.processor import SimpleCollectionProcessor
 
 parser = ArgumentParser()
 parser.add_argument('--tokenizer_name', required=True)
