@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 
+import datasets
 from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
@@ -11,6 +12,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
+from tevatron.dataset import TrainProcessor
 from tevatron.modeling import DenseModel
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
 
@@ -76,9 +78,20 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = TrainDataset(
-        data_args, data_args.train_dir, tokenizer,
-    )
+    if data_args.train_dir is not None:
+        train_dataset = TrainDataset(
+            data_args, data_args.train_dir, tokenizer
+        )
+    else:
+        train_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]
+        train_dataset = train_dataset.map(
+            TrainProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
+            batched=False,
+            num_proc=data_args.dataset_proc_num,
+            remove_columns=train_dataset.column_names,
+            desc="Running tokenizer on train dataset",
+        )
+        train_dataset = TrainDataset(data_args, train_dataset, tokenizer)
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
     trainer = trainer_cls(
