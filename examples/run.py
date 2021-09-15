@@ -20,7 +20,7 @@ from tevatron.arguments import ModelArguments, DataArguments, \
 from tevatron.data import TrainDataset, EncodeDataset, QPCollator, EncodeCollator
 from tevatron.modeling import DenseModel, DenseOutput
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
-from tevatron.dataset import TrainProcessor, TestProcessor, CorpusProcessor
+from tevatron.preprocessor.preprocessor_dict import TrainProcessor, TestProcessor, CorpusProcessor
 
 logger = logging.getLogger(__name__)
 
