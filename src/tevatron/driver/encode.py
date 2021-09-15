@@ -17,7 +17,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.dataset import CorpusProcessor, TestProcessor
+from tevatron.processor import CorpusProcessor, TestProcessor
 from tevatron.modeling import DenseOutput, DenseModelForInference
 
 logger = logging.getLogger(__name__)
