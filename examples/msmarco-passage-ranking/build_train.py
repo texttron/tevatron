@@ -24,7 +24,8 @@ parser.add_argument('--shard_size', type=int, default=45000)
 args = parser.parse_args()
 
 
-qrel = MarcoPassageTrainPreProcessor.read_qrel(args.qrels)
+qrel = TrainPreProcessor.read_qrel(args.qrels)
+
 
 def read_line(l):
     q, nn = l.strip().split('\t')
@@ -34,7 +35,7 @@ def read_line(l):
 
 
 tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True)
-processor = MarcoPassageTrainPreProcessor(
+processor = TrainPreProcessor(
     query_file=args.queries,
     collection_file=args.collection,
     tokenizer=tokenizer,
