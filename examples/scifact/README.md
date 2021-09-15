@@ -48,7 +48,7 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 CUDA_VISIBLE_DEVICES=0 python run.py \
   --do_encode \
   --output_dir=temp_out \
-  --model_name_or_path scifact_model_e20_16x2 \
+  --model_name_or_path scifact_model_e80_64x2 \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/scifact/dev \
