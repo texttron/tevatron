@@ -1,6 +1,5 @@
-import os
 from dataclasses import dataclass, field
-from typing import Optional, List, Union
+from typing import Optional, List
 from transformers import TrainingArguments
 
 

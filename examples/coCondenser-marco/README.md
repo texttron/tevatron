@@ -27,7 +27,7 @@ mkdir -p encoding/corpus
 mkdir -p encoding/query
 for i in $(seq -f "%02g" 0 9)
 do
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path Luyu/co-condenser-marco-retriever \
   --fp16 \
@@ -37,7 +37,7 @@ python -m dense.driver.encode \
 done
 
 
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path Luyu/co-condenser-marco-retriever \
   --fp16 \
@@ -49,7 +49,7 @@ python -m dense.driver.encode \
 ```
 ### Index Search
 ```
-python -m dense.faiss_retriever \  
+python -m tevatron.faiss_retriever \  
 --query_reps encoding/query/qry.pt \  
 --passage_reps corpus/corpus/'*.pt' \  
 --depth 10 \
@@ -65,7 +65,7 @@ python ../msmarco-passage-ranking/score_to_marco.py rank.txt
 Pick a pre-trained condenser that is most suitable for the experiment from [Condenser Repo](https://github.com/luyug/Condenser#pre-trained-models).
 Train
 ```
-python -m dense.driver.train \  
+python -m tevatron.driver.train \  
   --output_dir ./retriever_model_s1 \  
   --model_name_or_path CONDENSER_MODEL_NAME \  
   --save_steps 20000 \  
@@ -84,7 +84,7 @@ mkdir -p encoding/corpus
 mkdir -p encoding/query
 for i in $(seq -f "%02g" 0 9)
 do
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model_s1 \
   --fp16 \
@@ -93,7 +93,7 @@ python -m dense.driver.encode \
   --encoded_save_path encoding/corpus/split${i}.pt
 done
 
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model_s1 \
   --fp16 \
@@ -106,7 +106,7 @@ python -m dense.driver.encode \
 
 ### Search
 ```
-python -m dense.faiss_retriever \  
+python -m tevatron.faiss_retriever \  
 --query_reps encoding/query/train.pt \  
 --passage_reps corpus/corpus/'*.pt' \  
 --batch_size 5000 \
@@ -121,7 +121,7 @@ bash create_hn.sh
 
 ## Fine-tuning Stage 2
 ```
-python -m dense.driver.train \  
+python -m tevatron.driver.train \  
   --output_dir ./retriever_model_s2 \  
   --model_name_or_path CONDENSER_MODEL_NAME \  
   --save_steps 20000 \  
@@ -140,7 +140,7 @@ mkdir -p encoding/corpus-s2
 mkdir -p encoding/query-s2
 for i in $(seq -f "%02g" 0 9)
 do
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir ./retriever_model_s2 \
   --model_name_or_path ./retriever_model_s2 \
   --fp16 \
@@ -149,7 +149,7 @@ python -m dense.driver.encode \
   --encoded_save_path encoding/corpus-s2/split${i}.pt
 done
 
-python -m dense.driver.encode \  
+python -m tevatron.driver.encode \  
   --output_dir  ./retriever_model_s2 \
   --model_name_or_path  ./retriever_model_s2 \
   --fp16 \
@@ -161,7 +161,7 @@ python -m dense.driver.encode \
 ```
 Run the retriever,
 ```
-python -m dense.faiss_retriever \  
+python -m tevatron.faiss_retriever \  
 --query_reps encoding/query-s2/qry.pt \  
 --passage_reps corpus/corpus-s2/'*.pt' \  
 --depth 10 \

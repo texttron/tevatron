@@ -22,7 +22,7 @@ $ python prepare_wiki_train.py --input biencoder-nq-train.json \
 TRAIN_DIR=nq-train
 OUTDIR=model-nq
 
-python -m torch.distributed.launch --nproc_per_node=4 -m dense.driver.train \
+python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
   --output_dir $OUTDIR \
   --model_name_or_path bert-base-uncased \
   --do_train \
@@ -54,7 +54,7 @@ CORPUS_DIR=wikipedia-corpus
 mkdir $ENCODE_DIR
 for s in $(seq -f "%02g" 0 21)
 do
-python -m dense.driver.encode \
+python -m tevatron.driver.encode \
   --output_dir=$OUTDIR \
   --model_name_or_path $MODEL_DIR \
   --fp16 \
@@ -77,7 +77,7 @@ OUTDIR=temp
 MODEL_DIR=model-nq
 QUERY=nq-test-queries.json
 mkdir $ENCODE_QRY_DIR
-python -m dense.driver.encode \
+python -m tevatron.driver.encode \
   --output_dir=$OUTDIR \
   --model_name_or_path $MODEL_DIR \
   --fp16 \
@@ -93,7 +93,7 @@ ENCODE_QRY_DIR=embeddings-nq-queries
 ENCODE_DIR=embeddings-nq
 DEPTH=100
 RUN=run.nq.test.txt
-python -m dense.faiss_retriever \
+python -m tevatron.faiss_retriever \
 --query_reps $ENCODE_QRY_DIR/query.pt \
 --passage_reps $ENCODE_DIR/'*.pt' \
 --depth $DEPTH \
@@ -107,7 +107,7 @@ Convert result to trec format
 ```bash
 RUN=run.nq.test.txt
 TREC_RUN=run.nq.test.trec
-python -m dense.utils.format.result_to_trec --input $RUN --output $TREC_RUN
+python -m tevatron.utils.format.result_to_trec --input $RUN --output $TREC_RUN
 ```
 
 Evaluate with Pyserini for now, `pip install pyserini`

@@ -1,14 +1,6 @@
-from transformers import PreTrainedTokenizer
-
-
-class Processor:
-    def __init__(self, tokenizer: PreTrainedTokenizer):
-        self.tokenizer = tokenizer
-
-
-class TrainProcessor(Processor):
+class TrainPreProcessor:
     def __init__(self, tokenizer, query_max_length=32, text_max_length=256):
-        super().__init__(tokenizer)
+        self.tokenizer = tokenizer
         self.query_max_length = query_max_length
         self.text_max_length = text_max_length
 
@@ -34,9 +26,9 @@ class TrainProcessor(Processor):
         return {'query': query, 'positives': positives, 'negatives': negatives}
 
 
-class TestProcessor(Processor):
+class TestPreProcessor:
     def __init__(self, tokenizer, query_max_length=32):
-        super().__init__(tokenizer)
+        self.tokenizer = tokenizer
         self.query_max_length = query_max_length
 
     def __call__(self, example):
@@ -48,9 +40,9 @@ class TestProcessor(Processor):
         return {'text_id': query_id, 'text': query}
 
 
-class CorpusProcessor(Processor):
+class CorpusPreProcessor:
     def __init__(self, tokenizer, text_max_length=256):
-        super().__init__(tokenizer)
+        self.tokenizer = tokenizer
         self.text_max_length = text_max_length
 
     def __call__(self, example):

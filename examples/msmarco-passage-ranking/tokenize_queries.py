@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from transformers import AutoTokenizer
 import os
 from tqdm import tqdm
-from dense.processor import SimpleCollectionProcessor
+from tevatron.preprocessor import MarcoPassageCollectionPreProcessor as CollectionPreProcessor
 
 parser = ArgumentParser()
 parser.add_argument('--tokenizer_name', required=True)
@@ -12,7 +12,7 @@ parser.add_argument('--save_to', required=True)
 args = parser.parse_args()
 
 tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True)
-processor = SimpleCollectionProcessor(tokenizer=tokenizer, max_length=args.truncate)
+processor = CollectionPreProcessor(tokenizer=tokenizer, max_length=args.truncate)
 
 with open(args.query_file, 'r') as f:
     lines = f.readlines()
