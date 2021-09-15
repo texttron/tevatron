@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class SimpleTrainProcessor:
+class SimpleTrainPreProcessor:
     query_file: str
     collection_file: str
     tokenizer: PreTrainedTokenizer
@@ -84,7 +84,7 @@ class SimpleTrainProcessor:
 
 
 @dataclass
-class SimpleCollectionProcessor:
+class SimpleCollectionPreProcessor:
     tokenizer: PreTrainedTokenizer
     separator: str = '\t'
     max_length: int = 128

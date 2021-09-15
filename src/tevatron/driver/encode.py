@@ -17,7 +17,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.preprocessor.preprocessor_dict import CorpusProcessor, TestProcessor
+from tevatron.preprocessor import HFTestPreProcessor, HFCorpusPreProcessor
 from tevatron.modeling import DenseOutput, DenseModelForInference
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ def main():
     else:
         encode_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split] \
             .shard(data_args.encode_num_shard, data_args.encode_shard_index)
-        processor = TestProcessor if data_args.encode_is_qry else CorpusProcessor
+        processor = HFTestPreProcessor if data_args.encode_is_qry else HFCorpusPreProcessor
         encode_dataset = encode_dataset.map(
             processor(tokenizer, text_max_length),
             batched=False,

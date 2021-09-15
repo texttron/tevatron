@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 import os
 from tqdm import tqdm
 from multiprocessing import Pool
-from tevatron.preprocessor import SimpleCollectionProcessor
+from tevatron.preprocessor import MarcoPassageCollectionPreProcessor as CollectionPreProcessor
 
 parser = ArgumentParser()
 parser.add_argument('--tokenizer_name', required=True)
@@ -15,7 +15,7 @@ parser.add_argument('--n_splits', type=int, default=10)
 args = parser.parse_args()
 
 tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True)
-processor = SimpleCollectionProcessor(tokenizer=tokenizer, max_length=args.truncate)
+processor = CollectionPreProcessor(tokenizer=tokenizer, max_length=args.truncate)
 
 with open(args.file, 'r') as f:
     lines = f.readlines()

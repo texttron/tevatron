@@ -12,7 +12,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
-from tevatron.preprocessor.preprocessor_dict import TrainProcessor
+from tevatron.preprocessor import HFTrainPreProcessor
 from tevatron.modeling import DenseModel
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
 
@@ -85,7 +85,7 @@ def main():
     else:
         train_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]
         train_dataset = train_dataset.map(
-            TrainProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
+            HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
             batched=False,
             num_proc=data_args.dataset_proc_num,
             remove_columns=train_dataset.column_names,

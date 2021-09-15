@@ -20,7 +20,7 @@ from tevatron.arguments import ModelArguments, DataArguments, \
 from tevatron.data import TrainDataset, EncodeDataset, QPCollator, EncodeCollator
 from tevatron.modeling import DenseModel, DenseOutput
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
-from tevatron.preprocessor.preprocessor_dict import TrainProcessor, TestProcessor, CorpusProcessor
+from tevatron.preprocessor import HFTrainPreProcessor, HFTestPreProcessor, HFCorpusPreProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def main():
         else:
             train_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]
             train_dataset = train_dataset.map(
-                TrainProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
+                HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
                 batched=False,
                 num_proc=data_args.dataset_proc_num,
                 remove_columns=train_dataset.column_names,
@@ -139,7 +139,7 @@ def main():
         else:
             encode_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]\
                 .shard(data_args.encode_num_shard, data_args.encode_shard_index)
-            processor = TestProcessor if data_args.encode_is_qry else CorpusProcessor
+            processor = HFTestPreProcessor if data_args.encode_is_qry else HFCorpusPreProcessor
             encode_dataset = encode_dataset.map(
                 processor(tokenizer, text_max_length),
                 batched=False,
