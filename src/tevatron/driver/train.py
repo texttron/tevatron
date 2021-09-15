@@ -12,7 +12,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
-from tevatron.processor import TrainProcessor
+from tevatron.preprocessor.preprocessor_dict import TrainProcessor
 from tevatron.modeling import DenseModel
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
 

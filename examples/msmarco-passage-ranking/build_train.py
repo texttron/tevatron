@@ -5,7 +5,7 @@ import random
 from tqdm import tqdm
 from datetime import datetime
 from multiprocessing import Pool
-from tevatron.processor import MarcoPassageTrainProcessor as TrainProcessor
+from tevatron.preprocessor import MarcoPassageTrainProcessor as TrainProcessor
 
 random.seed(datetime.now())
 parser = ArgumentParser()

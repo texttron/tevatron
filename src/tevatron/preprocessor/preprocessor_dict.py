@@ -1,12 +1,12 @@
 from transformers import PreTrainedTokenizer
 
 
-class HFProcessor:
+class Processor:
     def __init__(self, tokenizer: PreTrainedTokenizer):
         self.tokenizer = tokenizer
 
 
-class TrainProcessor(HFProcessor):
+class TrainProcessor(Processor):
     def __init__(self, tokenizer, query_max_length=32, text_max_length=256):
         super().__init__(tokenizer)
         self.query_max_length = query_max_length
@@ -34,7 +34,7 @@ class TrainProcessor(HFProcessor):
         return {'query': query, 'positives': positives, 'negatives': negatives}
 
 
-class TestProcessor(HFProcessor):
+class TestProcessor(Processor):
     def __init__(self, tokenizer, query_max_length=32):
         super().__init__(tokenizer)
         self.query_max_length = query_max_length
@@ -48,7 +48,7 @@ class TestProcessor(HFProcessor):
         return {'text_id': query_id, 'text': query}
 
 
-class CorpusProcessor(HFProcessor):
+class CorpusProcessor(Processor):
     def __init__(self, tokenizer, text_max_length=256):
         super().__init__(tokenizer)
         self.text_max_length = text_max_length
