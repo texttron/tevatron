@@ -38,6 +38,8 @@ python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
   --negatives_x_device
 ```
 
+If GPU memory is limited, you can train using gradient cache updates. See its [example](../gradient-cache.md).
+
 ### Encode
 Download wikipedia corpus
 ```bash
