@@ -67,7 +67,8 @@ def main():
         encode_dataset.encode_data = encode_dataset.encode_data \
             .shard(data_args.encode_num_shard, data_args.encode_shard_index)
     else:
-        encode_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split] \
+        encode_dataset = datasets.load_dataset(data_args.dataset_name,
+                                               data_args.dataset_language)[data_args.dataset_split] \
             .shard(data_args.encode_num_shard, data_args.encode_shard_index)
         processor = HFTestPreProcessor if data_args.encode_is_qry else HFCorpusPreProcessor
         encode_dataset = encode_dataset.map(

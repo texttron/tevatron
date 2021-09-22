@@ -73,6 +73,9 @@ class DataArguments:
             info = self.dataset_name.split('/')
             self.dataset_split = info[-1] if len(info) == 3 else 'train'
             self.dataset_name = "/".join(info[:-1]) if len(info) == 3 else '/'.join(info)
+            self.dataset_language = 'default'
+            if ':' in self.dataset_name:
+                self.dataset_name, self.dataset_language = self.dataset_name.split(':')
 
 
 @dataclass
