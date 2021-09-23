@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 CUDA_VISIBLE_DEVICES=0 python run.py \
   --do_encode \
   --output_dir=temp_out \
-  --model_name_or_path model_mrtydi_bengali_condenser \
+  --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 256 \
   --dataset_name Tevatron/mr-tydi-corpus:bengali \
@@ -51,7 +51,7 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 CUDA_VISIBLE_DEVICES=0 python run.py \
   --do_encode \
   --output_dir=temp_out \
-  --model_name_or_path model_mrtydi_bengali_condenser \
+  --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/mr-tydi:bengali/test \
