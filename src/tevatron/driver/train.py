@@ -80,7 +80,7 @@ def main():
 
     if data_args.train_dir is not None:
         train_dataset = TrainDataset(
-            data_args, data_args.train_dir, tokenizer
+            data_args, data_args.train_path, tokenizer
         )
     else:
         train_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]

@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from typing import Optional, List
 from transformers import TrainingArguments
@@ -73,6 +74,13 @@ class DataArguments:
             info = self.dataset_name.split('/')
             self.dataset_split = info[-1] if len(info) == 3 else 'train'
             self.dataset_name = "/".join(info[:-1]) if len(info) == 3 else '/'.join(info)
+        if self.train_dir is not None:
+            files = os.listdir(self.train_dir)
+            self.train_path = [
+                os.path.join(self.train_dir, f)
+                for f in files
+                if f.endswith('tsv') or f.endswith('json')
+            ]
 
 
 @dataclass
