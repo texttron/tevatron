@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 from transformers import TrainingArguments
 
+import os
+
 
 @dataclass
 class ModelArguments:
@@ -76,6 +78,13 @@ class DataArguments:
             self.dataset_language = 'default'
             if ':' in self.dataset_name:
                 self.dataset_name, self.dataset_language = self.dataset_name.split(':')
+        if self.train_dir is not None:
+            files = os.listdir(self.train_dir)
+            self.train_path = [
+                os.path.join(self.train_dir, f)
+                for f in files
+                if f.endswith('tsv') or f.endswith('json')
+            ]
 
 
 @dataclass

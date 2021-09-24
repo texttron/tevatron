@@ -18,7 +18,7 @@ class TrainDataset(Dataset):
     def __init__(
             self,
             data_args: DataArguments,
-            path_to_data: Union[str, datasets.Dataset],
+            path_to_data: Union[List[str], datasets.Dataset],
             tokenizer: PreTrainedTokenizer,
             trainer: DenseTrainer = None,
     ):
@@ -27,7 +27,7 @@ class TrainDataset(Dataset):
         else:
             self.train_data = datasets.load_dataset(
                 'json',
-                data_dir=path_to_data,
+                data_files=path_to_data,
                 ignore_verifications=False,
             )['train']
 

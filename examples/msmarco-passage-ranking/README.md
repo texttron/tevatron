@@ -9,15 +9,15 @@ This downloads the cleaned corpus, generate BM25 negatives and tokenize train/in
 ## Train a BERT Model
 Train a BERT(`bert-base-uncased`) with mixed precision.
 ```
-python -m tevatron.driver.train \  
-  --output_dir ./retriever_model \  
-  --model_name_or_path bert-base-uncased \  
-  --save_steps 20000 \  
+python -m tevatron.driver.train \
+  --output_dir ./retriever_model \
+  --model_name_or_path bert-base-uncased \
+  --save_steps 20000 \
   --train_dir ./marco/bert/train \
-  --fp16 \  
-  --per_device_train_batch_size 8 \  
-  --learning_rate 5e-6 \  
-  --num_train_epochs 2 \  
+  --fp16 \
+  --per_device_train_batch_size 8 \
+  --learning_rate 5e-6 \
+  --num_train_epochs 2 \
   --dataloader_num_workers 2
 ```
 
@@ -26,7 +26,7 @@ python -m tevatron.driver.train \
 mkdir encoding
 for i in $(seq -f "%02g" 0 9)
 do
-python -m tevatron.driver.encode \  
+python -m tevatron.driver.encode \
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model \
   --fp16 \
@@ -36,7 +36,7 @@ python -m tevatron.driver.encode \
 done
 
 
-python -m tevatron.driver.encode \  
+python -m tevatron.driver.encode \
   --output_dir ./retriever_model \
   --model_name_or_path ./retriever_model \
   --fp16 \
