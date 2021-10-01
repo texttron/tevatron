@@ -51,7 +51,7 @@ python -m tevatron.driver.encode \
 ```
 python -m tevatron.faiss_retriever \  
 --query_reps encoding/query/qry.pt \  
---passage_reps corpus/corpus/'*.pt' \  
+--passage_reps encoding/corpus/'*.pt' \  
 --depth 10 \
 --batch_size -1 \
 --save_text \
@@ -108,7 +108,7 @@ python -m tevatron.driver.encode \
 ```
 python -m tevatron.faiss_retriever \  
 --query_reps encoding/query/train.pt \  
---passage_reps corpus/corpus/'*.pt' \  
+--passage_reps encoding/corpus/'*.pt' \  
 --batch_size 5000 \
 --save_text \
 --save_ranking_to train.rank.tsv
@@ -163,7 +163,7 @@ Run the retriever,
 ```
 python -m tevatron.faiss_retriever \  
 --query_reps encoding/query-s2/qry.pt \  
---passage_reps corpus/corpus-s2/'*.pt' \  
+--passage_reps encoding/corpus-s2/'*.pt' \  
 --depth 10 \
 --batch_size -1 \
 --save_text \
