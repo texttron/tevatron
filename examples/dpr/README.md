@@ -161,14 +161,14 @@ To train and inference without saving additional dump of data, please following 
 
 ### Train (self-contained dataset)
 ```bash
-python -m torch.distributed.launch --nproc_per_node=4 python run.py \
+python -m torch.distributed.launch --nproc_per_node=4 run.py \
   --output_dir model_nq \
   --model_name_or_path bert-base-uncased \
   --do_train \
   --save_steps 20000 \
   --dataset_name Tevatron/wikipedia-nq \
   --fp16 \
-  --per_device_train_batch_size 128 \
+  --per_device_train_batch_size 32 \
   --train_n_passages 2 \
   --learning_rate 1e-5 \
   --q_max_len 32 \
