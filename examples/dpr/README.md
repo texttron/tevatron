@@ -212,8 +212,9 @@ python -m tevatron.driver.encode \
   --model_name_or_path $MODEL_DIR \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/wikipedia-nq/dev \
-  --encoded_save_path $ENCODE_QRY_DIR/query.pt
+  --dataset_name Tevatron/wikipedia-nq/test \
+  --encoded_save_path $ENCODE_QRY_DIR/query.pt \
+  --encode_is_qry
 ```
 
 ## Evaluation 
