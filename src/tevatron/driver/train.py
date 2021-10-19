@@ -83,7 +83,8 @@ def main():
             data_args, data_args.train_path, tokenizer
         )
     else:
-        train_dataset = datasets.load_dataset(data_args.dataset_name)[data_args.dataset_split]
+        train_dataset = datasets.load_dataset(data_args.dataset_name,
+                                              data_args.dataset_language)[data_args.dataset_split]
         train_dataset = train_dataset.map(
             HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
             batched=False,
