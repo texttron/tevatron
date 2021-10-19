@@ -1,7 +1,16 @@
-# Wikipedia Natural Questions & TriviaQA
+# DPR reproduction
 
 ## NQ
-We will use NQ as an example to show the process.
+In this doc, we use NQ as an example to show the reproduction of [DPR](https://github.com/facebookresearch/DPR) work from Tevatron.
+
+For other datasets, simply download the datasets from original [DPR repo](https://github.com/facebookresearch/DPR)
+```bash
+TriviaQA: https://dl.fbaipublicfiles.com/dpr/data/retriever/biencoder-trivia-train.json.gz
+WebQuestions: https://dl.fbaipublicfiles.com/dpr/data/retriever/biencoder-webquestions-train.json.gz
+CuratedTREC: https://dl.fbaipublicfiles.com/dpr/data/retriever/biencoder-curatedtrec-train.json.gz
+SQuAD: https://dl.fbaipublicfiles.com/dpr/data/retriever/biencoder-squad1-train.json.gz
+```
+Simply replace the train data from the following command accordingly, you should be able to reproduce results for other datasets.
 
 ### 1. Prepare train data
 We use the train data provided by [DPR repo](https://github.com/facebookresearch/DPR).
@@ -128,24 +137,96 @@ Top20	accuracy: 0.8002770083102493
 Top100	accuracy: 0.871191135734072
 ```
 
-## TriviaQA
-To train dense retriever for TriviaQA, simply replace all the `nq` in above command with `trivia`
-The retrieval accuracy we get by using our repo is:
-```bash
-Top20   accuracy: 0.8112790594890834
-Top100  accuracy: 0.8629010872447627
-```
-
 ## Un-tie model
 Un-tie model is that the query encoder and passage encoder do not share parameters.
 To train untie models, simply add `--untie_encoder` option to the training command.
+> Note: In original DPR work, passage and query encoders do not share parameters.
 
 ## Summary
 Using the process above should be able to obtain `top-k` retrieval accuracy as below:
 
 | Dataset/Model  | Top20 | Top100 |
 |----------------|-------|--------|
+| NQ (DPR paper) | 0.78  | 0.85   |
 | NQ             | 0.81  | 0.86   |
 | NQ-untie       | 0.80  | 0.87   |
 | TriviaQA       | 0.81  | 0.86   |
 | TriviaQA-untie | 0.81  | 0.86   |
+
+## (Alternatives) Train DPR with our self contained datasets
+The above instructions uses train data downloaded from DPR. Tevatron also have self-contained
+pre-processed datasets in HuggingFace [datasets hub](https://huggingface.co/Tevatron). 
+
+To train and inference without saving additional dump of data, please following the commands below:
+
+### Train (self-contained dataset)
+```bash
+python -m torch.distributed.launch --nproc_per_node=4 run.py \
+  --output_dir model_nq \
+  --model_name_or_path bert-base-uncased \
+  --do_train \
+  --save_steps 20000 \
+  --dataset_name Tevatron/wikipedia-nq \
+  --fp16 \
+  --per_device_train_batch_size 32 \
+  --train_n_passages 2 \
+  --learning_rate 1e-5 \
+  --q_max_len 32 \
+  --p_max_len 156 \
+  --num_train_epochs 40 \
+  --logging_steps 10 \
+  --untie_encoder \
+  --negatives_x_device \
+  --overwrite_output_dir
+```
+
+### Encode (self-contained dataset)
+Corpus:
+```bash
+ENCODE_DIR=embeddings-nq
+OUTDIR=temp
+MODEL_DIR=model-nq
+mkdir $ENCODE_DIR
+for s in $(seq -f "%02g" 0 19)
+do
+python -m tevatron.driver.encode \
+  --output_dir=$OUTDIR \
+  --model_name_or_path $MODEL_DIR \
+  --fp16 \
+  --per_device_eval_batch_size 156 \
+  --dataset_name Tevatron/wikipedia-nq-corpus \
+  --encoded_save_path $ENCODE_DIR/$s.pt \
+  --encode_num_shard 20 \
+  --encode_shard_index $s
+done
+```
+
+Queries:
+```bash
+ENCODE_QRY_DIR=embeddings-nq-queries
+OUTDIR=temp
+MODEL_DIR=model-nq
+mkdir $ENCODE_QRY_DIR
+python -m tevatron.driver.encode \
+  --output_dir=$OUTDIR \
+  --model_name_or_path $MODEL_DIR \
+  --fp16 \
+  --per_device_eval_batch_size 156 \
+  --dataset_name Tevatron/wikipedia-nq/test \
+  --encoded_save_path $ENCODE_QRY_DIR/query.pt \
+  --encode_is_qry
+```
+
+## Evaluation 
+The evaluation process are same as above.
+
+## Other self-contained datasets
+If you want to work on other datasets (such as TriviaQA). Simply change the datasets name (`--dataset_name`) to other dataset.
+We currently support following datasets:
+- NQ: Tevatron/wikipedia-nq
+- TriviaQA: Tevatron/wikipedia-trivia
+- WebQuestions: Tevatron/wikipedia-wq
+- CuratedTREC: Tevatron/wikipedia-curated
+- SQuAD: Tevatron/wikipedia-curated
+- MsMarco: Tevatron/msmarco-passage
+- SciFact: Tevatron/scifact
