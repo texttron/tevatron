@@ -69,3 +69,24 @@ Finally format the retrieval result,
 ```
 python score_to_marco.py ranking/rank.txt
 ```
+
+## Evaluate
+Download dev small qrel from MS MARCO passage ranking [repo](https://github.com/microsoft/MSMARCO-Passage-Ranking)
+
+```
+wget https://msmarco.blob.core.windows.net/msmarcoranking/qrels.dev.small.tsv -O qrels.dev.small.tsv
+```
+
+We use MS MARCO official MRR@10 evaluation [script](https://github.com/microsoft/MSMARCO-Passage-Ranking/blob/master/ms_marco_eval.py) to evaluate the DR trained in this example:
+
+```
+python ms_marco_eval.py qrels.dev.small.tsv ranking/rank.txt.marco
+
+```
+```
+#####################
+MRR @10: 0.3164818983945045
+QueriesRanked: 6980
+#####################
+
+```

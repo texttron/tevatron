@@ -4,12 +4,13 @@ import faiss
 from argparse import ArgumentParser
 from tqdm import tqdm
 from typing import List, Iterable, Tuple
-from numpy import ndarray
+import numpy as np
 
 
-def combine_faiss_results(results: Iterable[Tuple[ndarray, ndarray]]):
+def combine_faiss_results(results: Iterable[Tuple[np.ndarray, np.ndarray]]):
     rh = None
     for scores, indices in results:
+        indices = indices.astype(np.int64)
         if rh is None:
             print(f'Initializing Heap. Assuming {scores.shape[0]} queries.')
             rh = faiss.ResultHeap(scores.shape[0], scores.shape[1])
