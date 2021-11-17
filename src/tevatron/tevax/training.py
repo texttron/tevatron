@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Tuple, Any, Union
 
 import jax
@@ -65,3 +66,37 @@ def retriever_train_step(state, queries, passages, dropout_rng, axis='device'):
 
     return loss, new_state, new_dropout_rng
 
+
+def grad_cache_train_step(state, queries, passages, dropout_rng, axis='device', q_n_subbatch=1, p_n_subbatch=1):
+    try:
+        from grad_cache import cachex
+    except ImportError:
+        raise ModuleNotFoundError('GradCache packaged needs to be installed for running grad_cache_train_step')
+
+    def encode_query(params, **kwargs):
+        return state.apply_fn(**kwargs, params=params.q_params, train=True)[0][:, 0, :]
+
+    def encode_passage(params, **kwargs):
+        return state.apply_fn(**kwargs, params=params.p_params, train=True)[0][:, 0, :]
+
+    queries, passages = cachex.tree_chunk(queries, q_n_subbatch), cachex.tree_chunk(passages, p_n_subbatch)
+    q_rngs, p_rngs, new_rng = jax.random.split(dropout_rng, 3)
+    q_rngs = jax.random.split(q_rngs, q_n_subbatch)
+    p_rngs = jax.random.split(p_rngs, p_n_subbatch)
+
+    q_reps = cachex.chunk_encode(partial(encode_query, state.params))(**queries, dropout_rng=q_rngs)
+    p_reps = cachex.chunk_encode(partial(encode_passage, state.params))(**passages, dropout_rng=p_rngs)
+
+    @cachex.unchunk_args(axis=0, argnums=(0, 1))
+    def compute_loss(xx, yy):
+        return jnp.mean(p_contrastive_loss(xx, yy, axis=axis))
+
+    loss, (q_grads, p_grads) = jax.value_and_grad(compute_loss, argnums=(0, 1))(q_reps, p_reps)
+
+    grads = jax.tree_map(lambda v: jnp.zeros_like(v), state.params)
+    grads = cachex.cache_grad(encode_query)(state.params, grads, q_grads, **queries, dropout_rng=q_rngs)
+    grads = cachex.cache_grad(encode_passage)(state.params, grads, p_grads, **passages, dropout_rng=p_rngs)
+
+    loss, grads = jax.lax.pmean([loss, grads], axis)
+    new_state = state.apply_gradients(grads=grads)
+    return loss, new_state, new_rng
