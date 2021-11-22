@@ -31,14 +31,16 @@ class HFTrainDataset:
         self.proc_num = data_args.dataset_proc_num
 
     def process(self, shard_num=1, shard_idx=0):
-        if self.preprocessor is None:
-            return self.dataset.shard(shard_num, shard_idx)
-        self.dataset = self.dataset.map(
-            self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
-            batched=False,
-            num_proc=self.proc_num,
-            remove_columns=self.dataset.column_names,
-            desc="Running tokenizer on train dataset",
+        if self.preprocessor is not None:
+            self.dataset = self.dataset.map(
+                self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
+                batched=False,
+                num_proc=self.proc_num,
+                remove_columns=self.dataset.column_names,
+                desc="Running tokenizer on train dataset",
+            )
+        self.dataset = self.dataset.filter(
+            function=lambda data: len(data["positive_passages"]) > 0 and len(data["negative_passages"]) > 0
         )
         return self.dataset.shard(shard_num, shard_idx)
 

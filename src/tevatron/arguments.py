@@ -86,7 +86,7 @@ class DataArguments:
             self.train_path = [
                 os.path.join(self.train_dir, f)
                 for f in files
-                if f.endswith('tsv') or f.endswith('json')
+                if f.endswith('jsonl') or f.endswith('json')
             ]
         else:
             self.train_path = None
