@@ -2,8 +2,6 @@ import logging
 import os
 import sys
 from contextlib import nullcontext
-
-import datasets
 from tqdm import tqdm
 
 import torch
@@ -17,8 +15,8 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.preprocessor import HFTestPreProcessor, HFCorpusPreProcessor
 from tevatron.modeling import DenseOutput, DenseModelForInference
+from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
 
@@ -62,23 +60,11 @@ def main():
     )
 
     text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_in_path:
-        encode_dataset = EncodeDataset(data_args.encode_in_path, tokenizer, max_len=text_max_length)
-        encode_dataset.encode_data = encode_dataset.encode_data \
-            .shard(data_args.encode_num_shard, data_args.encode_shard_index)
+    if data_args.encode_is_qry:
+        encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args)
     else:
-        encode_dataset = datasets.load_dataset(data_args.dataset_name,
-                                               data_args.dataset_language)[data_args.dataset_split] \
-            .shard(data_args.encode_num_shard, data_args.encode_shard_index)
-        processor = HFTestPreProcessor if data_args.encode_is_qry else HFCorpusPreProcessor
-        encode_dataset = encode_dataset.map(
-            processor(tokenizer, text_max_length),
-            batched=False,
-            num_proc=data_args.dataset_proc_num,
-            remove_columns=encode_dataset.column_names,
-            desc="Running tokenization",
-        )
-        encode_dataset = EncodeDataset(encode_dataset, tokenizer, max_len=text_max_length)
+        encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args)
+    encode_dataset = EncodeDataset(encode_dataset.process(), tokenizer, max_len=text_max_length)
 
     encode_loader = DataLoader(
         encode_dataset,
