@@ -16,13 +16,13 @@ PROCESSOR_INFO = {
 
 
 class HFTrainDataset:
-    def __init__(self, tokenizer, data_args: DataArguments):
+    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
         data_files = data_args.train_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
-                                    data_files=data_files)[data_args.dataset_split]
+                                    data_files=data_files, cache_dir=cache_dir)[data_args.dataset_split]
         self.preprocessor = PROCESSOR_INFO[data_args.dataset_name][0] if data_args.dataset_name in PROCESSOR_INFO\
             else DEFAULT_PROCESSORS[0]
         self.tokenizer = tokenizer
@@ -44,13 +44,13 @@ class HFTrainDataset:
 
 
 class HFQueryDataset:
-    def __init__(self, tokenizer, data_args: DataArguments):
+    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
         data_files = data_args.encode_in_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
-                                    data_files=data_files)[data_args.dataset_split]
+                                    data_files=data_files, cache_dir=cache_dir)[data_args.dataset_split]
         self.preprocessor = PROCESSOR_INFO[data_args.dataset_name][1] if data_args.dataset_name in PROCESSOR_INFO \
             else DEFAULT_PROCESSORS[1]
         self.tokenizer = tokenizer
@@ -71,13 +71,13 @@ class HFQueryDataset:
 
 
 class HFCorpusDataset:
-    def __init__(self, tokenizer, data_args: DataArguments):
+    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
         data_files = data_args.encode_in_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
-                                    data_files=data_files)[data_args.dataset_split]
+                                    data_files=data_files, cache_dir=cache_dir)[data_args.dataset_split]
         script_prefix = data_args.dataset_name
         if script_prefix.endswith('-corpus'):
             script_prefix = script_prefix[:-7]

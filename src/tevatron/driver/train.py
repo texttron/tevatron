@@ -77,7 +77,7 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args)
+    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args, cache_dir=model_args.cache_dir)
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
