@@ -29,6 +29,7 @@ class HFTrainDataset:
         self.q_max_len = data_args.q_max_len
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
+        self.neg_num = data_args.train_n_passages - 1
 
     def process(self, shard_num=1, shard_idx=0):
         if self.preprocessor is not None:
@@ -40,7 +41,7 @@ class HFTrainDataset:
                 desc="Running tokenizer on train dataset",
             )
         self.dataset = self.dataset.filter(
-            function=lambda data: len(data["positive_passages"]) > 0 and len(data["negative_passages"]) > 0
+            function=lambda data: len(data["positive_passages"]) >= 1 and len(data["negative_passages"]) >= self.neg_num
         )
         return self.dataset.shard(shard_num, shard_idx)
 
