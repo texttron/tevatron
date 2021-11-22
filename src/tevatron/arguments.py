@@ -77,6 +77,10 @@ class DataArguments:
             self.dataset_language = 'default'
             if ':' in self.dataset_name:
                 self.dataset_name, self.dataset_language = self.dataset_name.split(':')
+        else:
+            self.dataset_name = 'json'
+            self.dataset_split = 'train'
+            self.dataset_language = 'default'
         if self.train_dir is not None:
             files = os.listdir(self.train_dir)
             self.train_path = [
@@ -84,6 +88,8 @@ class DataArguments:
                 for f in files
                 if f.endswith('tsv') or f.endswith('json')
             ]
+        else:
+            self.train_path = None
 
 
 @dataclass
