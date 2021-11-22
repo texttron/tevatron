@@ -38,6 +38,7 @@ class BasicHardNegativeMiner:
                     hn_doc['title'] = title
                 hard_negatives.append(hn_doc)
         example['negative_passages'] = hard_negatives
+        return example
 
 
 class EMHardNegativeMiner(BasicHardNegativeMiner):
@@ -61,6 +62,7 @@ class EMHardNegativeMiner(BasicHardNegativeMiner):
                     hn_doc['title'] = title
                 hard_negatives.append(hn_doc)
         example['negative_passages'] = hard_negatives
+        return example
 
 
 if __name__ == '__main__':
@@ -83,7 +85,7 @@ if __name__ == '__main__':
     else:
         miner = BasicHardNegativeMiner(args.result_path, corpus_data, args.depth)
 
-    train_data.map(
+    train_data = train_data.map(
         miner,
         batched=False,
         num_proc=args.proc_num,
