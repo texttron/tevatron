@@ -32,6 +32,7 @@ class HFTrainDataset:
         self.neg_num = data_args.train_n_passages - 1
 
     def process(self, shard_num=1, shard_idx=0):
+        self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
                 self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
@@ -43,7 +44,7 @@ class HFTrainDataset:
         self.dataset = self.dataset.filter(
             function=lambda data: len(data["positive_passages"]) >= 1 and len(data["negative_passages"]) >= self.neg_num
         )
-        return self.dataset.shard(shard_num, shard_idx)
+        return self.dataset
 
 
 class HFQueryDataset:
@@ -61,16 +62,16 @@ class HFQueryDataset:
         self.proc_num = data_args.dataset_proc_num
 
     def process(self, shard_num=1, shard_idx=0):
-        if self.preprocessor is None:
-            return self.dataset.shard(shard_num, shard_idx)
-        self.dataset = self.dataset.map(
-            self.preprocessor(self.tokenizer, self.q_max_len),
-            batched=False,
-            num_proc=self.proc_num,
-            remove_columns=self.dataset.column_names,
-            desc="Running tokenization",
-        )
-        return self.dataset.shard(shard_num, shard_idx)
+        self.dataset = self.dataset.shard(shard_num, shard_idx)
+        if self.preprocessor is not None:
+            self.dataset = self.dataset.map(
+                self.preprocessor(self.tokenizer, self.q_max_len),
+                batched=False,
+                num_proc=self.proc_num,
+                remove_columns=self.dataset.column_names,
+                desc="Running tokenization",
+            )
+        return self.dataset
 
 
 class HFCorpusDataset:
@@ -91,14 +92,13 @@ class HFCorpusDataset:
         self.proc_num = data_args.dataset_proc_num
 
     def process(self, shard_num=1, shard_idx=0):
-        if self.preprocessor is None:
-            return self.dataset.shard(shard_num, shard_idx)
-        self.dataset = self.dataset.map(
-            self.preprocessor(self.tokenizer, self.p_max_len),
-            batched=False,
-            num_proc=self.proc_num,
-            remove_columns=self.dataset.column_names,
-            desc="Running tokenization",
-        )
+        self.dataset = self.dataset.shard(shard_num, shard_idx)
+        if self.preprocessor is not None:
+            self.dataset = self.dataset.map(
+                self.preprocessor(self.tokenizer, self.p_max_len),
+                batched=False,
+                num_proc=self.proc_num,
+                remove_columns=self.dataset.column_names,
+                desc="Running tokenization",
+            )
         return self.dataset.shard(shard_num, shard_idx)
-
