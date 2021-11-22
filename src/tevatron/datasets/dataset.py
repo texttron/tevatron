@@ -19,7 +19,7 @@ class HFTrainDataset:
     def __init__(self, tokenizer, data_args: DataArguments):
         data_files = data_args.train_path
         if data_files:
-            data_files = {'split_name': data_files}
+            data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
                                     data_files=data_files)[data_args.dataset_split]
@@ -37,7 +37,7 @@ class HFTrainDataset:
             self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
             batched=False,
             num_proc=self.proc_num,
-            remove_columns=self.dataset,
+            remove_columns=self.dataset.column_names,
             desc="Running tokenizer on train dataset",
         )
         return self.dataset
@@ -47,7 +47,7 @@ class HFQueryDataset:
     def __init__(self, tokenizer, data_args: DataArguments):
         data_files = data_args.encode_in_path
         if data_files:
-            data_files = {'split_name': data_files}
+            data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
                                     data_files=data_files)[data_args.dataset_split]
@@ -64,7 +64,7 @@ class HFQueryDataset:
             self.preprocessor(self.tokenizer, self.q_max_len),
             batched=False,
             num_proc=self.proc_num,
-            remove_columns=self.dataset,
+            remove_columns=self.dataset.column_names,
             desc="Running tokenization",
         )
         return self.dataset
@@ -74,7 +74,7 @@ class HFCorpusDataset:
     def __init__(self, tokenizer, data_args: DataArguments):
         data_files = data_args.encode_in_path
         if data_files:
-            data_files = {'split_name': data_files}
+            data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
                                     data_files=data_files)[data_args.dataset_split]
@@ -94,7 +94,7 @@ class HFCorpusDataset:
             self.preprocessor(self.tokenizer, self.p_max_len),
             batched=False,
             num_proc=self.proc_num,
-            remove_columns=self.dataset,
+            remove_columns=self.dataset.column_names,
             desc="Running tokenization",
         )
         return self.dataset
