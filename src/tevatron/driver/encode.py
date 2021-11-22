@@ -64,7 +64,8 @@ def main():
         encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args, cache_dir=model_args.cache_dir)
     else:
         encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args, cache_dir=model_args.cache_dir)
-    encode_dataset = EncodeDataset(encode_dataset.process(), tokenizer, max_len=text_max_length)
+    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
+                                   tokenizer, max_len=text_max_length)
 
     encode_loader = DataLoader(
         encode_dataset,

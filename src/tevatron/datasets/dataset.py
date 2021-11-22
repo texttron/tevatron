@@ -30,9 +30,9 @@ class HFTrainDataset:
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
 
-    def process(self):
+    def process(self, shard_num=1, shard_idx=0):
         if self.preprocessor is None:
-            return self.dataset
+            return self.dataset.shard(shard_num, shard_idx)
         self.dataset = self.dataset.map(
             self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
             batched=False,
@@ -40,7 +40,7 @@ class HFTrainDataset:
             remove_columns=self.dataset.column_names,
             desc="Running tokenizer on train dataset",
         )
-        return self.dataset
+        return self.dataset.shard(shard_num, shard_idx)
 
 
 class HFQueryDataset:
@@ -57,9 +57,9 @@ class HFQueryDataset:
         self.q_max_len = data_args.q_max_len
         self.proc_num = data_args.dataset_proc_num
 
-    def process(self):
+    def process(self, shard_num=1, shard_idx=0):
         if self.preprocessor is None:
-            return self.dataset
+            return self.dataset.shard(shard_num, shard_idx)
         self.dataset = self.dataset.map(
             self.preprocessor(self.tokenizer, self.q_max_len),
             batched=False,
@@ -67,7 +67,7 @@ class HFQueryDataset:
             remove_columns=self.dataset.column_names,
             desc="Running tokenization",
         )
-        return self.dataset
+        return self.dataset.shard(shard_num, shard_idx)
 
 
 class HFCorpusDataset:
@@ -87,9 +87,9 @@ class HFCorpusDataset:
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
 
-    def process(self):
+    def process(self, shard_num=1, shard_idx=0):
         if self.preprocessor is None:
-            return self.dataset
+            return self.dataset.shard(shard_num, shard_idx)
         self.dataset = self.dataset.map(
             self.preprocessor(self.tokenizer, self.p_max_len),
             batched=False,
@@ -97,5 +97,5 @@ class HFCorpusDataset:
             remove_columns=self.dataset.column_names,
             desc="Running tokenization",
         )
-        return self.dataset
+        return self.dataset.shard(shard_num, shard_idx)
 
