@@ -6,7 +6,6 @@ from itertools import chain
 from tqdm import tqdm
 
 from .retriever import BaseFaissIPRetriever
-from .reducer import write_ranking
 
 import logging
 logger = logging.getLogger(__name__)
@@ -26,6 +25,15 @@ def search_queries(retriever, q_reps, p_lookup, args):
     psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
     psg_indices = np.array(psg_indices)
     return all_scores, psg_indices
+
+
+def write_ranking(corpus_indices, corpus_scores, q_lookup, ranking_save_file):
+    with open(ranking_save_file, 'w') as f:
+        for qid, q_doc_scores, q_doc_indices in zip(q_lookup, corpus_scores, corpus_indices):
+            score_list = [(s, idx) for s, idx in zip(q_doc_scores, q_doc_indices)]
+            score_list = sorted(score_list, key=lambda x: x[0], reverse=True)
+            for s, idx in score_list:
+                f.write(f'{qid}\t{idx}\t{s}\n')
 
 
 def main():
