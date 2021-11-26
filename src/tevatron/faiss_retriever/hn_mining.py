@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from datasets import load_dataset
+from datasets import load_dataset, concatenate_datasets
 from multiprocessing import Manager
 from pyserini.eval.evaluate_dpr_retrieval import SimpleTokenizer, has_answers
 
@@ -71,6 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('--corpus_data_name', type=str, required=True)
     parser.add_argument('--result_path', type=str, required=True)
     parser.add_argument('--depth', type=int, default=30, required=False)
+    parser.add_argument('--min_hn', type=int, default=1, required=False)
     parser.add_argument('--output', type=str, required=True)
     parser.add_argument('--cache_dir', type=str, required=False)
     parser.add_argument('--proc_num', type=int, default=12, required=False)
@@ -85,11 +86,16 @@ if __name__ == '__main__':
     else:
         miner = BasicHardNegativeMiner(args.result_path, corpus_data, args.depth)
 
-    train_data = train_data.map(
+    hn_data = train_data.map(
         miner,
         batched=False,
         num_proc=args.proc_num,
         desc="Running hard negative mining",
     )
 
-    train_data.to_json(args.output)
+    combined_data = concatenate_datasets([train_data, hn_data])
+    combined_data = combined_data.filter(
+        function=lambda data: len(data["positive_passages"]) >= 1 and len(data["negative_passages"]) >= args.min_hn
+    )
+
+    combined_data.to_json(args.output)

@@ -41,9 +41,6 @@ class HFTrainDataset:
                 remove_columns=self.dataset.column_names,
                 desc="Running tokenizer on train dataset",
             )
-        self.dataset = self.dataset.filter(
-            function=lambda data: len(data["positive_passages"]) >= 1 and len(data["negative_passages"]) >= self.neg_num
-        )
         return self.dataset
 
 
@@ -101,4 +98,4 @@ class HFCorpusDataset:
                 remove_columns=self.dataset.column_names,
                 desc="Running tokenization",
             )
-        return self.dataset.shard(shard_num, shard_idx)
+        return self.dataset
