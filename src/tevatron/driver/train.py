@@ -85,8 +85,9 @@ def main():
     else:
         train_dataset = datasets.load_dataset(data_args.dataset_name,
                                               data_args.dataset_language)[data_args.dataset_split]
+        sep_token = getattr(tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
         train_dataset = train_dataset.map(
-            HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len),
+            HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len, separator=sep_token),
             batched=False,
             num_proc=data_args.dataset_proc_num,
             remove_columns=train_dataset.column_names,

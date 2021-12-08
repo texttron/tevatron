@@ -64,7 +64,10 @@ class TrainDataset(Dataset):
         group_positives = group['positives']
         group_negatives = group['negatives']
 
-        pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
+        if self.data_args.positive_passage_no_shuffle:
+            pos_psg = group_positives[0]
+        else:
+            pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
         encoded_passages.append(self.create_one_example(pos_psg))
 
         negative_size = self.data_args.train_n_passages - 1
@@ -72,6 +75,8 @@ class TrainDataset(Dataset):
             negs = random.choices(group_negatives, k=negative_size)
         elif self.data_args.train_n_passages == 1:
             negs = []
+        elif self.data_args.negative_passage_no_shuffle:
+            negs = group_negatives[:negative_size]
         else:
             _offset = epoch * negative_size % len(group_negatives)
             negs = [x for x in group_negatives]
