@@ -145,7 +145,7 @@ python -m tevatron.driver.encode \
 ```bash
 ENCODE_QRY_DIR=embeddings-nq-queries
 ENCODE_DIR=embeddings-nq
-DEPTH=100
+DEPTH=200
 RUN=run.nq.test.txt
 python -m tevatron.faiss_retriever \
 --query_reps $ENCODE_QRY_DIR/query.pt \
