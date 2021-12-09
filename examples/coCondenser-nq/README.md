@@ -4,8 +4,7 @@ You can find details about Condenser/coCondenser pre-training in papers ([Conden
 ```
 @inproceedings{gao-callan-2021-condenser,
     title = "Condenser: a Pre-training Architecture for Dense Retrieval",
-    author = "Gao, Luyu  and
-      Callan, Jamie",
+    author = "Gao, Luyu and Callan, Jamie",
     booktitle = "Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing",
     month = nov,
     year = "2021",
