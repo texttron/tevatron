@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from contextlib import nullcontext
+from functools import partial
 
 import datasets
 from tqdm import tqdm
@@ -70,7 +71,8 @@ def main():
         encode_dataset = datasets.load_dataset(data_args.dataset_name,
                                                data_args.dataset_language)[data_args.dataset_split] \
             .shard(data_args.encode_num_shard, data_args.encode_shard_index)
-        processor = HFTestPreProcessor if data_args.encode_is_qry else HFCorpusPreProcessor
+        sep_token = getattr(tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
+        processor = HFTestPreProcessor if data_args.encode_is_qry else partial(HFCorpusPreProcessor, separator=sep_token)
         encode_dataset = encode_dataset.map(
             processor(tokenizer, text_max_length),
             batched=False,
