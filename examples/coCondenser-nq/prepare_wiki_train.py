@@ -16,9 +16,10 @@ tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(args.tokenizer, u
 
 data = json.load(open(args.input))
 
-if not os.path.exists(args.output):
-    os.makedirs(args.output)
-with open(os.path.join(args.output, 'train_data.json'), 'w') as f:
+save_dir = os.path.split(args.output)[0]
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
+with open(args.output, 'w') as f:
     for idx, item in enumerate(tqdm(data)):
         if len(item['hard_negative_ctxs']) < args.minimum_negatives or len(item['positive_ctxs']) < 1:
             continue
