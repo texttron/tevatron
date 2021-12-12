@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from typing import Union, List
+from typing import List, Tuple
 
 import datasets
 from torch.utils.data import Dataset
@@ -18,19 +18,11 @@ class TrainDataset(Dataset):
     def __init__(
             self,
             data_args: DataArguments,
-            path_to_data: Union[List[str], datasets.Dataset],
+            path_to_data: datasets.Dataset,
             tokenizer: PreTrainedTokenizer,
             trainer: DenseTrainer = None,
     ):
-        if isinstance(path_to_data, datasets.Dataset):
-            self.train_data = path_to_data
-        else:
-            self.train_data = datasets.load_dataset(
-                'json',
-                data_files=path_to_data,
-                ignore_verifications=False,
-            )['train']
-
+        self.train_data = path_to_data
         self.tok = tokenizer
         self.trainer = trainer
 
@@ -51,7 +43,7 @@ class TrainDataset(Dataset):
     def __len__(self):
         return self.total_len
 
-    def __getitem__(self, item) -> [BatchEncoding, List[BatchEncoding]]:
+    def __getitem__(self, item) -> Tuple(BatchEncoding, List[BatchEncoding]):
         group = self.train_data[item]
         epoch = int(self.trainer.state.epoch)
 
@@ -93,21 +85,15 @@ class TrainDataset(Dataset):
 class EncodeDataset(Dataset):
     input_keys = ['text_id', 'text']
 
-    def __init__(self, path_to_json: Union[List[str], datasets.Dataset], tokenizer: PreTrainedTokenizer, max_len=128):
-        if isinstance(path_to_json, datasets.Dataset):
-            self.encode_data = path_to_json
-        else:
-            self.encode_data = datasets.load_dataset(
-                'json',
-                data_files=path_to_json,
-            )['train']
+    def __init__(self, path_to_json: datasets.Dataset, tokenizer: PreTrainedTokenizer, max_len=128):
+        self.encode_data = path_to_json
         self.tok = tokenizer
         self.max_len = max_len
 
     def __len__(self):
         return len(self.encode_data)
 
-    def __getitem__(self, item) -> [str, BatchEncoding]:
+    def __getitem__(self, item) -> Tuple(str, BatchEncoding):
         text_id, text = (self.encode_data[item][f] for f in self.input_keys)
         encoded_text = self.tok.encode_plus(
             text,

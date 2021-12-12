@@ -1,6 +1,8 @@
+import json
 from argparse import ArgumentParser
 from datasets import load_dataset, concatenate_datasets
 from multiprocessing import Manager
+from tqdm import tqdm
 from pyserini.eval.evaluate_dpr_retrieval import SimpleTokenizer, has_answers
 
 
@@ -51,6 +53,7 @@ class EMHardNegativeMiner(BasicHardNegativeMiner):
         query_id = example['query_id']
         retrieved_docid = self.retrieval_results[query_id]
         answers = example['answers']
+        positives = []
         hard_negatives = []
         for docid in retrieved_docid[:self.depth]:
             doc_info = self.corpus_data[self.docid_to_idx[docid]]
@@ -61,7 +64,13 @@ class EMHardNegativeMiner(BasicHardNegativeMiner):
                 if title:
                     hn_doc['title'] = title
                 hard_negatives.append(hn_doc)
+            else:
+                pos_doc = {'docid': docid, 'text': text}
+                if title:
+                    pos_doc['title'] = title
+                positives.append(pos_doc)
         example['negative_passages'] = hard_negatives
+        example['positive_passages'] = positives
         return example
 
 
@@ -70,7 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_data_name', type=str, required=True)
     parser.add_argument('--corpus_data_name', type=str, required=True)
     parser.add_argument('--result_path', type=str, required=True)
-    parser.add_argument('--depth', type=int, default=30, required=False)
+    parser.add_argument('--depth', type=int, default=100, required=False)
     parser.add_argument('--min_hn', type=int, default=1, required=False)
     parser.add_argument('--output', type=str, required=True)
     parser.add_argument('--cache_dir', type=str, required=False)
@@ -98,4 +107,6 @@ if __name__ == '__main__':
         function=lambda data: len(data["positive_passages"]) >= 1 and len(data["negative_passages"]) >= args.min_hn
     )
 
-    combined_data.to_json(args.output)
+    with open(args.output, 'w') as f:
+        for e in tqdm(combined_data):
+            f.write(json.dumps(e, ensure_ascii=False)+'\n')

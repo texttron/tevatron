@@ -30,12 +30,13 @@ class HFTrainDataset:
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
         self.neg_num = data_args.train_n_passages - 1
+        self.separator = data_args.passage_field_separator
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
-                self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len),
+                self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len, self.separator),
                 batched=False,
                 num_proc=self.proc_num,
                 remove_columns=self.dataset.column_names,
@@ -92,7 +93,7 @@ class HFCorpusDataset:
         self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
-                self.preprocessor(self.tokenizer, self.p_max_len),
+                self.preprocessor(self.tokenizer, self.p_max_len, self.separator),
                 batched=False,
                 num_proc=self.proc_num,
                 remove_columns=self.dataset.column_names,
