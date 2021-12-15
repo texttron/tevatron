@@ -43,7 +43,7 @@ class TrainDataset(Dataset):
     def __len__(self):
         return self.total_len
 
-    def __getitem__(self, item) -> Tuple(BatchEncoding, List[BatchEncoding]):
+    def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
         group = self.train_data[item]
         epoch = int(self.trainer.state.epoch)
 
@@ -93,7 +93,7 @@ class EncodeDataset(Dataset):
     def __len__(self):
         return len(self.encode_data)
 
-    def __getitem__(self, item) -> Tuple(str, BatchEncoding):
+    def __getitem__(self, item) -> Tuple[str, BatchEncoding]:
         text_id, text = (self.encode_data[item][f] for f in self.input_keys)
         encoded_text = self.tok.encode_plus(
             text,

@@ -30,7 +30,7 @@ class HFTrainDataset:
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
         self.neg_num = data_args.train_n_passages - 1
-        self.separator = data_args.passage_field_separator
+        self.separator = getattr(self.tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)
@@ -88,6 +88,7 @@ class HFCorpusDataset:
         self.tokenizer = tokenizer
         self.p_max_len = data_args.p_max_len
         self.proc_num = data_args.dataset_proc_num
+        self.separator = getattr(self.tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)

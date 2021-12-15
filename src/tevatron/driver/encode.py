@@ -98,7 +98,7 @@ def main():
                     encoded.append(model_output.p_reps.cpu())
 
     encoded = torch.cat(encoded)
-    torch.save((encoded, lookup_indices), data_args.encoded_save_path)
+    torch.save((encoded, lookup_indices), data_args.encoded_save_path, _use_new_zipfile_serialization=False)
 
 
 if __name__ == "__main__":
