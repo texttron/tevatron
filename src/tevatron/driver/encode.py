@@ -1,7 +1,10 @@
 import logging
 import os
+import pickle
 import sys
 from contextlib import nullcontext
+
+import numpy as np
 from tqdm import tqdm
 
 import torch
@@ -94,13 +97,15 @@ def main():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:
                     model_output: DenseOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu())
+                    encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
                     model_output: DenseOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu())
+                    encoded.append(model_output.p_reps.cpu().detach().numpy())
 
-    encoded = torch.cat(encoded)
-    torch.save((encoded, lookup_indices), data_args.encoded_save_path, _use_new_zipfile_serialization=False)
+    encoded = np.concatenate(encoded)
+
+    with open(data_args.encoded_save_path, 'wb') as f:
+        pickle.dump((encoded, lookup_indices), f)
 
 
 if __name__ == "__main__":
