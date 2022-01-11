@@ -18,11 +18,11 @@ class TrainDataset(Dataset):
     def __init__(
             self,
             data_args: DataArguments,
-            path_to_data: datasets.Dataset,
+            dataset: datasets.Dataset,
             tokenizer: PreTrainedTokenizer,
             trainer: DenseTrainer = None,
     ):
-        self.train_data = path_to_data
+        self.train_data = dataset
         self.tok = tokenizer
         self.trainer = trainer
 
@@ -85,8 +85,8 @@ class TrainDataset(Dataset):
 class EncodeDataset(Dataset):
     input_keys = ['text_id', 'text']
 
-    def __init__(self, path_to_json: datasets.Dataset, tokenizer: PreTrainedTokenizer, max_len=128):
-        self.encode_data = path_to_json
+    def __init__(self, dataset: datasets.Dataset, tokenizer: PreTrainedTokenizer, max_len=128):
+        self.encode_data = dataset
         self.tok = tokenizer
         self.max_len = max_len
 

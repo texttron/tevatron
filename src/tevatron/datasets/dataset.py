@@ -1,4 +1,5 @@
 from datasets import load_dataset
+from transformers import PreTrainedTokenizer
 from .preprocessor import TrainPreProcessor, QueryPreProcessor, CorpusPreProcessor
 from ..arguments import DataArguments
 
@@ -16,7 +17,7 @@ PROCESSOR_INFO = {
 
 
 class HFTrainDataset:
-    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
         data_files = data_args.train_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
@@ -46,7 +47,7 @@ class HFTrainDataset:
 
 
 class HFQueryDataset:
-    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
         data_files = data_args.encode_in_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
@@ -73,7 +74,7 @@ class HFQueryDataset:
 
 
 class HFCorpusDataset:
-    def __init__(self, tokenizer, data_args: DataArguments, cache_dir):
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
         data_files = data_args.encode_in_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}

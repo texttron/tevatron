@@ -73,6 +73,9 @@ class DataArguments:
                     "than this will be truncated, sequences shorter will be padded."
         },
     )
+    data_cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+    )
 
     def __post_init__(self):
         if self.dataset_name is not None:
