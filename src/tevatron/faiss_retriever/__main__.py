@@ -63,18 +63,18 @@ def main():
     logger.info(f'Pattern match found {len(index_files)} files; loading them into index.')
 
     p_reps_0, p_lookup_0 = pickle_load(index_files[0])
-    retriever = BaseFaissIPRetriever(p_reps_0.float().numpy())
+    retriever = BaseFaissIPRetriever(p_reps_0)
 
     shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
     if len(index_files) > 1:
         shards = tqdm(shards, desc='Loading shards into index', total=len(index_files))
     look_up = []
     for p_reps, p_lookup in shards:
-        retriever.add(p_reps.float().numpy())
+        retriever.add(p_reps)
         look_up += p_lookup
 
     q_reps, q_lookup = pickle_load(args.query_reps)
-    q_reps = q_reps.float().numpy()
+    q_reps = q_reps
 
     logger.info('Index Search Start')
     all_scores, psg_indices = search_queries(retriever, q_reps, look_up, args)
