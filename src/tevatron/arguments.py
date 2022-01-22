@@ -73,6 +73,9 @@ class DataArguments:
                     "than this will be truncated, sequences shorter will be padded."
         },
     )
+    data_cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+    )
 
     def __post_init__(self):
         if self.dataset_name is not None:
@@ -82,13 +85,19 @@ class DataArguments:
             self.dataset_language = 'default'
             if ':' in self.dataset_name:
                 self.dataset_name, self.dataset_language = self.dataset_name.split(':')
+        else:
+            self.dataset_name = 'json'
+            self.dataset_split = 'train'
+            self.dataset_language = 'default'
         if self.train_dir is not None:
             files = os.listdir(self.train_dir)
             self.train_path = [
                 os.path.join(self.train_dir, f)
                 for f in files
-                if f.endswith('tsv') or f.endswith('json')
+                if f.endswith('jsonl') or f.endswith('json')
             ]
+        else:
+            self.train_path = None
 
 
 @dataclass

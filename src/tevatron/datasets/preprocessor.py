@@ -27,7 +27,7 @@ class TrainPreProcessor:
         return {'query': query, 'positives': positives, 'negatives': negatives}
 
 
-class TestPreProcessor:
+class QueryPreProcessor:
     def __init__(self, tokenizer, query_max_length=32):
         self.tokenizer = tokenizer
         self.query_max_length = query_max_length

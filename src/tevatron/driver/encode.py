@@ -1,10 +1,10 @@
 import logging
 import os
+import pickle
 import sys
 from contextlib import nullcontext
-from functools import partial
 
-import datasets
+import numpy as np
 from tqdm import tqdm
 
 import torch
@@ -18,8 +18,8 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.preprocessor import HFTestPreProcessor, HFCorpusPreProcessor
 from tevatron.modeling import DenseOutput, DenseModelForInference
+from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
 
@@ -63,24 +63,14 @@ def main():
     )
 
     text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_in_path:
-        encode_dataset = EncodeDataset(data_args.encode_in_path, tokenizer, max_len=text_max_length)
-        encode_dataset.encode_data = encode_dataset.encode_data \
-            .shard(data_args.encode_num_shard, data_args.encode_shard_index)
+    if data_args.encode_is_qry:
+        encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args,
+                                        cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     else:
-        encode_dataset = datasets.load_dataset(data_args.dataset_name,
-                                               data_args.dataset_language)[data_args.dataset_split] \
-            .shard(data_args.encode_num_shard, data_args.encode_shard_index)
-        sep_token = getattr(tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
-        processor = HFTestPreProcessor if data_args.encode_is_qry else partial(HFCorpusPreProcessor, separator=sep_token)
-        encode_dataset = encode_dataset.map(
-            processor(tokenizer, text_max_length),
-            batched=False,
-            num_proc=data_args.dataset_proc_num,
-            remove_columns=encode_dataset.column_names,
-            desc="Running tokenization",
-        )
-        encode_dataset = EncodeDataset(encode_dataset, tokenizer, max_len=text_max_length)
+        encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args,
+                                         cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
+                                   tokenizer, max_len=text_max_length)
 
     encode_loader = DataLoader(
         encode_dataset,
@@ -107,13 +97,15 @@ def main():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:
                     model_output: DenseOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu())
+                    encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
                     model_output: DenseOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu())
+                    encoded.append(model_output.p_reps.cpu().detach().numpy())
 
-    encoded = torch.cat(encoded)
-    torch.save((encoded, lookup_indices), data_args.encoded_save_path)
+    encoded = np.concatenate(encoded)
+
+    with open(data_args.encoded_save_path, 'wb') as f:
+        pickle.dump((encoded, lookup_indices), f)
 
 
 if __name__ == "__main__":

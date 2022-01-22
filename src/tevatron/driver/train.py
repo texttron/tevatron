@@ -2,7 +2,6 @@ import logging
 import os
 import sys
 
-import datasets
 from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
@@ -12,9 +11,9 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
-from tevatron.preprocessor import HFTrainPreProcessor
 from tevatron.modeling import DenseModel
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
+from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
 
@@ -78,22 +77,9 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    if data_args.train_dir is not None:
-        train_dataset = TrainDataset(
-            data_args, data_args.train_path, tokenizer
-        )
-    else:
-        train_dataset = datasets.load_dataset(data_args.dataset_name,
-                                              data_args.dataset_language)[data_args.dataset_split]
-        sep_token = getattr(tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
-        train_dataset = train_dataset.map(
-            HFTrainPreProcessor(tokenizer, data_args.q_max_len, data_args.p_max_len, separator=sep_token),
-            batched=False,
-            num_proc=data_args.dataset_proc_num,
-            remove_columns=train_dataset.column_names,
-            desc="Running tokenizer on train dataset",
-        )
-        train_dataset = TrainDataset(data_args, train_dataset, tokenizer)
+    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
+                                   cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+    train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
     trainer = trainer_cls(
@@ -108,12 +94,11 @@ def main():
     )
     train_dataset.trainer = trainer
 
-    trainer.train(
-        model_path=model_args.model_name_or_path if os.path.isdir(model_args.model_name_or_path) else None
-    )
+    trainer.train()  # TODO: resume training
     trainer.save_model()
     if trainer.is_world_process_zero():
         tokenizer.save_pretrained(training_args.output_dir)
+
 
 if __name__ == "__main__":
     main()
