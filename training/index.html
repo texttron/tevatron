@@ -282,6 +282,20 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#training-with-tpu" class="md-nav__link">
+    Training with TPU
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arguments-description" class="md-nav__link">
+    Arguments Description
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -356,6 +370,20 @@
         <li class="md-nav__item">
   <a href="#gradcache" class="md-nav__link">
     GradCache
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#training-with-tpu" class="md-nav__link">
+    Training with TPU
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arguments-description" class="md-nav__link">
+    Arguments Description
   </a>
   
 </li>
@@ -439,6 +467,177 @@ but only with one GPU.
 <blockquote>
 <p>Notice that GradCache also support multi-GPU setting.</p>
 </blockquote>
+<h2 id="training-with-tpu">Training with TPU<a class="headerlink" href="#training-with-tpu" title="Permanent link">&para;</a></h2>
+<p>Tevatron implements TPU training via Jax/Flax.
+We provide a separate module <code>tevatron.driver.jax_train</code> to train on TPU.
+The arguments managements aligns with above Pytorch training driver.</p>
+<p>By running the following commands on a V3-8 TPU VM is equivalent to the commands above.
+<div class="highlight"><pre><span></span><code>python -m tevatron.driver.jax_train <span class="se">\</span>
+  --output_dir model_nq <span class="se">\</span>
+  --dataset_name Tevatron/wikipedia-nq <span class="se">\</span>
+  --model_name_or_path bert-base-uncased <span class="se">\</span>
+  --do_train <span class="se">\</span>
+  --per_device_train_batch_size <span class="m">16</span> <span class="se">\</span>
+  --train_n_passages <span class="m">2</span> <span class="se">\</span>
+  --learning_rate 1e-5 <span class="se">\</span>
+  --q_max_len <span class="m">32</span> <span class="se">\</span>
+  --p_max_len <span class="m">156</span> <span class="se">\</span>
+  --num_train_epochs <span class="m">40</span>
+</code></pre></div></p>
+<blockquote>
+<p>Note that our Jax training driver also support gradient cache by adding <code>--grad_cache</code> option.</p>
+</blockquote>
+<h2 id="arguments-description">Arguments Description<a class="headerlink" href="#arguments-description" title="Permanent link">&para;</a></h2>
+<p>Our Argument parser inherits from <code>TrainingArguments</code> from HuggingFace's <code>transformers</code>.
+For the common use training arguments such as learning rate and batch size configuration, 
+please check <a href="https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments">document</a> from HuggingFace for details.</p>
+<p>Here we describe the details of the arguments additionally defined for Tevaron's CLI</p>
+<table>
+<thead>
+<tr>
+<th>name</th>
+<th>description</th>
+<th>type</th>
+<th>default</th>
+<th>supported driver</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>do_train</code></td>
+<td>Whether to run training</td>
+<td><code>bool</code></td>
+<td>required</td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>model_name_or_path</code></td>
+<td>Model backbone to initialize dense retriever.  It can be either a model name that avaliable in Huggingface model hub. Or a path to a model directory</td>
+<td><code>str</code></td>
+<td>required</td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>tokenizer_name</code></td>
+<td>Tokenizer name or path if not the same as <code>model_name_or_path</code></td>
+<td><code>str</code></td>
+<td>same as <code>model_name_or_path</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>cache_dir</code></td>
+<td>Path to the directory to save the cache of models and datasets</td>
+<td><code>str</code></td>
+<td><code>~/.cache/</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>untie_encoder</code></td>
+<td>Whether query encoder and passage encoder share same parameter</td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>add_pooler</code></td>
+<td>Whether add pooler on top of last layer output</td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>pytorch</td>
+</tr>
+<tr>
+<td><code>projection_in_dim</code></td>
+<td>The input dim of pooler</td>
+<td><code>int</code></td>
+<td><code>768</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>projection_out_dim</code></td>
+<td>The output dim of pooler</td>
+<td><code>int</code></td>
+<td><code>768</code></td>
+<td>pytorch</td>
+</tr>
+<tr>
+<td><code>dataset_name</code></td>
+<td>Dataset name that avaliable on HuggingFace</td>
+<td><code>str</code></td>
+<td><code>json</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>train_dir</code></td>
+<td>Directory that stores custom training data</td>
+<td><code>str</code></td>
+<td><code>None</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>dataset_proc_num</code></td>
+<td>Number of threads to use to preprocess/tokenize data</td>
+<td><code>int</code></td>
+<td><code>12</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>train_n_passages</code></td>
+<td>Number of passages for each anchor query during training. It will load 1 positive passage + (<code>train_n_passages</code>-1) negative passage for each example during training</td>
+<td><code>int</code></td>
+<td><code>8</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>passage_field_separator</code></td>
+<td>The token to seperate <code>title</code> and <code>text</code> field for passages</td>
+<td><code>str</code></td>
+<td><code>" "</code></td>
+<td>pytorch</td>
+</tr>
+<tr>
+<td><code>q_max_len</code></td>
+<td>Maximum query length</td>
+<td><code>int</code></td>
+<td><code>32</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>p_max_len</code></td>
+<td>Maximum passage length</td>
+<td><code>int</code></td>
+<td><code>128</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>negative_x_device</code></td>
+<td>Whether gather in-batch negative passages cross devices</td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>pytorch</td>
+</tr>
+<tr>
+<td><code>grad_cache</code></td>
+<td>Whether use gradient cache feature. This can be used to support large batch size while GPU/TPU memory are limited.</td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>gc_q_chunk_size</code></td>
+<td>Sub-batch size for queries with <code>grad_cache</code></td>
+<td><code>int</code></td>
+<td><code>4</code></td>
+<td>pytorch, jax</td>
+</tr>
+<tr>
+<td><code>gc_p_chunk_size</code></td>
+<td>Sub-batch size for passages with  <code>grad_cache</code></td>
+<td><code>int</code></td>
+<td><code>32</code></td>
+<td>pytorch, jax</td>
+</tr>
+</tbody>
+</table>
 
               
             </article>

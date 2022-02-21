@@ -310,6 +310,13 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#encoding-on-tpu" class="md-nav__link">
+    Encoding on TPU
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -386,6 +393,13 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#encoding-on-tpu" class="md-nav__link">
+    Encoding on TPU
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -453,6 +467,18 @@ To use custom dataset, replace <code>--dataset_name Tevatron/wikipedia-nq-corpus
 To use custom dataset, replace <code>--dataset_name Tevatron/wikipedia-nq-corpus</code> by
 <code>--encode_in_path &lt;file to encode&gt;</code>. (see here for details)</p>
 </blockquote>
+<h2 id="encoding-on-tpu">Encoding on TPU<a class="headerlink" href="#encoding-on-tpu" title="Permanent link">&para;</a></h2>
+<p>To encode with TPU, simply replace <code>tevatron.driver.encode</code> module with 
+<code>tevatron.driver.jax_encode</code></p>
+<p>I.e. the following command will do same thing as above but with Jax/Flax:
+<div class="highlight"><pre><span></span><code>python -m tevatron.driver.jax_encode \
+  --output_dir=temp \
+  --model_name_or_path model_nq \
+  --per_device_eval_batch_size 156 \
+  --p_max_len 128 \
+  --dataset_name Tevatron/wikipedia-nq-corpus \
+  --encoded_save_path corpus_emb.pkl
+</code></pre></div></p>
 
               
             </article>
