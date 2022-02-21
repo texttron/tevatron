@@ -69,7 +69,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
 ```
 > Notice that GradCache also support multi-GPU setting.
 
-## TPU Training
+## Training with TPU
 Tevatron implements TPU training via Jax/Flax.
 We provide a separate module `tevatron.driver.jax_train` to train on TPU.
 The arguments managements aligns with above Pytorch training driver.
