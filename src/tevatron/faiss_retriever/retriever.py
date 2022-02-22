@@ -3,8 +3,6 @@ import faiss
 
 import logging
 
-from faiss import index_factory
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +34,7 @@ class BaseFaissIPRetriever:
 class FaissRetriever(BaseFaissIPRetriever):
 
     def __init__(self, init_reps: np.ndarray, factory_str: str):
-        index = index_factory(init_reps.shape[1], factory_str)
+        index = faiss.index_factory(init_reps.shape[1], factory_str)
         self.index = index
         self.index.verbose = True
         if not self.index.is_trained:
