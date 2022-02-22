@@ -14,7 +14,6 @@ class BaseFaissIPRetriever:
         self.index = index
 
     def add(self, p_reps: np.ndarray):
-        self.index.verbose = True
         self.index.add(p_reps)
 
     def search(self, q_reps: np.ndarray, k: int):
