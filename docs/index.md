@@ -11,7 +11,11 @@ Tevatron is a simple and efficient toolkit for training and running dense retrie
 - Jax/Flax training/encoding on TPU
 
 ## Installation
-First install neural network and similarity search backends, namely Pytorch (or Jax) and FAISS. Check out the official installation guides for [Pytorch](https://pytorch.org/get-started/locally/#start-locally), [Jax]() and [FAISS](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md).
+First install neural network and similarity search backends, 
+namely Pytorch (or Jax) and FAISS.
+Check out the official installation guides for [Pytorch](https://pytorch.org/get-started/locally/#start-locally)
+, [Jax](https://github.com/google/jax) / [Flax](https://flax.readthedocs.io/en/latest/installation.html) 
+and [FAISS](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md) accordingly.
 
 Then install Tevatron with pip,
 ```bash

@@ -53,3 +53,19 @@ python -m tevatron.driver.encode \
 > Here we are using our self-contained datasets to train. 
 To use custom dataset, replace `--dataset_name Tevatron/wikipedia-nq-corpus` by
 > `--encode_in_path <file to encode>`. (see here for details)
+
+
+## Encoding on TPU
+To encode with TPU, simply replace `tevatron.driver.encode` module with 
+`tevatron.driver.jax_encode`
+
+I.e. the following command will do same thing as above but with Jax/Flax:
+```
+python -m tevatron.driver.jax_encode \
+  --output_dir=temp \
+  --model_name_or_path model_nq \
+  --per_device_eval_batch_size 156 \
+  --p_max_len 128 \
+  --dataset_name Tevatron/wikipedia-nq-corpus \
+  --encoded_save_path corpus_emb.pkl
+```

@@ -34,6 +34,15 @@ class ModelArguments:
     projection_in_dim: int = field(default=768)
     projection_out_dim: int = field(default=768)
 
+    # for Jax training
+    dtype: Optional[str] = field(
+        default="float32",
+        metadata={
+            "help": "Floating-point format in which the model weights should be initialized and trained. Choose one "
+                    "of `[float32, float16, bfloat16]`. "
+        },
+    )
+
 
 @dataclass
 class DataArguments:
