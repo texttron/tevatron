@@ -1,0 +1,23 @@
+site_name: Tevatron
+nav:
+    - Home: index.md
+    - Datasets: datasets.md
+    - Training: training.md
+    - Encoding: encoding.md
+    - Retrieval: retrieval.md
+
+theme:
+  name: 'material'
+  palette:
+    primary: 'green'
+    accent: 'green'
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+  - attr_list
+
+repo_name: 'texttron/tevatron'
+repo_url: 'https://github.com/texttron/tevatron'

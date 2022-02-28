@@ -1,11 +1,7 @@
 # Tevatron
-Tevatron is a simple and efficient toolkit for training and running dense retrievers with deep language models. 
-The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast
-development and testing. A set of easy-to-use interfaces to Huggingface's state-of-the-art pre-trained transformers
-ensures Tevatron's superior performance.
+Tevatron is a simple and efficient toolkit for training and running dense retrievers with deep language models. The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast development and testing. A set of easy-to-use interfaces to Huggingfac's state-of-the-art pre-trained transformers ensures Tevatron's superior performance.
 
-*Tevatron is currently under initial development stage. We will be actively adding new features and API changes
-may happen. Suggestions, feature requests and PRs are welcomed.*
+*Tevatron is currently under initial development stage. We will be actively adding new features and API changes may happen. Suggestions, feature requests and PRs are welcomed.*
 
 ## Features
 - Command line interface for dense retriever training/encoding and dense index search.
@@ -41,17 +37,3 @@ git clone https://github.com/luyug/GradCache
 cd GradCache
 pip install .
 ```
-
-## Documentation
-- [**Please view the documentation here**](http://tevatron.ai/)
-
-
-## Examples
-In the `/examples` folder, we provided full pipeline instructions for various IR/QA tasks.
-
-## Contacts
-If you have a toolkit specific question, feel free to open an issue. 
-
-You can also reach out to us for general comments/suggestions/questions through email.
-- Luyu Gao luyug@cs.cmu.edu
-- Xueguang Ma x93ma@uwaterloo.ca
