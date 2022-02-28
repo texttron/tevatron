@@ -95,9 +95,9 @@ def main():
     train_dataset.trainer = trainer
 
     trainer.train()  # TODO: resume training
-    trainer.save_model(os.path.join(training_args.output_dir, f"checkpoint-{trainer.state.global_step}"))
+    trainer.save_model()
     if trainer.is_world_process_zero():
-        tokenizer.save_pretrained(os.path.join(training_args.output_dir, f"checkpoint-{trainer.state.global_step}"))
+        tokenizer.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":
