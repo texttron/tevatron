@@ -18,7 +18,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.modeling import BiEncoderOutput, DenseModelForInference
+from tevatron.modeling import DenseOutput, DenseModelForInference
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
@@ -96,10 +96,10 @@ def main():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:
-                    model_output: BiEncoderOutput = model(query=batch)
+                    model_output: DenseOutput = model(query=batch)
                     encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
-                    model_output: BiEncoderOutput = model(passage=batch)
+                    model_output: DenseOutput = model(passage=batch)
                     encoded.append(model_output.p_reps.cpu().detach().numpy())
 
     encoded = np.concatenate(encoded)
