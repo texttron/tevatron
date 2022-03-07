@@ -18,7 +18,7 @@ from transformers import (
     set_seed,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, DenseTrainingArguments
+from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.tevax.training import TiedParams, RetrieverTrainState, retriever_train_step, grad_cache_train_step, \
     DualParams
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataArguments, DenseTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataArguments, TevatronTrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
@@ -34,7 +34,7 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
         data_args: DataArguments
-        training_args: DenseTrainingArguments
+        training_args: TevatronTrainingArguments
 
     if (
             os.path.exists(training_args.output_dir)

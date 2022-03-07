@@ -9,7 +9,7 @@ from transformers import (
 )
 
 from tevatron.arguments import ModelArguments, DataArguments, \
-    DenseTrainingArguments as TrainingArguments
+    TevatronTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import DenseModel
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
@@ -71,7 +71,6 @@ def main():
     )
     model = DenseModel.build(
         model_args,
-        data_args,
         training_args,
         config=config,
         cache_dir=model_args.cache_dir,

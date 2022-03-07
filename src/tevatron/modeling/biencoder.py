@@ -1,64 +1,45 @@
+import copy
 import json
 import os
-import copy
 from dataclasses import dataclass
+from typing import Dict, Optional
 
 import torch
-import torch.nn as nn
-from torch import Tensor
+from torch import nn, Tensor
 import torch.distributed as dist
+from transformers import PreTrainedModel, AutoModel
+from transformers.file_utils import ModelOutput
 
-from transformers import AutoModel, PreTrainedModel
-from transformers.modeling_outputs import ModelOutput
+from tevatron.arguments import ModelArguments, \
+    TevatronTrainingArguments as TrainingArguments
 
-
-from typing import Optional, Dict
-
-from .arguments import ModelArguments, DataArguments, \
-    DenseTrainingArguments as TrainingArguments
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class DenseOutput(ModelOutput):
-    q_reps: Tensor = None
-    p_reps: Tensor = None
-    loss: Tensor = None
-    scores: Tensor = None
+class BiEncoderOutput(ModelOutput):
+    q_reps: Optional[Tensor] = None
+    p_reps: Optional[Tensor] = None
+    loss: Optional[Tensor] = None
+    scores: Optional[Tensor] = None
 
 
-class LinearPooler(nn.Module):
-    def __init__(
-            self,
-            input_dim: int = 768,
-            output_dim: int = 768,
-            tied=True
-    ):
-        super(LinearPooler, self).__init__()
-        self.linear_q = nn.Linear(input_dim, output_dim)
-        if tied:
-            self.linear_p = self.linear_q
-        else:
-            self.linear_p = nn.Linear(input_dim, output_dim)
+class BiEncoderPooler(nn.Module):
+    def __init__(self):
+        super(BiEncoderPooler, self).__init__()
+        self._config = {}
 
-        self._config = {'input_dim': input_dim, 'output_dim': output_dim, 'tied': tied}
+    def forward(self, q_reps, p_reps):
+        raise NotImplementedError('BiEncoderPooler is an abstract class')
 
-    def forward(self, q: Tensor = None, p: Tensor = None):
-        if q is not None:
-            return self.linear_q(q[:, 0])
-        elif p is not None:
-            return self.linear_p(p[:, 0])
-        else:
-            raise ValueError
-
-    def load(self, ckpt_dir: str):
-        if ckpt_dir is not None:
-            _pooler_path = os.path.join(ckpt_dir, 'pooler.pt')
+    def load(self, checkpoint_dir: str):
+        if checkpoint_dir is not None:
+            _pooler_path = os.path.join(checkpoint_dir, 'pooler.pt')
             if os.path.exists(_pooler_path):
-                logger.info(f'Loading Pooler from {ckpt_dir}')
-                state_dict = torch.load(os.path.join(ckpt_dir, 'pooler.pt'), map_location='cpu')
+                logger.info(f'Loading Pooler from {checkpoint_dir}')
+                state_dict = torch.load(os.path.join(checkpoint_dir, 'pooler.pt'), map_location='cpu')
                 self.load_state_dict(state_dict)
                 return
         logger.info("Training Pooler from scratch")
@@ -70,130 +51,83 @@ class LinearPooler(nn.Module):
             json.dump(self._config, f)
 
 
-class DenseModel(nn.Module):
-    def __init__(
-            self,
-            lm_q: PreTrainedModel,
-            lm_p: PreTrainedModel,
-            pooler: nn.Module = None,
-            model_args: ModelArguments = None,
-            data_args: DataArguments = None,
-            train_args: TrainingArguments = None,
-    ):
+class BiEncoderModel(nn.Module):
+    def __init__(self,
+                 lm_q: PreTrainedModel,
+                 lm_p: PreTrainedModel,
+                 pooler: nn.Module = None,
+                 negatives_x_device: bool = False,
+                 untie_encoder: bool = False
+                 ):
         super().__init__()
-
         self.lm_q = lm_q
         self.lm_p = lm_p
         self.pooler = pooler
-
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
-
-        self.model_args = model_args
-        self.train_args = train_args
-        self.data_args = data_args
-
-        if train_args.negatives_x_device:
+        self.negatives_x_device = negatives_x_device
+        self.untie_encoder = untie_encoder
+        if self.negatives_x_device:
             if not dist.is_initialized():
                 raise ValueError('Distributed training has not been initialized for representation all gather.')
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
 
-    def forward(
-            self,
-            query: Dict[str, Tensor] = None,
-            passage: Dict[str, Tensor] = None,
-    ):
-
+    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
         q_hidden, q_reps = self.encode_query(query)
         p_hidden, p_reps = self.encode_passage(passage)
 
+        # for inference
         if q_reps is None or p_reps is None:
-            return DenseOutput(
+            return BiEncoderOutput(
                 q_reps=q_reps,
                 p_reps=p_reps
             )
 
+        # for training
         if self.training:
-            if self.train_args.negatives_x_device:
-                q_reps = self.dist_gather_tensor(q_reps)
-                p_reps = self.dist_gather_tensor(p_reps)
+            if self.negatives_x_device:
+                q_reps = self._dist_gather_tensor(q_reps)
+                p_reps = self._dist_gather_tensor(p_reps)
 
-            effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
-                if self.train_args.negatives_x_device \
-                else self.train_args.per_device_train_batch_size
+            scores = self.compute_similarity(q_reps, p_reps, query['attention_mask'], passage['attention_mask'])
+            scores = scores.view(q_reps.size(0), -1)
 
-            scores = torch.matmul(q_reps, p_reps.transpose(0, 1))
-            scores = scores.view(effective_bsz, -1)
+            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
+            target = target * (p_reps.size(0) // q_reps.size(0))
 
-            target = torch.arange(
-                scores.size(0),
-                device=scores.device,
-                dtype=torch.long
-            )
-            target = target * self.data_args.train_n_passages
             loss = self.cross_entropy(scores, target)
-            if self.train_args.negatives_x_device:
+            if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
-            return DenseOutput(
-                loss=loss,
-                scores=scores,
-                q_reps=q_reps,
-                p_reps=p_reps
-            )
-
+        # for eval
         else:
+            scores = self.compute_similarity(q_reps, p_reps, query['attention_mask'], passage['attention_mask'])
             loss = None
-            if query and passage:
-                scores = (q_reps * p_reps).sum(1)
-            else:
-                scores = None
-
-            return DenseOutput(
-                loss=loss,
-                scores=scores,
-                q_reps=q_reps,
-                p_reps=p_reps
-            )
+        return BiEncoderOutput(
+            loss=loss,
+            scores=scores,
+            q_reps=q_reps,
+            p_reps=p_reps,
+        )
 
     def encode_passage(self, psg):
-        if psg is None:
-            return None, None
-
-        psg_out = self.lm_p(**psg, return_dict=True)
-        p_hidden = psg_out.last_hidden_state
-        if self.pooler is not None:
-            p_reps = self.pooler(p=p_hidden)  # D * d
-        else:
-            p_reps = p_hidden[:, 0]
-        return p_hidden, p_reps
+        raise NotImplementedError('BiEncoderModel is an abstract class')
 
     def encode_query(self, qry):
-        if qry is None:
-            return None, None
-        qry_out = self.lm_q(**qry, return_dict=True)
-        q_hidden = qry_out.last_hidden_state
-        if self.pooler is not None:
-            q_reps = self.pooler(q=q_hidden)
-        else:
-            q_reps = q_hidden[:, 0]
-        return q_hidden, q_reps
+        raise NotImplementedError('BiEncoderModel is an abstract class')
+
+    def compute_similarity(self, q_reps, p_reps, query, passage):
+        raise NotImplementedError('BiEncoderModel is an abstract class')
 
     @staticmethod
     def build_pooler(model_args):
-        pooler = LinearPooler(
-            model_args.projection_in_dim,
-            model_args.projection_out_dim,
-            tied=not model_args.untie_encoder
-        )
-        pooler.load(model_args.model_name_or_path)
-        return pooler
+        raise NotImplementedError('BiEncoderModel is an abstract class')
 
     @classmethod
     def build(
             cls,
             model_args: ModelArguments,
-            data_args: DataArguments,
             train_args: TrainingArguments,
+            transformer_cls: PreTrainedModel = AutoModel,
             **hf_kwargs,
     ):
         # load local
@@ -205,21 +139,21 @@ class DenseModel(nn.Module):
                     _qry_model_path = model_args.model_name_or_path
                     _psg_model_path = model_args.model_name_or_path
                 logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = AutoModel.from_pretrained(
+                lm_q = transformer_cls.from_pretrained(
                     _qry_model_path,
                     **hf_kwargs
                 )
                 logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = AutoModel.from_pretrained(
+                lm_p = transformer_cls.from_pretrained(
                     _psg_model_path,
                     **hf_kwargs
                 )
             else:
-                lm_q = AutoModel.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+                lm_q = transformer_cls.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         # load pre-trained
         else:
-            lm_q = AutoModel.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+            lm_q = transformer_cls.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
             lm_p = copy.deepcopy(lm_q) if model_args.untie_encoder else lm_q
 
         if model_args.add_pooler:
@@ -231,25 +165,23 @@ class DenseModel(nn.Module):
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler,
-            model_args=model_args,
-            data_args=data_args,
-            train_args=train_args
+            negatives_x_device=train_args.negatives_x_device,
+            untie_encoder=model_args.untie_encoder
         )
         return model
 
     def save(self, output_dir: str):
-        if self.model_args.untie_encoder:
+        if self.untie_encoder:
             os.makedirs(os.path.join(output_dir, 'query_model'))
             os.makedirs(os.path.join(output_dir, 'passage_model'))
             self.lm_q.save_pretrained(os.path.join(output_dir, 'query_model'))
             self.lm_p.save_pretrained(os.path.join(output_dir, 'passage_model'))
         else:
             self.lm_q.save_pretrained(output_dir)
-
-        if self.model_args.add_pooler:
+        if self.pooler:
             self.pooler.save_pooler(output_dir)
 
-    def dist_gather_tensor(self, t: Optional[torch.Tensor]):
+    def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
         if t is None:
             return None
         t = t.contiguous()
@@ -263,15 +195,14 @@ class DenseModel(nn.Module):
         return all_tensors
 
 
-class DenseModelForInference(DenseModel):
-    POOLER_CLS = LinearPooler
+class BiEncoderModelForInference(nn.Module):
+    POOLER_CLS = None
 
     def __init__(
             self,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
             pooler: nn.Module = None,
-            **kwargs,
     ):
         nn.Module.__init__(self)
         self.lm_q = lm_q
@@ -280,34 +211,24 @@ class DenseModelForInference(DenseModel):
 
     @torch.no_grad()
     def encode_passage(self, psg):
-        return super(DenseModelForInference, self).encode_passage(psg)
+        raise NotImplementedError('BiEncoderModelForInference is an abstract class')
 
     @torch.no_grad()
     def encode_query(self, qry):
-        return super(DenseModelForInference, self).encode_query(qry)
+        raise NotImplementedError('BiEncoderModelForInference is an abstract class')
 
-    def forward(
-            self,
-            query: Dict[str, Tensor] = None,
-            passage: Dict[str, Tensor] = None,
-    ):
+    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
         q_hidden, q_reps = self.encode_query(query)
         p_hidden, p_reps = self.encode_passage(passage)
-        return DenseOutput(q_reps=q_reps, p_reps=p_reps)
+        return BiEncoderOutput(q_reps=q_reps, p_reps=p_reps)
 
     @classmethod
     def build(
             cls,
-            model_name_or_path: str = None,
-            model_args: ModelArguments = None,
-            data_args: DataArguments = None,
-            train_args: TrainingArguments = None,
+            model_name_or_path,
+            transformer_cls: PreTrainedModel = AutoModel,
             **hf_kwargs,
     ):
-        assert model_name_or_path is not None or model_args is not None
-        if model_name_or_path is None:
-            model_name_or_path = model_args.model_name_or_path
-
         # load local
         if os.path.isdir(model_name_or_path):
             _qry_model_path = os.path.join(model_name_or_path, 'query_model')
@@ -315,24 +236,24 @@ class DenseModelForInference(DenseModel):
             if os.path.exists(_qry_model_path):
                 logger.info(f'found separate weight for query/passage encoders')
                 logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = AutoModel.from_pretrained(
+                lm_q = transformer_cls.from_pretrained(
                     _qry_model_path,
                     **hf_kwargs
                 )
                 logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = AutoModel.from_pretrained(
+                lm_p = transformer_cls.from_pretrained(
                     _psg_model_path,
                     **hf_kwargs
                 )
             else:
                 logger.info(f'try loading tied weight')
                 logger.info(f'loading model weight from {model_name_or_path}')
-                lm_q = AutoModel.from_pretrained(model_name_or_path, **hf_kwargs)
+                lm_q = transformer_cls.from_pretrained(model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         else:
             logger.info(f'try loading tied weight')
             logger.info(f'loading model weight from {model_name_or_path}')
-            lm_q = AutoModel.from_pretrained(model_name_or_path, **hf_kwargs)
+            lm_q = transformer_cls.from_pretrained(model_name_or_path, **hf_kwargs)
             lm_p = lm_q
 
         pooler_weights = os.path.join(model_name_or_path, 'pooler.pt')
@@ -342,7 +263,7 @@ class DenseModelForInference(DenseModel):
             with open(pooler_config) as f:
                 pooler_config_dict = json.load(f)
             pooler = cls.POOLER_CLS(**pooler_config_dict)
-            pooler.load(model_name_or_path)
+            pooler.load(pooler_weights)
         else:
             pooler = None
 

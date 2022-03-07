@@ -9,7 +9,7 @@ import numpy as np
 from flax.training.common_utils import shard
 from jax import pmap
 from tevatron.arguments import DataArguments
-from tevatron.arguments import DenseTrainingArguments as TrainingArguments
+from tevatron.arguments import TevatronTrainingArguments as TrainingArguments
 from tevatron.arguments import ModelArguments
 from tevatron.data import EncodeCollator, EncodeDataset
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset

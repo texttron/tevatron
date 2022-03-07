@@ -16,7 +16,7 @@ from transformers import (
 )
 
 from tevatron.arguments import ModelArguments, DataArguments, \
-    DenseTrainingArguments as TrainingArguments
+    TevatronTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
 from tevatron.modeling import DenseOutput, DenseModelForInference
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
