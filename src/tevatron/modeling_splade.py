@@ -140,4 +140,5 @@ class SpladeModel(DenseModel):
             data_args=data_args,
             train_args=train_args
         )
+        
         return model
