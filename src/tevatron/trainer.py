@@ -93,7 +93,7 @@ class GCTrainer(DenseTrainer):
         super(GCTrainer, self).__init__(*args, **kwargs)
 
         loss_fn_cls = DistributedContrastiveLoss if self.args.negatives_x_device else SimpleContrastiveLoss
-        loss_fn = loss_fn_cls(self.model.data_args.train_n_passages)
+        loss_fn = loss_fn_cls()
 
         self.gc = GradCache(
             models=[self.model, self.model],

@@ -69,7 +69,7 @@ def main():
         cache_dir=model_args.cache_dir,
         use_fast=False,
     )
-    model = UniCoilModel.build(
+    model = DenseModel.build(
         model_args,
         training_args,
         config=config,
