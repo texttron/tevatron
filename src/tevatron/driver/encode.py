@@ -18,7 +18,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.modeling import BiEncoderOutput, DenseModelForInference
+from tevatron.modeling import BiEncoderOutput, DenseModel
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def main():
         use_fast=False,
     )
 
-    model = DenseModelForInference.build(
+    model = DenseModel.load(
         model_name_or_path=model_args.model_name_or_path,
         config=config,
         cache_dir=model_args.cache_dir,
