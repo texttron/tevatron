@@ -64,12 +64,20 @@ class DenseModel(BiEncoderModel):
         return pooler
 
 
-class DenseModelForInference(BiEncoderModelForInference, DenseModel):
+class DenseModelForInference(BiEncoderModelForInference):
     POOLER_CLS = LinearPooler
 
     @torch.no_grad()
     def encode_passage(self, psg):
-        return DenseModel.encode_passage(self, psg)
+        if psg is None:
+            return None, None
+        psg_out = self.lm_p(**psg, return_dict=True)
+        p_hidden = psg_out.last_hidden_state
+        if self.pooler is not None:
+            p_reps = self.pooler(p=p_hidden)  # D * d
+        else:
+            p_reps = p_hidden[:, 0]
+        return p_hidden, p_reps
 
     @torch.no_grad()
     def encode_query(self, qry):

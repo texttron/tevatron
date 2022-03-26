@@ -95,7 +95,7 @@ class BiEncoderModel(nn.Module):
             target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
             target = target * (p_reps.size(0) // q_reps.size(0))
 
-            loss = self.cross_entropy(scores, target)
+            loss = self.compute_loss(scores, target, q_reps, p_reps)
             if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval
@@ -117,6 +117,9 @@ class BiEncoderModel(nn.Module):
 
     def compute_similarity(self, q_reps, p_reps, query, passage):
         raise NotImplementedError('BiEncoderModel is an abstract class')
+
+    def compute_loss(self, scores, target, q_reps, p_reps):
+        return self.cross_entropy(scores, target)
 
     @staticmethod
     def build_pooler(model_args):
