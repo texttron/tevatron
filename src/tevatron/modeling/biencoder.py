@@ -27,7 +27,7 @@ class BiEncoderOutput(ModelOutput):
 
 
 class BiEncoderPooler(nn.Module):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super(BiEncoderPooler, self).__init__()
         self._config = {}
 
@@ -52,12 +52,14 @@ class BiEncoderPooler(nn.Module):
 
 
 class BiEncoderModel(nn.Module):
+    TRANSFORMER_CLS = AutoModel
+
     def __init__(self,
                  lm_q: PreTrainedModel,
                  lm_p: PreTrainedModel,
                  pooler: nn.Module = None,
-                 negatives_x_device: bool = False,
-                 untie_encoder: bool = False
+                 untie_encoder: bool = False,
+                 negatives_x_device: bool = False
                  ):
         super().__init__()
         self.lm_q = lm_q
@@ -73,8 +75,8 @@ class BiEncoderModel(nn.Module):
             self.world_size = dist.get_world_size()
 
     def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
-        q_hidden, q_reps = self.encode_query(query)
-        p_hidden, p_reps = self.encode_passage(passage)
+        q_reps = self.encode_query(query)
+        p_reps = self.encode_passage(passage)
 
         # for inference
         if q_reps is None or p_reps is None:
@@ -89,18 +91,18 @@ class BiEncoderModel(nn.Module):
                 q_reps = self._dist_gather_tensor(q_reps)
                 p_reps = self._dist_gather_tensor(p_reps)
 
-            scores = self.compute_similarity(q_reps, p_reps, query['attention_mask'], passage['attention_mask'])
+            scores = self.compute_similarity(q_reps, p_reps)
             scores = scores.view(q_reps.size(0), -1)
 
             target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
             target = target * (p_reps.size(0) // q_reps.size(0))
 
-            loss = self.compute_loss(scores, target, q_reps, p_reps)
+            loss = self.compute_loss(scores, target)
             if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval
         else:
-            scores = self.compute_similarity(q_reps, p_reps, query['attention_mask'], passage['attention_mask'])
+            scores = self.compute_similarity(q_reps, p_reps)
             loss = None
         return BiEncoderOutput(
             loss=loss,
@@ -109,28 +111,44 @@ class BiEncoderModel(nn.Module):
             p_reps=p_reps,
         )
 
+    @staticmethod
+    def build_pooler(model_args):
+        return None
+
+    @staticmethod
+    def load_pooler(weights, **config):
+        return None
+
     def encode_passage(self, psg):
         raise NotImplementedError('BiEncoderModel is an abstract class')
 
     def encode_query(self, qry):
         raise NotImplementedError('BiEncoderModel is an abstract class')
 
-    def compute_similarity(self, q_reps, p_reps, query, passage):
-        raise NotImplementedError('BiEncoderModel is an abstract class')
+    def compute_similarity(self, q_reps, p_reps):
+        return torch.matmul(q_reps, p_reps.transpose(0, 1))
 
-    def compute_loss(self, scores, target, q_reps, p_reps):
+    def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
 
-    @staticmethod
-    def build_pooler(model_args):
-        raise NotImplementedError('BiEncoderModel is an abstract class')
+    def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
+        if t is None:
+            return None
+        t = t.contiguous()
+
+        all_tensors = [torch.empty_like(t) for _ in range(self.world_size)]
+        dist.all_gather(all_tensors, t)
+
+        all_tensors[self.process_rank] = t
+        all_tensors = torch.cat(all_tensors, dim=0)
+
+        return all_tensors
 
     @classmethod
     def build(
             cls,
             model_args: ModelArguments,
             train_args: TrainingArguments,
-            transformer_cls: PreTrainedModel = AutoModel,
             **hf_kwargs,
     ):
         # load local
@@ -142,21 +160,21 @@ class BiEncoderModel(nn.Module):
                     _qry_model_path = model_args.model_name_or_path
                     _psg_model_path = model_args.model_name_or_path
                 logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = transformer_cls.from_pretrained(
+                lm_q = cls.TRANSFORMER_CLS.from_pretrained(
                     _qry_model_path,
                     **hf_kwargs
                 )
                 logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = transformer_cls.from_pretrained(
+                lm_p = cls.TRANSFORMER_CLS.from_pretrained(
                     _psg_model_path,
                     **hf_kwargs
                 )
             else:
-                lm_q = transformer_cls.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+                lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         # load pre-trained
         else:
-            lm_q = transformer_cls.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+            lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
             lm_p = copy.deepcopy(lm_q) if model_args.untie_encoder else lm_q
 
         if model_args.add_pooler:
@@ -173,6 +191,59 @@ class BiEncoderModel(nn.Module):
         )
         return model
 
+    @classmethod
+    def load(
+            cls,
+            model_name_or_path,
+            **hf_kwargs,
+    ):
+        # load local
+        unite_encoder = True
+        if os.path.isdir(model_name_or_path):
+            _qry_model_path = os.path.join(model_name_or_path, 'query_model')
+            _psg_model_path = os.path.join(model_name_or_path, 'passage_model')
+            if os.path.exists(_qry_model_path):
+                logger.info(f'found separate weight for query/passage encoders')
+                logger.info(f'loading query model weight from {_qry_model_path}')
+                lm_q = cls.TRANSFORMER_CLS.from_pretrained(
+                    _qry_model_path,
+                    **hf_kwargs
+                )
+                logger.info(f'loading passage model weight from {_psg_model_path}')
+                lm_p = cls.TRANSFORMER_CLS.from_pretrained(
+                    _psg_model_path,
+                    **hf_kwargs
+                )
+                unite_encoder = False
+            else:
+                logger.info(f'try loading tied weight')
+                logger.info(f'loading model weight from {model_name_or_path}')
+                lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+                lm_p = lm_q
+        else:
+            logger.info(f'try loading tied weight')
+            logger.info(f'loading model weight from {model_name_or_path}')
+            lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+            lm_p = lm_q
+
+        pooler_weights = os.path.join(model_name_or_path, 'pooler.pt')
+        pooler_config = os.path.join(model_name_or_path, 'pooler_config.json')
+        if os.path.exists(pooler_weights) and os.path.exists(pooler_config):
+            logger.info(f'found pooler weight and configuration')
+            with open(pooler_config) as f:
+                pooler_config_dict = json.load(f)
+            pooler = cls.load_pooler(pooler_weights, **pooler_config_dict)
+        else:
+            pooler = None
+
+        model = cls(
+            lm_q=lm_q,
+            lm_p=lm_p,
+            pooler=pooler,
+            untie_encoder=unite_encoder
+        )
+        return model
+
     def save(self, output_dir: str):
         if self.untie_encoder:
             os.makedirs(os.path.join(output_dir, 'query_model'))
@@ -183,96 +254,3 @@ class BiEncoderModel(nn.Module):
             self.lm_q.save_pretrained(output_dir)
         if self.pooler:
             self.pooler.save_pooler(output_dir)
-
-    def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
-        if t is None:
-            return None
-        t = t.contiguous()
-
-        all_tensors = [torch.empty_like(t) for _ in range(self.world_size)]
-        dist.all_gather(all_tensors, t)
-
-        all_tensors[self.process_rank] = t
-        all_tensors = torch.cat(all_tensors, dim=0)
-
-        return all_tensors
-
-
-class BiEncoderModelForInference(nn.Module):
-    POOLER_CLS = None
-
-    def __init__(
-            self,
-            lm_q: PreTrainedModel,
-            lm_p: PreTrainedModel,
-            pooler: nn.Module = None,
-    ):
-        nn.Module.__init__(self)
-        self.lm_q = lm_q
-        self.lm_p = lm_p
-        self.pooler = pooler
-
-    @torch.no_grad()
-    def encode_passage(self, psg):
-        raise NotImplementedError('BiEncoderModelForInference is an abstract class')
-
-    @torch.no_grad()
-    def encode_query(self, qry):
-        raise NotImplementedError('BiEncoderModelForInference is an abstract class')
-
-    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
-        q_hidden, q_reps = self.encode_query(query)
-        p_hidden, p_reps = self.encode_passage(passage)
-        return BiEncoderOutput(q_reps=q_reps, p_reps=p_reps)
-
-    @classmethod
-    def build(
-            cls,
-            model_name_or_path,
-            transformer_cls: PreTrainedModel = AutoModel,
-            **hf_kwargs,
-    ):
-        # load local
-        if os.path.isdir(model_name_or_path):
-            _qry_model_path = os.path.join(model_name_or_path, 'query_model')
-            _psg_model_path = os.path.join(model_name_or_path, 'passage_model')
-            if os.path.exists(_qry_model_path):
-                logger.info(f'found separate weight for query/passage encoders')
-                logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = transformer_cls.from_pretrained(
-                    _qry_model_path,
-                    **hf_kwargs
-                )
-                logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = transformer_cls.from_pretrained(
-                    _psg_model_path,
-                    **hf_kwargs
-                )
-            else:
-                logger.info(f'try loading tied weight')
-                logger.info(f'loading model weight from {model_name_or_path}')
-                lm_q = transformer_cls.from_pretrained(model_name_or_path, **hf_kwargs)
-                lm_p = lm_q
-        else:
-            logger.info(f'try loading tied weight')
-            logger.info(f'loading model weight from {model_name_or_path}')
-            lm_q = transformer_cls.from_pretrained(model_name_or_path, **hf_kwargs)
-            lm_p = lm_q
-
-        pooler_weights = os.path.join(model_name_or_path, 'pooler.pt')
-        pooler_config = os.path.join(model_name_or_path, 'pooler_config.json')
-        if os.path.exists(pooler_weights) and os.path.exists(pooler_config):
-            logger.info(f'found pooler weight and configuration')
-            with open(pooler_config) as f:
-                pooler_config_dict = json.load(f)
-            pooler = cls.POOLER_CLS(**pooler_config_dict)
-            pooler.load(pooler_weights)
-        else:
-            pooler = None
-
-        model = cls(
-            lm_q=lm_q,
-            lm_p=lm_p,
-            pooler=pooler
-        )
-        return model

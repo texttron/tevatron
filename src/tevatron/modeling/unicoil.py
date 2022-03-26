@@ -2,8 +2,7 @@ import torch
 from torch import Tensor, nn
 import logging
 
-from .biencoder import BiEncoderPooler, BiEncoderModel, BiEncoderModelForInference
-from ..arguments import ModelArguments, TevatronTrainingArguments as TrainingArguments
+from .biencoder import BiEncoderPooler, BiEncoderModel
 
 logger = logging.getLogger(__name__)
 
@@ -28,24 +27,23 @@ class UniCoilPooler(BiEncoderPooler):
 
 
 class UniCoilModel(BiEncoderModel):
-
     def encode_passage(self, psg):
         if psg is None:
-            return None, None
+            return None
         psg_out = self.lm_p(**psg, return_dict=True)
         p_hidden = psg_out.last_hidden_state
         p_reps = self.pooler(p=p_hidden)
-        return p_hidden, self._weights_to_vec(psg['input_ids'], p_reps)
+        return self._weights_to_vec(psg['input_ids'], p_reps)
 
     def encode_query(self, qry):
         if qry is None:
-            return None, None
+            return None
         qry_out = self.lm_q(**qry, return_dict=True)
         q_hidden = qry_out.last_hidden_state
         q_reps = self.pooler(q=q_hidden)
-        return q_hidden, self._weights_to_vec(qry['input_ids'], q_reps)
+        return self._weights_to_vec(qry['input_ids'], q_reps)
 
-    def compute_similarity(self, q_reps, p_reps, query, passage):
+    def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
 
     def _weights_to_vec(self, input_ids, tok_weights):
@@ -68,24 +66,8 @@ class UniCoilModel(BiEncoderModel):
         pooler.load(model_args.model_name_or_path)
         return pooler
 
-    @classmethod
-    def build(
-            cls,
-            model_args: ModelArguments,
-            train_args: TrainingArguments,
-            **hf_kwargs,
-    ):
-        model_args.add_pooler = True
-        return super().build(model_args, train_args, **hf_kwargs)
-
-
-class UniCoilForInference(BiEncoderModelForInference, UniCoilModel):
-    POOLER_CLS = UniCoilPooler
-
-    @torch.no_grad()
-    def encode_passage(self, psg):
-        return UniCoilModel.encode_passage(self, psg)
-
-    @torch.no_grad()
-    def encode_query(self, qry):
-        return UniCoilModel.encode_query(self, qry)
+    @staticmethod
+    def load_pooler(model_weights_file, **config):
+        pooler = UniCoilPooler(**config)
+        pooler.load(model_weights_file)
+        return pooler
