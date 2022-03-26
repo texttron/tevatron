@@ -1,4 +1,4 @@
-SCRIPT_DIR=$PWD/../msmarco-passage-ranking/
+SCRIPT_DIR=$PWD
 
 wget --no-check-certificate https://rocketqa.bj.bcebos.com/corpus/marco.tar.gz
 tar -zxf marco.tar.gz
@@ -20,4 +20,4 @@ python $SCRIPT_DIR/tokenize_queries.py --tokenizer_name $TOKENIZER --query_file 
 python $SCRIPT_DIR/tokenize_queries.py --tokenizer_name $TOKENIZER --query_file train.query.txt --save_to $TOKENIZER_ID/query/train.query.json
 python $SCRIPT_DIR/tokenize_passages.py --tokenizer_name $TOKENIZER --file corpus.tsv --save_to $TOKENIZER_ID/corpus
 
-cd -
+cd ..

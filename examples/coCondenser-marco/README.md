@@ -171,5 +171,5 @@ python -m tevatron.faiss_retriever \
 ```
 And format the retrieval result,
 ```
-python ../msmarco-passage-ranking/score_to_marco.py dev.rank.tsv
+python score_to_marco.py dev.rank.tsv
 ```
