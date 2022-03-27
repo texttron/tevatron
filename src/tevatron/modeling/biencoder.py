@@ -198,7 +198,7 @@ class BiEncoderModel(nn.Module):
             **hf_kwargs,
     ):
         # load local
-        unite_encoder = True
+        untie_encoder = True
         if os.path.isdir(model_name_or_path):
             _qry_model_path = os.path.join(model_name_or_path, 'query_model')
             _psg_model_path = os.path.join(model_name_or_path, 'passage_model')
@@ -214,7 +214,7 @@ class BiEncoderModel(nn.Module):
                     _psg_model_path,
                     **hf_kwargs
                 )
-                unite_encoder = False
+                untie_encoder = False
             else:
                 logger.info(f'try loading tied weight')
                 logger.info(f'loading model weight from {model_name_or_path}')
@@ -240,7 +240,7 @@ class BiEncoderModel(nn.Module):
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler,
-            untie_encoder=unite_encoder
+            untie_encoder=untie_encoder
         )
         return model
 
