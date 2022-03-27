@@ -1,3 +1,3 @@
-from .biencoder import BiEncoderModel, BiEncoderModelForInference, BiEncoderPooler, BiEncoderOutput
-from .dense import DenseModel, DenseModelForInference
-from .unicoil import UniCoilModel, UniCoilForInference
+from .biencoder import BiEncoderModel, BiEncoderPooler, BiEncoderOutput
+from .dense import DenseModel
+from .unicoil import UniCoilModel
