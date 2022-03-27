@@ -2,21 +2,47 @@ import logging
 import os
 import sys
 
+import torch
 from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
     set_seed,
 )
-
-from tevatron.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from dataclasses import dataclass, field
+from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.data import TrainDataset, QPCollator
-from tevatron.modeling import DenseModel
-from tevatron.trainer import BiEncoderTrainer as Trainer, GCTrainer
+from tevatron.modeling import SpladeModel
+from tevatron.trainer import BiEncoderTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class SpladeTrainingArguments(TevatronTrainingArguments):
+    q_flops_loss_factor: float = field(default=4)
+    p_flops_loss_factor: float = field(default=32)
+
+
+class SpladeTrainer(BiEncoderTrainer):
+    def __init__(self, *args, **kwargs):
+        super(SpladeTrainer, self).__init__(*args, **kwargs)
+
+    def _flops(self, inputs):
+        return torch.sum(torch.mean(torch.abs(inputs), dim=0) ** 2)
+
+    def compute_loss(self, model, inputs):
+        query, passage = inputs
+        output = model(query=query, passage=passage)
+        q_reps = output.q_reps
+        p_reps = output.p_reps
+        loss = output.loss
+        q_flops_loss = self.args.q_flops_loss_factor*self._flops(q_reps)
+        p_flops_loss = self.args.q_flops_loss_factor*self._flops(p_reps)
+        return loss + q_flops_loss + p_flops_loss
+
+
+TrainingArguments = SpladeTrainingArguments
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
@@ -69,7 +95,7 @@ def main():
         cache_dir=model_args.cache_dir,
         use_fast=False,
     )
-    model = DenseModel.build(
+    model = SpladeModel.build(
         model_args,
         training_args,
         config=config,
@@ -80,8 +106,7 @@ def main():
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
-    trainer_cls = GCTrainer if training_args.grad_cache else Trainer
-    trainer = trainer_cls(
+    trainer = SpladeTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

@@ -20,9 +20,9 @@ except ModuleNotFoundError:
     _grad_cache_available = False
 
 
-class DenseTrainer(Trainer):
+class BiEncoderTrainer(Trainer):
     def __init__(self, *args, **kwargs):
-        super(DenseTrainer, self).__init__(*args, **kwargs)
+        super(BiEncoderTrainer, self).__init__(*args, **kwargs)
         self._dist_loss_scale_factor = dist.get_world_size() if self.args.negatives_x_device else 1
 
     def _save(self, output_dir: Optional[str] = None):
@@ -62,7 +62,7 @@ class DenseTrainer(Trainer):
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):
-        return super(DenseTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        return super(BiEncoderTrainer, self).training_step(*args) / self._dist_loss_scale_factor
 
 
 def split_dense_inputs(model_input: dict, chunk_size: int):
@@ -84,7 +84,7 @@ def get_dense_rep(x):
         return x.q_reps
 
 
-class GCTrainer(DenseTrainer):
+class GCTrainer(BiEncoderTrainer):
     def __init__(self, *args, **kwargs):
         logger.info('Initializing Gradient Cache Trainer')
         if not _grad_cache_available:

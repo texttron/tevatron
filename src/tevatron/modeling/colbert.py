@@ -33,7 +33,7 @@ class ColbertModel(BiEncoderModel):
         psg_out = self.lm_p(**psg, return_dict=True)
         p_hidden = psg_out.last_hidden_state
         p_reps = self.pooler(p=p_hidden)
-        p_reps *= psg['attention_mask'].float()
+        p_reps *= psg['attention_mask'][:, :, None].float()
         return p_reps
 
     def encode_query(self, qry):
@@ -42,7 +42,7 @@ class ColbertModel(BiEncoderModel):
         qry_out = self.lm_q(**qry, return_dict=True)
         q_hidden = qry_out.last_hidden_state
         q_reps = self.pooler(q=q_hidden)
-        q_reps *= qry['attention_mask'].float()
+        q_reps *= qry['attention_mask'][:, :, None].float()
         return q_reps
 
     def compute_similarity(self, q_reps, p_reps):
