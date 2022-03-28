@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import logging
-from .biencoder import BiEncoderPooler, BiEncoderModel
+from .biencoder import EncoderPooler, EncoderModel
 
 logger = logging.getLogger(__name__)
 
 
-class DensePooler(BiEncoderPooler):
+class DensePooler(EncoderPooler):
     def __init__(self, input_dim: int = 768, output_dim: int = 768, tied=True):
         super(DensePooler, self).__init__()
         self.linear_q = nn.Linear(input_dim, output_dim)
@@ -26,7 +26,7 @@ class DensePooler(BiEncoderPooler):
             raise ValueError
 
 
-class DenseModel(BiEncoderModel):
+class DenseModel(EncoderModel):
     def encode_passage(self, psg):
         if psg is None:
             return None

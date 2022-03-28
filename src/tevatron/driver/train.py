@@ -12,7 +12,7 @@ from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import DenseModel
-from tevatron.trainer import BiEncoderTrainer as Trainer, GCTrainer
+from tevatron.trainer import EncoderTrainer as Trainer, GCTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)

@@ -1,12 +1,12 @@
 import torch
 import logging
 from transformers import AutoModelForMaskedLM
-from .biencoder import BiEncoderModel
+from .biencoder import EncoderModel
 
 logger = logging.getLogger(__name__)
 
 
-class SpladeModel(BiEncoderModel):
+class SpladeModel(EncoderModel):
     TRANSFORMER_CLS = AutoModelForMaskedLM
 
     def encode_passage(self, psg):

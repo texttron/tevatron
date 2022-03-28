@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import SpladeModel
-from tevatron.trainer import BiEncoderTrainer
+from tevatron.trainer import EncoderTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class SpladeTrainingArguments(TevatronTrainingArguments):
     p_flops_loss_factor: float = field(default=32)
 
 
-class SpladeTrainer(BiEncoderTrainer):
+class SpladeTrainer(EncoderTrainer):
     def __init__(self, *args, **kwargs):
         super(SpladeTrainer, self).__init__(*args, **kwargs)
 

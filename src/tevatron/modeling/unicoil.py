@@ -2,12 +2,12 @@ import torch
 from torch import Tensor, nn
 import logging
 
-from .biencoder import BiEncoderPooler, BiEncoderModel
+from .biencoder import EncoderPooler, EncoderModel
 
 logger = logging.getLogger(__name__)
 
 
-class UniCoilPooler(BiEncoderPooler):
+class UniCoilPooler(EncoderPooler):
     def __init__(self, input_dim: int = 768, tied=True):
         super(UniCoilPooler, self).__init__()
         self.linear_q = nn.Linear(input_dim, 1)
@@ -26,7 +26,7 @@ class UniCoilPooler(BiEncoderPooler):
             raise ValueError
 
 
-class UniCoilModel(BiEncoderModel):
+class UniCoilModel(EncoderModel):
     def encode_passage(self, psg):
         if psg is None:
             return None

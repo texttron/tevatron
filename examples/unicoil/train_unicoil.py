@@ -12,7 +12,7 @@ from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import UniCoilModel
-from tevatron.trainer import BiEncoderTrainer
+from tevatron.trainer import EncoderTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def main():
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
-    trainer = BiEncoderTrainer(
+    trainer = EncoderTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

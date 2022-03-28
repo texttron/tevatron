@@ -19,20 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class BiEncoderOutput(ModelOutput):
+class EncoderOutput(ModelOutput):
     q_reps: Optional[Tensor] = None
     p_reps: Optional[Tensor] = None
     loss: Optional[Tensor] = None
     scores: Optional[Tensor] = None
 
 
-class BiEncoderPooler(nn.Module):
+class EncoderPooler(nn.Module):
     def __init__(self, **kwargs):
-        super(BiEncoderPooler, self).__init__()
+        super(EncoderPooler, self).__init__()
         self._config = {}
 
     def forward(self, q_reps, p_reps):
-        raise NotImplementedError('BiEncoderPooler is an abstract class')
+        raise NotImplementedError('EncoderPooler is an abstract class')
 
     def load(self, checkpoint_dir: str):
         if checkpoint_dir is not None:
@@ -51,7 +51,7 @@ class BiEncoderPooler(nn.Module):
             json.dump(self._config, f)
 
 
-class BiEncoderModel(nn.Module):
+class EncoderModel(nn.Module):
     TRANSFORMER_CLS = AutoModel
 
     def __init__(self,
@@ -80,7 +80,7 @@ class BiEncoderModel(nn.Module):
 
         # for inference
         if q_reps is None or p_reps is None:
-            return BiEncoderOutput(
+            return EncoderOutput(
                 q_reps=q_reps,
                 p_reps=p_reps
             )
@@ -104,7 +104,7 @@ class BiEncoderModel(nn.Module):
         else:
             scores = self.compute_similarity(q_reps, p_reps)
             loss = None
-        return BiEncoderOutput(
+        return EncoderOutput(
             loss=loss,
             scores=scores,
             q_reps=q_reps,
@@ -120,10 +120,10 @@ class BiEncoderModel(nn.Module):
         return None
 
     def encode_passage(self, psg):
-        raise NotImplementedError('BiEncoderModel is an abstract class')
+        raise NotImplementedError('EncoderModel is an abstract class')
 
     def encode_query(self, qry):
-        raise NotImplementedError('BiEncoderModel is an abstract class')
+        raise NotImplementedError('EncoderModel is an abstract class')
 
     def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1))

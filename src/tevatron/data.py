@@ -8,7 +8,7 @@ from transformers import PreTrainedTokenizer, BatchEncoding, DataCollatorWithPad
 
 
 from .arguments import DataArguments
-from .trainer import BiEncoderTrainer
+from .trainer import EncoderTrainer
 
 import logging
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class TrainDataset(Dataset):
             data_args: DataArguments,
             dataset: datasets.Dataset,
             tokenizer: PreTrainedTokenizer,
-            trainer: BiEncoderTrainer = None,
+            trainer: EncoderTrainer = None,
     ):
         self.train_data = dataset
         self.tok = tokenizer
