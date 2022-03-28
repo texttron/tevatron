@@ -1,4 +1,4 @@
-from .biencoder import EncoderModel, EncoderPooler, EncoderOutput
+from .encoder import EncoderModel, EncoderPooler, EncoderOutput
 from .dense import DenseModel
 from .unicoil import UniCoilModel
 from .splade import SpladeModel
