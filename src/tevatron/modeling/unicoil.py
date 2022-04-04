@@ -2,7 +2,7 @@ import torch
 from torch import Tensor, nn
 import logging
 
-from .biencoder import EncoderPooler, EncoderModel
+from .encoder import EncoderPooler, EncoderModel
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +51,10 @@ class UniCoilModel(EncoderModel):
         tok_weights = torch.relu(tok_weights)
         tok_emb = torch.zeros(input_shape[0], input_shape[1], self.lm_p.config.vocab_size, dtype=tok_weights.dtype,
                               device=input_ids.device)
-        disabled_token_ids = [0, 101, 102, 103]  # hard code for bert for now, can pass in a tokenizer in the future
-        tok_emb[:, :, disabled_token_ids] *= 0
         tok_emb = torch.scatter(tok_emb, dim=-1, index=input_ids.unsqueeze(-1), src=tok_weights)
+        disabled_token_ids = [0, 101, 102, 103]  # hard code for bert for now, can pass in a tokenizer in the future
         tok_emb = torch.max(tok_emb, dim=1).values
+        tok_emb[:, disabled_token_ids] *= 0
         return tok_emb
 
     @staticmethod

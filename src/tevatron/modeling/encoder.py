@@ -34,12 +34,11 @@ class EncoderPooler(nn.Module):
     def forward(self, q_reps, p_reps):
         raise NotImplementedError('EncoderPooler is an abstract class')
 
-    def load(self, checkpoint_dir: str):
-        if checkpoint_dir is not None:
-            _pooler_path = os.path.join(checkpoint_dir, 'pooler.pt')
-            if os.path.exists(_pooler_path):
-                logger.info(f'Loading Pooler from {checkpoint_dir}')
-                state_dict = torch.load(os.path.join(checkpoint_dir, 'pooler.pt'), map_location='cpu')
+    def load(self, pooler_path: str):
+        if pooler_path is not None:
+            if os.path.exists(pooler_path):
+                logger.info(f'Loading Pooler from {pooler_path}')
+                state_dict = torch.load(pooler_path, map_location='cpu')
                 self.load_state_dict(state_dict)
                 return
         logger.info("Training Pooler from scratch")

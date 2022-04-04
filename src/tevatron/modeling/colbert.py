@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import logging
-from .biencoder import EncoderPooler, EncoderModel
+from .encoder import EncoderPooler, EncoderModel
 
 logger = logging.getLogger(__name__)
 

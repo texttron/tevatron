@@ -1,7 +1,7 @@
 import torch
 import logging
 from transformers import AutoModelForMaskedLM
-from .biencoder import EncoderModel
+from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
 
