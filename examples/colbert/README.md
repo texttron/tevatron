@@ -18,3 +18,7 @@ CUDA_VISIBLE_DEVICES=0 python examples/colbert/train_colbert.py \
   --logging_steps 500 \
   --overwrite_output_dir
 ```
+
+## CAVEAT
+This model has not been tested for first stage retrieval.
+We welcome PR if you tested the model.
