@@ -20,9 +20,9 @@ except ModuleNotFoundError:
     _grad_cache_available = False
 
 
-class EncoderTrainer(Trainer):
+class TevatronTrainer(Trainer):
     def __init__(self, *args, **kwargs):
-        super(EncoderTrainer, self).__init__(*args, **kwargs)
+        super(TevatronTrainer, self).__init__(*args, **kwargs)
         self._dist_loss_scale_factor = dist.get_world_size() if self.args.negatives_x_device else 1
 
     def _save(self, output_dir: Optional[str] = None):
@@ -62,7 +62,7 @@ class EncoderTrainer(Trainer):
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):
-        return super(EncoderTrainer, self).training_step(*args) / self._dist_loss_scale_factor
+        return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
 
 
 def split_dense_inputs(model_input: dict, chunk_size: int):
@@ -84,7 +84,7 @@ def get_dense_rep(x):
         return x.q_reps
 
 
-class GCTrainer(EncoderTrainer):
+class GCTrainer(TevatronTrainer):
     def __init__(self, *args, **kwargs):
         logger.info('Initializing Gradient Cache Trainer')
         if not _grad_cache_available:

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import SpladeModel
-from tevatron.trainer import EncoderTrainer
+from tevatron.trainer import TevatronTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
@@ -24,11 +24,12 @@ class SpladeTrainingArguments(TevatronTrainingArguments):
     p_flops_loss_factor: float = field(default=32)
 
 
-class SpladeTrainer(EncoderTrainer):
+class SpladeTrainer(TevatronTrainer):
     def __init__(self, *args, **kwargs):
         super(SpladeTrainer, self).__init__(*args, **kwargs)
 
-    def _flops(self, inputs):
+    @staticmethod
+    def _flops(inputs):
         return torch.sum(torch.mean(torch.abs(inputs), dim=0) ** 2)
 
     def compute_loss(self, model, inputs):
