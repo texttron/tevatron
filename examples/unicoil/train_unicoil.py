@@ -11,8 +11,8 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
-from tevatron.modeling import DenseModel
-from tevatron.trainer import TevatronTrainer as Trainer, GCTrainer
+from tevatron.modeling import UniCoilModel
+from tevatron.trainer import TevatronTrainer
 from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ def main():
         cache_dir=model_args.cache_dir,
         use_fast=False,
     )
-    model = DenseModel.build(
+    model = UniCoilModel.build(
         model_args,
         training_args,
         config=config,
@@ -80,8 +80,7 @@ def main():
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
-    trainer_cls = GCTrainer if training_args.grad_cache else Trainer
-    trainer = trainer_cls(
+    trainer = TevatronTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

@@ -1,25 +1,24 @@
 # Mr.TyDi
 
 In this example, we use dataset [Mr.TyDi](https://github.com/castorini/mr.tydi) 
-to show training dense retrieval model on non-bengali data.
+to show training dense retrieval model on non-English data.
 
 ## Dataset Preparation 
 The Mr.TyDi dataset is self contain in our toolkit based on huggingface datasets.
-The dataset name is `Tevatron/mr-tydi`. 
+The dataset name is `castorini/mr-tydi`. 
 
-Please use the format `Tevatron/mr-tydi:<language>` to access different languages during
+Please use the format `castorini/mr-tydi:<language>` to access different languages during
 training and encoding with Tevatron.
 See below for details.
 
 In the example below, we use language `bengali` as example.
 ## Train
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
   --output_dir model_mrtydi_bengali \
   --model_name_or_path bert-base-multilingual-cased \
-  --do_train \
   --save_steps 20000 \
-  --dataset_name Tevatron/mr-tydi:bengali \
+  --dataset_name castorini/mr-tydi:bengali \
   --fp16 \
   --per_device_train_batch_size 64 \
   --train_n_passages 2 \
@@ -35,26 +34,24 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 
 ## Encode Corpus
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
-  --do_encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 256 \
-  --dataset_name Tevatron/mr-tydi-corpus:bengali \
+  --dataset_name castorini/mr-tydi-corpus:bengali \
   --p_max_len 256 \
   --encoded_save_path corpus_emb.pt 
 ```
 
 ## Encode Query
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
-  --do_encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/mr-tydi:bengali/test \
+  --dataset_name castorini/mr-tydi:bengali/test \
   --encode_is_qry \
   --q_max_len 64 \
   --encoded_save_path queries_emb.pt 
