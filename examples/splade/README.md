@@ -72,13 +72,11 @@ sh $PATH_ANSERINI/target/appassembler/bin/SearchCollection -hits 1000 -paralleli
 ## Evaluate SPLADE with anserini
 
 ```
-python $PATH_ANSERINI/tools/scripts/msmarco/convert_msmarco_to_trec_qrels.py \
- --input ..coCondenser-marco/marco/qrels.dev.tsv \
- --output qrels.dev.small.trec
-
 $PATH_ANSERINI/tools/eval/trec_eval.9.0.4/trec_eval -c -M 10 -m recip_rank \
-qrels.dev.small.trec splade_result.trec
+$PATH_ANSERINI/src/main/resources/topics-and-qrels/qrels.msmarco-passage.dev-subset.txt \
+splade_result.trec
 
 $PATH_ANSERINI/tools/eval/trec_eval.9.0.4/trec_eval -c -mrecall -mmap \
-qrels.dev.small.trec splade_result.trec
+$PATH_ANSERINI/src/main/resources/topics-and-qrels/qrels.msmarco-passage.dev-subset.txt \
+splade_result.trec
 ```
