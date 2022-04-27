@@ -34,7 +34,8 @@ class EncoderPooler(nn.Module):
     def forward(self, q_reps, p_reps):
         raise NotImplementedError('EncoderPooler is an abstract class')
 
-    def load(self, pooler_path: str):
+    def load(self, model_dir: str):
+        pooler_path = os.path.join(model_dir, 'pooler.pt')
         if pooler_path is not None:
             if os.path.exists(pooler_path):
                 logger.info(f'Loading Pooler from {pooler_path}')
@@ -231,7 +232,7 @@ class EncoderModel(nn.Module):
             logger.info(f'found pooler weight and configuration')
             with open(pooler_config) as f:
                 pooler_config_dict = json.load(f)
-            pooler = cls.load_pooler(pooler_weights, **pooler_config_dict)
+            pooler = cls.load_pooler(model_name_or_path, **pooler_config_dict)
         else:
             pooler = None
 

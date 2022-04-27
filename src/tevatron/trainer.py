@@ -102,7 +102,7 @@ class GCTrainer(TevatronTrainer):
             split_input_fn=split_dense_inputs,
             get_rep_fn=get_dense_rep,
             fp16=self.args.fp16,
-            scaler=self.scaler
+            scaler=self.scaler if self.args.fp16 else None
         )
 
     def training_step(self, model, inputs) -> torch.Tensor:
