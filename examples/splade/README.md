@@ -27,7 +27,7 @@ mkdir -p encoding_splade/corpus
 mkdir -p encoding_splade/query
 for i in $(seq -f "%02g" 0 9)
 do
-python -m tevatron.driver.encode_splade \
+python encode_splade.py \
   --output_dir encoding_splade \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
@@ -37,7 +37,7 @@ python -m tevatron.driver.encode_splade \
   --encoded_save_path encoding_splade/corpus/split${i}.jsonl
 done
 
-python -m tevatron.driver.encode_splade \
+python -m encode_splade.py \
   --output_dir encoding_splade \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
