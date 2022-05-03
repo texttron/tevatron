@@ -1,27 +1,35 @@
+import json
 import logging
 import os
-import pickle
 import sys
+from contextlib import nullcontext
 
-import datasets
-import jax
 import numpy as np
-from flax.training.common_utils import shard
-from jax import pmap
-from tevatron.arguments import DataArguments
-from tevatron.arguments import TevatronTrainingArguments as TrainingArguments
-from tevatron.arguments import ModelArguments
-from tevatron.data import EncodeCollator, EncodeDataset
-from tevatron.datasets import HFQueryDataset, HFCorpusDataset
-from torch.utils.data import DataLoader
 from tqdm import tqdm
-from flax.training.train_state import TrainState
-from flax import jax_utils
-import optax
-from transformers import (AutoConfig, AutoTokenizer, FlaxAutoModel,
-                          HfArgumentParser, TensorType)
+
+import torch
+
+from torch.utils.data import DataLoader
+from transformers import AutoConfig, AutoTokenizer
+from transformers import (
+    HfArgumentParser,
+)
+
+from tevatron.arguments import ModelArguments, DataArguments, \
+    TevatronTrainingArguments as TrainingArguments
+from tevatron.data import EncodeDataset, EncodeCollator
+from tevatron.modeling import EncoderOutput, UniCoilModel
+from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
+
+
+def process_output(example):
+    indices = example.nonzero()[0]
+    values = example[indices]
+    quantized = (np.ceil(values * 100)).astype(int)
+    result = {str(i): int(v) for i, v in zip(indices, quantized)}
+    return result
 
 
 def main():
@@ -33,6 +41,9 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+
+    if training_args.local_rank > 0 or training_args.n_gpu > 1:
+        raise NotImplementedError('Multi-GPU encoding is not supported.')
 
     # Setup logging
     logging.basicConfig(
@@ -53,7 +64,11 @@ def main():
         use_fast=False,
     )
 
-    model = FlaxAutoModel.from_pretrained(model_args.model_name_or_path, config=config, from_pt=False)
+    model = UniCoilModel.load(
+        model_name_or_path=model_args.model_name_or_path,
+        config=config,
+        cache_dir=model_args.cache_dir,
+    )
 
     text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
     if data_args.encode_is_qry:
@@ -65,53 +80,50 @@ def main():
     encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
                                    tokenizer, max_len=text_max_length)
 
-    # prepare padding batch (for last nonfull batch)
-    dataset_size = len(encode_dataset)
-    padding_prefix = "padding_"
-    total_batch_size = len(jax.devices()) * training_args.per_device_eval_batch_size
-    features = list(encode_dataset.encode_data.features.keys())
-    padding_batch = {features[0]: [], features[1]: []}
-    for i in range(total_batch_size - (dataset_size % total_batch_size)):
-        padding_batch["text_id"].append(f"{padding_prefix}{i}")
-        padding_batch["text"].append([0])
-    padding_batch = datasets.Dataset.from_dict(padding_batch)
-    encode_dataset.encode_data = datasets.concatenate_datasets([encode_dataset.encode_data, padding_batch])
-
     encode_loader = DataLoader(
         encode_dataset,
-        batch_size=training_args.per_device_eval_batch_size * len(jax.devices()),
+        batch_size=training_args.per_device_eval_batch_size,
         collate_fn=EncodeCollator(
             tokenizer,
             max_length=text_max_length,
-            padding='max_length',
-            pad_to_multiple_of=16,
-            return_tensors=TensorType.NUMPY,
+            padding='max_length'
         ),
         shuffle=False,
         drop_last=False,
         num_workers=training_args.dataloader_num_workers,
     )
-
-    # craft a fake state for now to replicate on devices
-    adamw = optax.adamw(0.0001)
-    state = TrainState.create(apply_fn=model.__call__, params=model.params, tx=adamw)
-
-    def encode_step(batch, state):
-        embedding = state.apply_fn(**batch, params=state.params, train=False)[0]
-        return embedding[:, 0]
-
-    p_encode_step = pmap(encode_step)
-    state = jax_utils.replicate(state)
-
     encoded = []
     lookup_indices = []
+    model = model.to(training_args.device)
+    model.eval()
 
     for (batch_ids, batch) in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
-        batch_embeddings = p_encode_step(shard(batch.data), state)
-        encoded.extend(np.concatenate(batch_embeddings, axis=0))
-    with open(data_args.encoded_save_path, 'wb') as f:
-        pickle.dump((encoded[:dataset_size], lookup_indices[:dataset_size]), f)
+        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+            with torch.no_grad():
+                for k, v in batch.items():
+                    batch[k] = v.to(training_args.device)
+                if data_args.encode_is_qry:
+                    model_output: EncoderOutput = model(query=batch)
+                    output = model_output.q_reps.cpu().detach().numpy()
+                else:
+                    model_output: EncoderOutput = model(passage=batch)
+                    output = model_output.p_reps.cpu().detach().numpy()
+        encoded += list(map(process_output, output))
+
+    if data_args.encode_is_qry:
+        with open(data_args.encoded_save_path, 'w') as f:
+            for docid, vector in zip(lookup_indices, encoded):
+                topic_str = []
+                for token in vector:
+                    topic_str += [token] * vector[token]
+                topic_str = " ".join(topic_str)
+                f.write(f'{docid}\t{topic_str}\n')
+
+    else:
+        with open(data_args.encoded_save_path, 'w') as f:
+            for docid, vector in zip(lookup_indices, encoded):
+                f.write(json.dumps({"id": docid, "contents": "", "vector": vector})+"\n")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
+import json
 
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
@@ -18,7 +19,7 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.modeling import EncoderOutput, DenseModel
+from tevatron.modeling import EncoderOutput, SpladeModel
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def main():
         use_fast=False,
     )
 
-    model = DenseModel.load(
+    model = SpladeModel.load(
         model_name_or_path=model_args.model_name_or_path,
         config=config,
         cache_dir=model_args.cache_dir,
@@ -88,6 +89,9 @@ def main():
     lookup_indices = []
     model = model.to(training_args.device)
     model.eval()
+    vocab_dict = tokenizer.get_vocab()
+    vocab_dict = {v: k for k, v in vocab_dict.items()}
+    collection_file = open(data_args.encoded_save_path, "w")
 
     for (batch_ids, batch) in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
@@ -97,15 +101,35 @@ def main():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:
                     model_output: EncoderOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu().detach().numpy())
+                    reps = model_output.q_reps.cpu().detach().numpy()
                 else:
                     model_output: EncoderOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu().detach().numpy())
+                    reps = model_output.p_reps.cpu().detach().numpy()
+                for rep, id_ in zip(reps, batch_ids):
+                    idx = np.nonzero(rep)
+                    # then extract values:
+                    data = rep[idx]
+                    data = np.rint(data * 100).astype(int)
+                    dict_splade = dict()
+                    for id_token, value_token in zip(idx[0],data):
+                        if value_token > 0:
+                            real_token = vocab_dict[id_token]
+                            dict_splade[real_token] = int(value_token)
+                    if len(dict_splade.keys()) == 0:
+                        print("empty input =>", id_)
+                        dict_splade[vocab_dict[998]] = 1  # in case of empty doc we fill with "[unused993]" token (just to fill
+                        # and avoid issues with anserini), in practice happens just a few times ...
+                    if not data_args.encode_is_qry:
+                        dict_ = dict(id=id_, content="", vector=dict_splade)
+                        json_dict = json.dumps(dict_)  
+                        collection_file.write(json_dict + "\n")
+                    else:
+                        string_splade = " ".join(
+                            [" ".join([str(real_token)] * freq) for real_token, freq in dict_splade.items()])
+                        collection_file.write(str(id_) + "\t" + string_splade + "\n")
+    collection_file.close()
 
-    encoded = np.concatenate(encoded)
 
-    with open(data_args.encoded_save_path, 'wb') as f:
-        pickle.dump((encoded, lookup_indices), f)
 
 
 if __name__ == "__main__":

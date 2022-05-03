@@ -49,6 +49,18 @@ pip install .
 ## Examples
 In the `/examples` folder, we provided full pipeline instructions for various IR/QA tasks.
 
+## Citation
+If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).
+```
+@article{Gao2022TevatronAE,
+  title={Tevatron: An Efficient and Flexible Toolkit for Dense Retrieval},
+  author={Luyu Gao and Xueguang Ma and Jimmy J. Lin and Jamie Callan},
+  journal={ArXiv},
+  year={2022},
+  volume={abs/2203.05765}
+}
+```
+
 ## Contacts
 If you have a toolkit specific question, feel free to open an issue. 
 

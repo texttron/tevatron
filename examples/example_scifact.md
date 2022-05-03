@@ -1,6 +1,6 @@
 # SciFact
 
-We use SciFact example to show how to train dense retrieval in the "research" way by using `run.py`
+SciFact is a small datasets that users can use it quickly develop and test dense retriever models.
 
 > Note: Different from original [SciFact](https://github.com/allenai/scifact) task that focus on Fact Verification, we focus on the retrieval stage, 
 and consider a document as relevant to a claim if it appears in `cited_doc_ids`. 
@@ -11,10 +11,9 @@ The dataset name is `Tevatron/scifact`, see below for details.
 
 ## Train
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
-  --output_dir scifact_model_e80_64x2 \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+  --output_dir model_scifact \
   --model_name_or_path bert-base-uncased \
-  --do_train \
   --save_steps 20000 \
   --dataset_name Tevatron/scifact \
   --fp16 \
@@ -32,10 +31,9 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 
 ## Encode Corpus
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
-  --do_encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
   --output_dir=temp_out \
-  --model_name_or_path scifact_model_e80_64x2 \
+  --model_name_or_path model_scifact \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/scifact-corpus \
@@ -46,9 +44,8 @@ CUDA_VISIBLE_DEVICES=0 python run.py \
 ## Encode Query
 ```bash
 CUDA_VISIBLE_DEVICES=0 python run.py \
-  --do_encode \
   --output_dir=temp_out \
-  --model_name_or_path scifact_model_e80_64x2 \
+  --model_name_or_path model_scifact \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/scifact/dev \
@@ -74,7 +71,7 @@ Download qrels
 wget https://www.dropbox.com/s/lpq8mfynqzsuyy5/dev_qrels.txt
 ```
 
-Evaluate
+Evaluate with Pyserini (`pip install pyserini`)
 ```bash
 python -m tevatron.utils.format.convert_result_to_trec --input run.scifact.dev.txt --output run.scifact.dev.trec
 python -m pyserini.eval.trec_eval -c -mrecip_rank -mndcg_cut.10 dev_qrels.txt run.scifact.dev.trec
