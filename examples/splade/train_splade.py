@@ -40,7 +40,7 @@ class SpladeTrainer(TevatronTrainer):
         p_reps = output.p_reps
         loss = output.loss
         q_flops_loss = self.args.q_flops_loss_factor*self._flops(q_reps)
-        p_flops_loss = self.args.q_flops_loss_factor*self._flops(p_reps)
+        p_flops_loss = self.args.p_flops_loss_factor*self._flops(p_reps)
         if self.args.negatives_x_device:
             q_flops_loss *= self.world_size
             p_flops_loss *= self.world_size
