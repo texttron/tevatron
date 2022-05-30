@@ -52,8 +52,7 @@ def main():
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        use_fast=False,
+        cache_dir=model_args.cache_dir
     )
 
     model = DenseModel.load(

@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 
+import torch
 from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
@@ -66,8 +67,7 @@ def main():
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        use_fast=False,
+        cache_dir=model_args.cache_dir
     )
     model = DenseModel.build(
         model_args,
@@ -78,7 +78,13 @@ def main():
 
     train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+    if training_args.local_rank > 0:
+        print("Waiting for main process to perform the mapping")
+        torch.distributed.barrier()
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
+    if training_args.local_rank == 0:
+        print("Loading results from main process")
+        torch.distributed.barrier()
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
     trainer = trainer_cls(

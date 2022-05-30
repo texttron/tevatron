@@ -2,6 +2,7 @@ import numpy as np
 import faiss
 
 import logging
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class BaseFaissIPRetriever:
         num_query = q_reps.shape[0]
         all_scores = []
         all_indices = []
-        for start_idx in range(0, num_query, batch_size):
+        for start_idx in tqdm(range(0, num_query, batch_size)):
             nn_scores, nn_indices = self.search(q_reps[start_idx: start_idx + batch_size], k)
             all_scores.append(nn_scores)
             all_indices.append(nn_indices)
