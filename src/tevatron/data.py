@@ -30,7 +30,7 @@ class TrainDataset(Dataset):
         self.total_len = len(self.train_data)
 
     def create_one_example(self, text_encoding: List[int], is_query=False):
-        item = self.tok.encode_plus(
+        item = self.tok.prepare_for_model(
             text_encoding,
             truncation='only_first',
             max_length=self.data_args.q_max_len if is_query else self.data_args.p_max_len,
@@ -95,7 +95,7 @@ class EncodeDataset(Dataset):
 
     def __getitem__(self, item) -> Tuple[str, BatchEncoding]:
         text_id, text = (self.encode_data[item][f] for f in self.input_keys)
-        encoded_text = self.tok.encode_plus(
+        encoded_text = self.tok.prepare_for_model(
             text,
             max_length=self.max_len,
             truncation='only_first',

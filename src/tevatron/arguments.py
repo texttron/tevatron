@@ -99,12 +99,15 @@ class DataArguments:
             self.dataset_split = 'train'
             self.dataset_language = 'default'
         if self.train_dir is not None:
-            files = os.listdir(self.train_dir)
-            self.train_path = [
-                os.path.join(self.train_dir, f)
-                for f in files
-                if f.endswith('jsonl') or f.endswith('json')
-            ]
+            if os.path.isdir(self.train_dir):
+                files = os.listdir(self.train_dir)
+                self.train_path = [
+                    os.path.join(self.train_dir, f)
+                    for f in files
+                    if f.endswith('jsonl') or f.endswith('json')
+                ]
+            else:
+                self.train_path = [self.train_dir]
         else:
             self.train_path = None
 
