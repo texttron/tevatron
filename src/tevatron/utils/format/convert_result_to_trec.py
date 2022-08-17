@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument('--input', type=str, required=True)
 parser.add_argument('--output', type=str, required=True)
+parser.add_argument('--remove_query', action='store_true')
 args = parser.parse_args()
 
 with open(args.input) as f_in, open(args.output, 'w') as f_out:
@@ -13,5 +14,7 @@ with open(args.input) as f_in, open(args.output, 'w') as f_out:
         if cur_qid != qid:
             cur_qid = qid
             rank = 0
-        rank += 1
+        if args.remove_query and qid == docid:
+            continue
+        rank += 1      
         f_out.write(f'{qid} Q0 {docid} {rank} {score} dense\n')
