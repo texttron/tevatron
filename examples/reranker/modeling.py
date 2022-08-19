@@ -28,10 +28,11 @@ class RerankerModel(nn.Module):
         self.hf_model = hf_model
         self.train_batch_size = train_batch_size
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
-        self.register_buffer(
-            'target_label',
-            torch.zeros(self.train_batch_size, dtype=torch.long)
-        )
+        if train_batch_size:
+            self.register_buffer(
+                'target_label',
+                torch.zeros(self.train_batch_size, dtype=torch.long)
+            )
 
     def forward(self, pair: Dict[str, Tensor] = None):
         ranker_logits = self.hf_model(**pair, return_dict=True).logits

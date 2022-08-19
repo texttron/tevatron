@@ -1,3 +1,4 @@
+from cgitb import text
 import random
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -66,13 +67,14 @@ class RerankerTrainDataset(Dataset):
         return encoded_pairs
 
 
-class RerankerEncodeDataset(Dataset):
+class RerankerInferenceDataset(Dataset):
     input_keys = ['query_id', 'query', 'text_id', 'text']
 
-    def __init__(self, dataset: datasets.Dataset, tokenizer: PreTrainedTokenizer, max_len=128):
+    def __init__(self, dataset: datasets.Dataset, tokenizer: PreTrainedTokenizer, max_q_len=32, max_p_len=256):
         self.encode_data = dataset
         self.tok = tokenizer
-        self.max_len = max_len
+        self.max_q_len = max_q_len
+        self.max_p_len = max_p_len
 
     def __len__(self):
         return len(self.encode_data)
@@ -82,7 +84,7 @@ class RerankerEncodeDataset(Dataset):
         encoded_pair = self.tok.prepare_for_model(
             query,
             text,
-            max_length=self.max_len,
+            max_length=self.max_q_len + self.max_p_len,
             truncation='only_first',
             padding=False,
             return_token_type_ids=True,
@@ -106,6 +108,7 @@ class RerankerTrainCollator(DataCollatorWithPadding):
         )
         return pair_collated
 
+
 @dataclass
 class RerankerInferenceCollator(DataCollatorWithPadding):
     def __call__(self, features):
@@ -114,3 +117,51 @@ class RerankerInferenceCollator(DataCollatorWithPadding):
         text_features = [x[2] for x in features]
         collated_features = super().__call__(text_features)
         return query_ids, text_ids, collated_features
+
+
+class RerankPreProcessor:
+    def __init__(self, tokenizer, query_max_length=32, text_max_length=256, separator=' '):
+        self.tokenizer = tokenizer
+        self.query_max_length = query_max_length
+        self.text_max_length = text_max_length
+        self.separator = separator
+
+    def __call__(self, example):
+        example = example
+        query = self.tokenizer.encode(example['query'],
+                                      add_special_tokens=False,
+                                      max_length=self.query_max_length,
+                                      truncation=True)
+        
+        text = example['title'] + self.separator + example['text'] if 'title' in example else example['text']
+        encoded_passages = self.tokenizer.encode(text,
+                                            add_special_tokens=False,
+                                            max_length=self.text_max_length,
+                                            truncation=True)
+        return {'query_id': example['query_id'], 'query': query, 'text_id': example['docid'], 'text': encoded_passages}
+
+class HFRerankDataset:
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
+        data_files = data_args.encode_in_path
+        if data_files:
+            data_files = {data_args.dataset_split: data_files}
+        self.dataset = datasets.load_dataset(data_args.dataset_name,
+                                    data_args.dataset_language,
+                                    data_files=data_files, cache_dir=cache_dir)[data_args.dataset_split]
+        self.preprocessor = None if data_args.dataset_name == "json" else RerankPreProcessor
+        self.tokenizer = tokenizer
+        self.q_max_len = data_args.q_max_len
+        self.p_max_len = data_args.p_max_len
+        self.proc_num = data_args.dataset_proc_num
+        self.separator = getattr(self.tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
+
+    def process(self, shard_num=1, shard_idx=0):
+        self.dataset = self.dataset.shard(shard_num, shard_idx)
+        if self.preprocessor is not None:
+            self.dataset = self.dataset.map(
+                self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len, self.separator),
+                num_proc=self.proc_num,
+                remove_columns=self.dataset.column_names,
+                desc="Running tokenizer on train dataset",
+            )
+        return self.dataset
