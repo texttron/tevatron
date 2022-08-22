@@ -148,7 +148,7 @@ class HFRerankDataset:
         self.dataset = datasets.load_dataset(data_args.dataset_name,
                                     data_args.dataset_language,
                                     data_files=data_files, cache_dir=cache_dir)[data_args.dataset_split]
-        self.preprocessor = None if data_args.dataset_name == "json" else RerankPreProcessor
+        self.preprocessor = RerankPreProcessor
         self.tokenizer = tokenizer
         self.q_max_len = data_args.q_max_len
         self.p_max_len = data_args.p_max_len

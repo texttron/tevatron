@@ -8,22 +8,26 @@ logger = logging.getLogger(__name__)
 
 
 class DensePooler(EncoderPooler):
-    def __init__(self, input_dim: int = 768, output_dim: int = 768, tied=True):
+    def __init__(self, input_dim: int = 768, output_dim: int = 768, tied=True, normalize=False):
         super(DensePooler, self).__init__()
+        self.normalize = normalize
         self.linear_q = nn.Linear(input_dim, output_dim)
         if tied:
             self.linear_p = self.linear_q
         else:
             self.linear_p = nn.Linear(input_dim, output_dim)
-        self._config = {'input_dim': input_dim, 'output_dim': output_dim, 'tied': tied}
+        self._config = {'input_dim': input_dim, 'output_dim': output_dim, 'tied': tied, 'normalize': normalize}
 
     def forward(self, q: Tensor = None, p: Tensor = None, **kwargs):
         if q is not None:
-            return self.linear_q(q[:, 0])
+            rep = self.linear_q(q[:, 0])
         elif p is not None:
-            return self.linear_p(p[:, 0])
+            rep =  self.linear_p(p[:, 0])
         else:
             raise ValueError
+        if self.normalize:
+            rep = nn.functional.normalize(rep, dim=-1)
+        return rep
 
 
 class DenseModel(EncoderModel):
@@ -63,7 +67,8 @@ class DenseModel(EncoderModel):
         pooler = DensePooler(
             model_args.projection_in_dim,
             model_args.projection_out_dim,
-            tied=not model_args.untie_encoder
+            tied=not model_args.untie_encoder,
+            normalize=model_args.normalize
         )
         pooler.load(model_args.model_name_or_path)
         return pooler

@@ -8,27 +8,27 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
-from modeling import RerankerModel
 
-from tevatron.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
-from tevatron.reranker.data import RerankerTrainDataset, RerankerTrainCollator
-from tevatron.reranker.trainer import RerankerTrainer
-from tevatron.datasets import HFTrainDataset
+from tevatron.arguments import DataArguments
+from tevatron.modeling import DenseModel
+from tevatron.reranker.modeling import RerankerModel
+from tevatron.distillation.data import DistilTrainDataset, DistilTrainCollator, HFDistilTrainDataset
+from tevatron.distillation.trainer import DistilTrainer
+from tevatron.distillation.arguments import DistilModelArguments, DistilTrainingArguments
 
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
+    parser = HfArgumentParser((DistilModelArguments, DataArguments, DistilTrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-        model_args: ModelArguments
+        model_args: DistilModelArguments
         data_args: DataArguments
-        training_args: TrainingArguments
+        training_args: DistilTrainingArguments
 
     if (
             os.path.exists(training_args.output_dir)
@@ -69,29 +69,49 @@ def main():
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir
     )
-    model = RerankerModel.build(
+    model = DenseModel.build(
         model_args,
         training_args,
         config=config,
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
+    teacher_config = AutoConfig.from_pretrained(
+        model_args.teacher_config_name if model_args.teacher_config_name else model_args.teacher_model_name_or_path,
+        num_labels=num_labels,
+        cache_dir=model_args.cache_dir,
+    )
+    teacher_tokenizer = AutoTokenizer.from_pretrained(
+        model_args.teacher_tokenizer_name if model_args.teacher_tokenizer_name else model_args.teacher_model_name_or_path,
+        cache_dir=model_args.cache_dir,
+    )
+    teacher_model = RerankerModel.load(
+        model_name_or_path=model_args.teacher_model_name_or_path,
+        config=teacher_config,
+        cache_dir=model_args.cache_dir,
+    
+    )
+    teacher_model.to(training_args.device)
+    teacher_model.eval()
+
+    train_dataset = HFDistilTrainDataset(student_tokenizer=tokenizer, teacher_tokenizer=teacher_tokenizer, data_args=data_args,
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     if training_args.local_rank > 0:
         print("Waiting for main process to perform the mapping")
         torch.distributed.barrier()
-    train_dataset = RerankerTrainDataset(data_args, train_dataset.process(), tokenizer)
+    train_dataset = DistilTrainDataset(data_args, train_dataset.process(), tokenizer, teacher_tokenizer)
     if training_args.local_rank == 0:
         print("Loading results from main process")
         torch.distributed.barrier()
 
-    trainer = RerankerTrainer(
+    trainer = DistilTrainer(
+        teacher_model=teacher_model,
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=RerankerTrainCollator(
+        data_collator=DistilTrainCollator(
             tokenizer,
+            teacher_tokenizer=teacher_tokenizer,
             max_p_len=data_args.p_max_len,
             max_q_len=data_args.q_max_len
         ),

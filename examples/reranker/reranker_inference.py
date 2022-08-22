@@ -15,8 +15,8 @@ from transformers import AutoConfig, AutoTokenizer
 from transformers import (
     HfArgumentParser,
 )
-from data import HFRerankDataset, RerankerInferenceDataset, RerankerInferenceCollator
-from modeling import RerankerModel
+from tevatron.reranker.data import HFRerankDataset, RerankerInferenceDataset, RerankerInferenceCollator
+from tevatron.reranker.modeling import RerankerModel
 
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
