@@ -35,7 +35,7 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-        model_args: ModelArgumentsr
+        model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
 
