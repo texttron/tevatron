@@ -21,6 +21,11 @@ from tevatron.data import EncodeDataset, EncodeCollator
 from tevatron.modeling import EncoderOutput, DenseModel
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
+
+
+import onnxruntime as ort
+from deepsparse import compile_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +35,7 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-        model_args: ModelArguments
+        model_args: ModelArgumentsr
         data_args: DataArguments
         training_args: TrainingArguments
 
@@ -54,12 +59,16 @@ def main():
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir
     )
-
-    model = DenseModel.load(
-        model_name_or_path=model_args.model_name_or_path,
-        config=config,
-        cache_dir=model_args.cache_dir,
-    )
+    if training_args.use_deep_sparse:
+        engine = compile_model(training_args.onnx_filepath, training_args.per_device_eval_batch_size)
+    elif training_args.use_onnx:
+        engine = ort.InferenceSession(training_args.onnx_filepath)
+    else:
+        model = DenseModel.load(
+            model_name_or_path=model_args.model_name_or_path,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
 
     text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
     if data_args.encode_is_qry:
@@ -94,12 +103,23 @@ def main():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
+                ort_inputs = {'input_ids':  batch['input_ids'].detach().cpu().reshape(1, training_args.max_seq_length_onnx).numpy(),'attention_mask': batch['attention_mask'].cpu().reshape(1, training_args.max_seq_length_onnx).numpy(),}
                 if data_args.encode_is_qry:
-                    model_output: EncoderOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu().detach().numpy())
+                    if training_args.use_deep_sparse:
+                        encoded.append(engine.run( [ort_inputs['input_ids'], ort_inputs['attention_mask']])[0])
+                    elif training_args.use_onnx:
+                        encoded.append(engine.run(None, ort_inputs)[0][:,0])
+                    else:
+                        model_output: EncoderOutput = model(query=batch)
+                        encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
-                    model_output: EncoderOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu().detach().numpy())
+                    if training_args.use_deep_sparse:
+                        encoded.append(engine.run( [ort_inputs['input_ids'], ort_inputs['attention_mask']])[0])
+                    elif training_args.use_onnx:
+                        encoded.append(engine.run(None, ort_inputs)[0][:,0])
+                    else:
+                        model_output: EncoderOutput = model(passage=batch)
+                        encoded.append(model_output.p_reps.cpu().detach().numpy())
 
     encoded = np.concatenate(encoded)
 
