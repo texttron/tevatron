@@ -86,3 +86,5 @@ Following results can be reproduced by following the instructions above:
 recip_rank              all     0.6130
 recall_100              all     0.9144
 ```
+## Reproduction Log
++ Results reproduced by [@Jasonwu-0803](https://github.com/Jasonwu-0803) on 2022-09-27 (commit [`b8f3390`](https://github.com/texttron/tevatron/commit/b8f33900895930f9886012580e85464a5c1f7e9a))
