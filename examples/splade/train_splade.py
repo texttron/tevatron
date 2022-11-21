@@ -27,7 +27,8 @@ class SpladeTrainingArguments(TevatronTrainingArguments):
 class SpladeTrainer(TevatronTrainer):
     def __init__(self, *args, **kwargs):
         super(SpladeTrainer, self).__init__(*args, **kwargs)
-        self.world_size = torch.dist.get_world_size()
+        if self.args.negatives_x_device:    
+            self.world_size = torch.dist.get_world_size()
 
     @staticmethod
     def _flops(inputs):
