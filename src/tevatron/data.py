@@ -1,6 +1,7 @@
 import random
 from dataclasses import dataclass
 from typing import List, Tuple
+import pickle
 
 import datasets
 from torch.utils.data import Dataset
@@ -29,6 +30,32 @@ class TrainDataset(Dataset):
         self.data_args = data_args
         self.total_len = len(self.train_data)
 
+        qid2score = pickle.load(open("qid2score_by_doc_fiqa.pkl", "rb"))
+
+        def add_score(example):
+            example["score"] = qid2score[example['query_id']]
+            return example
+
+        train_dataset_raw = self.train_data.map(add_score)
+        train_dataset_raw = train_dataset_raw.sort('score')
+
+        train_dataset_segments = []
+        score_segments = [0.03, 0.08, 1]
+        score_segments_i = 0
+        pre_i = 0
+        for i in range(len(train_dataset_raw)):
+            if train_dataset_raw[i]['score'] > score_segments[score_segments_i]:
+                train_dataset_segments.append(train_dataset_raw[pre_i:i])
+                score_segments_i += 1
+                pre_i = i
+        train_dataset_segments.append(train_dataset_raw[pre_i:])
+        print([len(d['query_id']) for d in train_dataset_segments])
+        self.train_dataset_segments = train_dataset_segments
+        logger.info(f"  Total number of training data segments     = {len(self.train_dataset_segments)}")
+
+    def set_segment(self, segment_idx):
+        self.train_data = self.train_dataset_segments[segment_idx]
+
     def create_one_example(self, text_encoding: List[int], is_query=False):
         item = self.tok.prepare_for_model(
             text_encoding,
@@ -41,10 +68,10 @@ class TrainDataset(Dataset):
         return item
 
     def __len__(self):
-        return self.total_len
+        return len(self.train_data['query_id'])
 
     def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
-        group = self.train_data[item]
+        group = {key:self.train_data[key][item] for key in self.train_data}
         epoch = int(self.trainer.state.epoch)
 
         _hashed_seed = hash(item + self.trainer.args.seed)
