@@ -101,6 +101,8 @@ class DataArguments:
         if self.train_dir is not None:
             if os.path.isdir(self.train_dir):
                 files = os.listdir(self.train_dir)
+                # change all train directory paths to absolute
+                self.train_dir = os.path.join(os.path.abspath(os.getcwd()), self.train_dir)
                 self.train_path = [
                     os.path.join(self.train_dir, f)
                     for f in files
