@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES=0 python train_splade.py \
 
 ## Encode SPLADE 
 
-Considering that data has been preprocessed following the coCondenser-marco example, SPLADE encoding can be done as follows:
+SPLADE encoding can be done as follows:
 
 ```bash
 mkdir -p encoding_splade/corpus
@@ -33,7 +33,9 @@ python encode_splade.py \
   --tokenizer_name bert-base-uncased \
   --fp16 \
   --per_device_eval_batch_size 512 \
-  --encode_in_path ../coCondenser-marco/marco/bert/corpus/split${i}.json \
+  --dataset_name Tevatron/msmarco-passage-corpus \
+  --encode_num_shard 10 \
+  --encode_shard_index ${i} \
   --encoded_save_path encoding_splade/corpus/split${i}.jsonl
 done
 
@@ -45,7 +47,7 @@ python -m encode_splade.py \
   --q_max_len 128 \
   --encode_is_qry \
   --per_device_eval_batch_size 128 \
-  --encode_in_path ../coCondenser-marco/marco/bert/query/dev.query.json \
+  --dataset_name Tevatron/msmarco-passage/dev \
   --encoded_save_path encoding_splade/query/dev.tsv
 ```
 
@@ -80,3 +82,35 @@ $PATH_ANSERINI/tools/eval/trec_eval.9.0.4/trec_eval -c -mrecall -mmap \
 $PATH_ANSERINI/src/main/resources/topics-and-qrels/qrels.msmarco-passage.dev-subset.txt \
 splade_result.trec
 ```
+
+## Index SPLADE with pyserini
+In the following, we consider that [pyserini](https://github.com/castorini/pyserini) is installed (`pip install pyserini`).
+```
+python -m pyserini.index.lucene \
+  --collection JsonVectorCollection \
+  --input encoding_splade/corpus \
+  --index splade_anserini_index \
+  --generator DefaultLuceneDocumentGenerator \
+  --threads 16 \
+  --impact --pretokenized
+```
+
+## Retrieve SPLADE with pyserini
+
+```
+ python -m pyserini.search.lucene \
+  --index splade_anserini_index \
+  --topics encoding_splade/query/dev.tsv \
+  --output splade_results.tsv \
+  --output-format msmarco \
+  --batch 36 --threads 32 \
+  --hits 1000 \
+  --impact
+```
+
+## Evaluate SPLADE with pyserini
+
+```
+python -m pyserini.eval.msmarco_passage_eval msmarco-passage-dev-subset splade_results.tsv
+```
+By following this doc, we are able to train a SPLADE for MS MARCO passage ranking task with MRR@10: 0.355
