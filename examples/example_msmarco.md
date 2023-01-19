@@ -78,3 +78,6 @@ python -m pyserini.eval.msmarco_passage_eval msmarco-passage-dev-subset rank.txt
 
 By following this doc, we are able to train a dense retriever for MS MARCO passage ranking
 task with `MRR@10: 0.322`
+
+## Reproduction Log
++ Results reproduced by [@Jasonwu-0803](https://github.com/Jasonwu-0803) on 2022-09-27 (commit [`b8f3390`](https://github.com/texttron/tevatron/commit/b8f33900895930f9886012580e85464a5c1f7e9a))
