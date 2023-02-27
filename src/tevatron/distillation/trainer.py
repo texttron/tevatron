@@ -17,6 +17,9 @@ class DistilTrainer(Trainer):
         super(DistilTrainer, self).__init__(*args, **kwargs)
         self.teacher_model = teacher_model
         self._dist_loss_scale_factor = dist.get_world_size() if self.args.negatives_x_device else 1
+        if self.args.negatives_x_device:
+            self.world_size = dist.get_world_size()
+            self.process_rank = dist.get_rank()
 
     def _save(self, output_dir: Optional[str] = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -65,7 +68,7 @@ class DistilTrainer(Trainer):
                                     index=index.view(student_scores.size(0), -1), 
                                     src=teacher_scores)
         student_scores = nn.functional.log_softmax(student_scores / self.args.student_temp, dim=1)
-        loss = nn.functional.kl_div(student_scores, teacher_mat, reduction='batchmean')
+        loss = nn.functional.kl_div(student_scores, teacher_mat, reduction='batchmean') * self._dist_loss_scale_factor
         return loss
 
 

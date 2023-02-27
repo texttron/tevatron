@@ -8,10 +8,10 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
-from modeling import RerankerModel
-
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
+
+from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.data import RerankerTrainDataset, RerankerTrainCollator
 from tevatron.reranker.trainer import RerankerTrainer
 from tevatron.datasets import HFTrainDataset
