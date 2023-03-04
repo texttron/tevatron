@@ -101,7 +101,7 @@ def main():
         pos_psgs = [p['title'] + " " + p['text'] for p in example['positive_passages']]
         neg_psgs = [p['title'] + " " + p['text'] for p in example['negative_passages']]
 
-        example['query_input_ids'] = dict(tokenize(query, max_length=32))
+        example['query_input_ids'] = dict(tokenize(query, max_length=data_args.q_max_len))
         example['pos_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.p_max_len)) for x in pos_psgs]
         example['neg_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.p_max_len)) for x in neg_psgs]
 
