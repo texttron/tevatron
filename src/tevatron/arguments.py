@@ -41,6 +41,10 @@ class ModelArguments:
         },
     )
 
+    # peft 
+    peft: bool = field(default=False)
+    peft_model_name_or_path: str = field(default=None)
+
 
 @dataclass
 class DataArguments:
