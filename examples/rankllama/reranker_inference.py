@@ -20,13 +20,11 @@ from tevatron.arguments import ModelArguments, DataArguments, \
 from data import HFRerankDataset, RerankerInferenceDataset, RerankerInferenceCollator
 from modeling import RerankerModel
 
-from utils import replace_with_xformers_attention
 logger = logging.getLogger(__name__)
 
 
 def main():
-    replace_with_xformers_attention()
-    
+
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))

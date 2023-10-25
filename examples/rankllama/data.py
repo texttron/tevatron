@@ -28,9 +28,10 @@ class RerankerInferenceDataset(Dataset):
 
     def __getitem__(self, item) -> Tuple[str, BatchEncoding]:
         query_id, query, text_id, text = (self.encode_data[item][f] for f in self.input_keys)
+        # different from self.tok(), it doesn't prepend bos_token_id.
         encoded_pair = self.tok.prepare_for_model(
-            query,
-            text,
+            [self.tok.bos_token_id] + query,
+            [self.tok.bos_token_id] + text,
             max_length=self.max_q_len + self.max_p_len,
             truncation='only_first',
             padding=False,
@@ -46,7 +47,6 @@ class RerankerInferenceCollator(DataCollatorWithPadding):
         text_ids = [x[1] for x in features]
         text_features = [x[2] for x in features]
         collated_features = super().__call__(text_features)
-        print(collated_features)
         return query_ids, text_ids, collated_features
 
 
