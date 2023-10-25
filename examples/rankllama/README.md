@@ -56,3 +56,14 @@ python -m pyserini.eval.trec_eval -c -m ndcg_cut.10 dl19-passage run.rankllama.p
 Results:
 ndcg_cut_10             all     0.7568
 ```
+
+
+### Citation
+```
+@article{rankllama,
+      title={Fine-Tuning LLaMA for Multi-Stage Text Retrieval}, 
+      author={Xueguang Ma and Liang Wang and Nan Yang and Furu Wei and Jimmy Lin},
+      year={2023},
+      journal={arXiv:2310.08319},
+}
+```
