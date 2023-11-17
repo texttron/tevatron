@@ -43,6 +43,8 @@ retrieval_results = read_result(args.retrieval_results)
 
 with open(args.output_path, 'w') as f:
     for qid in tqdm(retrieval_results):
+        if qid not in query_id_map:
+            continue
         query = query_id_map[qid]
         pid_and_scores = retrieval_results[qid]
         for item in pid_and_scores[:args.depth]:

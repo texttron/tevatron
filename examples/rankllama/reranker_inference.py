@@ -21,10 +21,10 @@ from data import HFRerankDataset, RerankerInferenceDataset, RerankerInferenceCol
 from modeling import RerankerModel
 
 logger = logging.getLogger(__name__)
-
+from utils import replace_with_xformers_attention
 
 def main():
-
+    replace_with_xformers_attention()
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
