@@ -7,7 +7,7 @@ from .encoder import EncoderPooler, EncoderModel
 logger = logging.getLogger(__name__)
 
 
-class DensePooler(EncoderPooler):
+class DensePooler(EncoderPooler): # Believed to be NOT used!
     def __init__(self, input_dim: int = 768, output_dim: int = 768, tied=True, normalize=False):
         super(DensePooler, self).__init__()
         self.normalize = normalize
@@ -18,7 +18,7 @@ class DensePooler(EncoderPooler):
             self.linear_p = nn.Linear(input_dim, output_dim)
         self._config = {'input_dim': input_dim, 'output_dim': output_dim, 'tied': tied, 'normalize': normalize}
 
-    def forward(self, q: Tensor = None, p: Tensor = None, **kwargs):
+    def forward(self, q: Tensor = None, p: Tensor = None, **kwargs): # model input 시 사용.
         if q is not None:
             rep = self.linear_q(q[:, 0])
         elif p is not None:
@@ -31,14 +31,14 @@ class DensePooler(EncoderPooler):
 
 
 class DenseModel(EncoderModel):
-    def encode_passage(self, psg):
+    def encode_passage(self, psg): # passage를 받아서 representation을 만듦
         if psg is None:
             return None
         psg_out = self.lm_p(**psg, return_dict=True)
         p_hidden = psg_out.last_hidden_state
         if self.pooler is not None:
             p_reps = self.pooler(p=p_hidden)  # D * d
-        else:
+        else: #selected
             p_reps = p_hidden[:, 0]
         return p_reps
 
@@ -49,7 +49,7 @@ class DenseModel(EncoderModel):
         q_hidden = qry_out.last_hidden_state
         if self.pooler is not None:
             q_reps = self.pooler(q=q_hidden)
-        else:
+        else: #selected
             q_reps = q_hidden[:, 0]
         return q_reps
 
