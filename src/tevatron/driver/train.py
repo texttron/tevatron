@@ -15,16 +15,23 @@ from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import DenseModel
 from tevatron.trainer import TevatronTrainer as Trainer, GCTrainer
 from tevatron.datasets import HFTrainDataset
+import torch.distributed as dist
+
 
 logger = logging.getLogger(__name__)
-
+def init_distributed_mode(training_args):
+    if training_args.local_rank == -1:
+        # Single-process, single-device training
+        return
+    dist.init_process_group(backend="nccl")
+    torch.cuda.set_device(training_args.local_rank)
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
+    else: # selected
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
         data_args: DataArguments
@@ -65,10 +72,12 @@ def main():
         num_labels=num_labels,
         cache_dir=model_args.cache_dir,
     )
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained( # model_args.model_name_or_path에 있는 모델을 가져오는 것 같음
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir
-    )
+    ) 
+    # print ("model_args: ", model_args)
+    # print ("training_args: ", training_args)
     model = DenseModel.build(
         model_args,
         training_args,
@@ -78,6 +87,8 @@ def main():
 
     train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+    init_distributed_mode(training_args)
+
     if training_args.local_rank > 0:
         print("Waiting for main process to perform the mapping")
         torch.distributed.barrier()
@@ -97,7 +108,7 @@ def main():
             max_q_len=data_args.q_max_len
         ),
     )
-    train_dataset.trainer = trainer
+    train_dataset.trainer = trainer    
 
     trainer.train()  # TODO: resume training
     trainer.save_model()

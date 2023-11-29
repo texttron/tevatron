@@ -4,7 +4,7 @@ __pycache__/
 output*/
 marco/
 encoding/
-examples/coCondenser-marco/marco
+examples/coCondenser-marco/
 *.tsv
 *.tar.gz
 *.sh

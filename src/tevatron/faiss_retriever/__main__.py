@@ -18,6 +18,7 @@ logging.basicConfig(
 
 
 def search_queries(retriever, q_reps, p_lookup, args):
+    logger.info ("called search_queries")
     if args.batch_size > 0:
         all_scores, all_indices = retriever.batch_search(q_reps, args.depth, args.batch_size, args.quiet)
     else:
@@ -78,6 +79,7 @@ def main():
     q_reps = q_reps
 
     logger.info('Index Search Start')
+    logger.info ('Trying to call search_queries')
     all_scores, psg_indices = search_queries(retriever, q_reps, look_up, args)
     logger.info('Index Search Finished')
 
