@@ -4,7 +4,8 @@ __pycache__/
 output*/
 marco/
 encoding/
-examples/coCondenser-marco/
+examples/coCondenser-marco/*
+!examples/coCondenser-marco/build_train_hn.py
 *.tsv
 *.tar.gz
 *.sh

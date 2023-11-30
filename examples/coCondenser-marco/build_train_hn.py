@@ -45,7 +45,7 @@ parser.add_argument('--collection', required=True)
 parser.add_argument('--save_to', required=True)
 
 parser.add_argument('--truncate', type=int, default=128)
-parser.add_argument('--n_sample', type=int, default=30)
+parser.add_argument('--n_sample', type=int, default=63)
 parser.add_argument('--depth', type=int, default=200)
 parser.add_argument('--mp_chunk_size', type=int, default=500)
 parser.add_argument('--shard_size', type=int, default=45000)
