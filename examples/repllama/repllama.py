@@ -48,7 +48,7 @@ class RepLLaMA(EncoderModel):
 
 
     def compute_similarity(self, q_reps, p_reps):
-        return torch.matmul(q_reps, p_reps.transpose(0, 1))
+        return torch.matmul(q_reps, p_reps.transpose(0, 1)) / 0.01
     
     def gradient_checkpointing_enable(self):
         self.lm_q.base_model.gradient_checkpointing_enable()

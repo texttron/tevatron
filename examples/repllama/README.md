@@ -72,7 +72,7 @@ deepspeed --include localhost:0,1,2,3 train.py \
   --deepspeed ds_config.json \
   --output_dir model_repllama \
   --model_name_or_path meta-llama/Llama-2-7b-hf \
-  --save_steps 20 \
+  --save_steps 200 \
   --dataset_name Tevatron/msmarco-passage \
   --bf16 \
   --per_device_train_batch_size 8 \
@@ -86,7 +86,8 @@ deepspeed --include localhost:0,1,2,3 train.py \
   --logging_steps 10 \
   --overwrite_output_dir \
   --dataset_proc_num 32 \
-  --negatives_x_device
+  --negatives_x_device \
+  --warmup_steps 100
 ```
 
 
