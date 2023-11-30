@@ -9,7 +9,6 @@ from torch import nn, Tensor
 import torch.distributed as dist
 from transformers import PreTrainedModel, AutoModel
 from transformers.file_utils import ModelOutput
-
 from tevatron.arguments import ModelArguments, \
     TevatronTrainingArguments as TrainingArguments
 
@@ -72,6 +71,8 @@ class EncoderModel(nn.Module):
         # pooler was None
         self.lm_q = lm_q
         self.lm_p = lm_p
+        self.original_lm_q =  copy.deepcopy(lm_q)
+        self.original_lm_p =  copy.deepcopy(lm_p)
         self.pooler = pooler
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.negatives_x_device = negatives_x_device
@@ -87,8 +88,8 @@ class EncoderModel(nn.Module):
         self.num_layers = num_layers
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.extend_multi_transformerencoderlayer = torch.nn.TransformerEncoderLayer(self.embed_dim, self.num_heads, batch_first = True, dim_feedforward=3072).to(self.device)
-        # if args.identity_bert: # was default(false) in hard-nce-el
-        #     self.extend_multi_transformerencoderlayer = IdentityInitializedTransformerEncoderLayer(self.embed_dim, self.num_heads, args = args).to(self.device)
+        # if args.identity_bert: # was default(true) in hard-nce-el
+        #self.extend_multi_transformerencoderlayer = IdentityInitializedTransformerEncoderLayer(self.embed_dim, self.num_heads, args = args).to(self.device) #TODO: AttributeError!
         self.extend_multi_transformerencoder = torch.nn.TransformerEncoder(self.extend_multi_transformerencoderlayer, self.num_layers).to(self.device)
 
 
@@ -97,9 +98,22 @@ class EncoderModel(nn.Module):
         # passage's 'input_ids' have shape [128, 128] : seems like batch size is 128 in encoding
 
         q_reps = self.encode_query(query) # torch.Size([128, 768]) in encoding, [8, 768] in training
-        p_reps = self.encode_passage(passage) # torch.Size([128, 768]) in encoding, [64, 768] in training
+        p_reps = self.encode_passage(passage) # torch.Size([128, 768]) in encoding, [240, 768] in training
 
-        #TODO!!!: query 1개당 64개에 대한
+        # with open('debugoutput.txt', 'w') as f:
+        #     # Redirect the print output to the file for each print statement
+        #     print("query: ", file=f)
+        #     print(query, file=f)
+        #     print("passage: ", file=f)
+        #     print(passage, file=f)
+        #     print("q_reps size: ", q_reps.size(), file=f)
+        #     print("p_reps size: ", p_reps.size(), file=f)
+        #     print("q_reps: ", file=f)
+        #     print(q_reps, file=f)
+        #     print("p_reps: ", file=f)
+        #     print(p_reps, file=f)
+
+        # raise Exception("debugging")
 
         # for inference
         if q_reps is None or p_reps is None: # just for encoding either passage or query, iterating batches
@@ -121,12 +135,24 @@ class EncoderModel(nn.Module):
             #scores = self.compute_similarity(q_reps, p_reps)
             scores = scores.view(q_reps.size(0), -1)
             # probably ground truth # seems like same index of query and passage is positive
-            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-            target = target * (p_reps.size(0) // q_reps.size(0))
+            # since I changed the scores to [8, 30], gold label is zero index.
+            target = torch.zeros(scores.size(0), device=scores.device, dtype=torch.long)
             #print("target", target)
 
-            loss = self.compute_loss(scores, target) # currently uses cross entropy
+            # cross-entropy loss
+            student_loss = self.compute_loss(scores, target) 
 
+            original_q_reps = self.original_encode_query(query)
+            original_p_reps = self.original_encode_passage(passage)
+
+            teacher_scores = self.compute_subset_similarity(original_q_reps, original_p_reps) #TODO: 어떻게 score를 낼지?
+
+            # distillation loss
+            teacher_loss = distillation_loss(scores, teacher_scores) 
+            
+            #TODO: if args, set alpha
+            alpha = 0.5
+            loss = alpha*student_loss + (1-alpha)*teacher_loss
             if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval, model.eval
@@ -156,6 +182,25 @@ class EncoderModel(nn.Module):
 
     def compute_similarity(self, q_reps, p_reps): # dot product
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
+
+    def compute_subset_similarity(self, q_reps, p_reps): # for KL divergence, teacher score should be also computed by chunks
+        num_queries = q_reps.size(0)
+        chunk_size = p_reps.size(0) // q_reps.size(0)  # Number of passages per query
+        similarities = []
+
+        for i in range(num_queries):
+            # Get the relevant passages for the current query
+            start_idx = i * chunk_size
+            end_idx = start_idx + chunk_size
+            relevant_p_reps = p_reps[start_idx:end_idx]
+
+            # Compute similarity for the current query and its corresponding passages
+            sim = self.compute_similarity(q_reps[i].unsqueeze(0), relevant_p_reps)
+            similarities.append(sim)
+
+        # Concatenate to get a final tensor of shape [8, 30]
+        return torch.cat(similarities, dim=0)
+
 
     def compute_loss(self, scores, target):
         #print("scores", scores.shape)
@@ -201,7 +246,7 @@ class EncoderModel(nn.Module):
                     _psg_model_path,
                     **hf_kwargs
                 )
-            else: #selected #TODO: use BertModel instead of coCondenser..?
+            else: #selected 
                 lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         # load pre-trained
@@ -275,7 +320,8 @@ class EncoderModel(nn.Module):
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler,
-            untie_encoder=untie_encoder
+            negatives_x_device=train_args.negatives_x_device,
+            untie_encoder=model_args.untie_encoder
         )
         return model
 
@@ -298,16 +344,16 @@ class EncoderModel(nn.Module):
 
         # make xs as tensor of q_reps of size [8, 1, 768], when q_reps has size of [8, 768]
         xs = q_reps.unsqueeze(dim=1)
-        # make ys as tensor of p_reps
-        # each matrix p_reps is repeated
-        ys = p_reps.unsqueeze(dim=0).repeat(batch_size, 1, 1)
+        # make ys as tensor of p_reps of size [8, 30, 768], when p_reps has size of [240, 768], so that one query vector is concatenated with corresponding 30 passage vectors
+        ys = p_reps.view(batch_size, -1, self.embed_dim)
 
-        input = torch.cat([xs, ys], dim = 1) # concatenate mention and entity embeddings
+        input = torch.cat([xs, ys], dim = 1) # concatenate mention and entity embeddings, should be size [8, 31, 64]
         # Take concatenated tensor as the input for transformer encoder
         attention_result = self.extend_multi_transformerencoder(input)
         # Get score from dot product
         scores = torch.bmm(attention_result[:,0,:].unsqueeze(1), attention_result[:,1:,:].transpose(2,1))
-        scores = scores.squeeze(-2)
+        scores = scores.squeeze(-2) # size [8, 30]
+
         return scores
 
 
@@ -321,11 +367,12 @@ class IdentityInitializedTransformerEncoderLayer(torch.nn.Module):
             "cuda" if torch.cuda.is_available() else "cpu"
         )  
         self.args = args
-        self.encoder_layer = torch.nn.TransformerEncoderLayer(d_model, n_head, batch_first = self.args.batch_first)
-        if self.args.fixed_initial_weight:
-            self.weight = torch.tensor([0.]).to(self.device)
-        else:
-            self.weight = nn.Parameter(torch.tensor([-5.], requires_grad = True))
+        # TODO: get real args!!!            
+        self.encoder_layer = torch.nn.TransformerEncoderLayer(d_model, n_head, batch_first = True)
+        #if self.args.fixed_initial_weight:
+        #    self.weight = torch.tensor([0.]).to(self.device)
+        #else:
+        self.weight = nn.Parameter(torch.tensor([-5.], requires_grad = True))
             
     def forward(self,src, src_mask=None, src_key_padding_mask=None, is_causal = False):
         out1 = self.encoder_layer(src, src_mask, src_key_padding_mask) # For Lower Torch Version
@@ -335,3 +382,27 @@ class IdentityInitializedTransformerEncoderLayer(torch.nn.Module):
         return out
 
 
+
+
+# Distillation loss function 
+def distillation_loss(student_outputs, teacher_outputs, temperature = 1):
+    ## Inputs
+    # student_outputs (torch.tensor): score distribution from the model trained
+    # teacher_outputs (torch.tensor): score distribution from the teacher model
+    # labels (torch.tensor): gold for given instance
+    # alpha (float): weight b/w two loss terms -> moved to forward function
+    # temperature (flost): softmac temperature
+    ## Outputs
+    # teacher_loss (torch.tensor): KL-divergence b/w student and teacher model's score distribution
+
+    # Teacher loss is obtained by KL divergence
+    device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+    if teacher_outputs is not None:
+        #teacher_outputs = teacher_outputs[:,:student_outputs.size(1)].to(device
+        teacher_loss = nn.KLDivLoss(reduction='batchmean')(nn.functional.log_softmax(student_outputs/temperature, dim=1),
+                              nn.functional.softmax(teacher_outputs/temperature, dim=1))
+    else: 
+        teacher_loss = torch.tensor([0.]).to(device)
+    return teacher_loss

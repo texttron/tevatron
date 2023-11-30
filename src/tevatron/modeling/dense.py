@@ -53,6 +53,28 @@ class DenseModel(EncoderModel):
             q_reps = q_hidden[:, 0]
         return q_reps
 
+    def original_encode_passage(self, psg): 
+        if psg is None:
+            return None
+        psg_out = self.original_lm_p(**psg, return_dict=True)
+        p_hidden = psg_out.last_hidden_state
+        if self.pooler is not None:
+            p_reps = self.pooler(p=p_hidden)  # D * d
+        else: #selected
+            p_reps = p_hidden[:, 0]
+        return p_reps
+
+    def original_encode_query(self, qry):
+        if qry is None:
+            return None
+        qry_out = self.original_lm_q(**qry, return_dict=True)
+        q_hidden = qry_out.last_hidden_state
+        if self.pooler is not None:
+            q_reps = self.pooler(q=q_hidden)
+        else: #selected
+            q_reps = q_hidden[:, 0]
+        return q_reps
+
     def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
 
