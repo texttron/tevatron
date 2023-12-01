@@ -53,7 +53,7 @@ class DenseModel(EncoderModel):
             q_reps = q_hidden[:, 0]
         return q_reps
 
-    def original_encode_passage(self, psg): 
+    def original_encode_positive_passage(self, psg): 
         if psg is None:
             return None
         psg_out = self.original_lm_p(**psg, return_dict=True)

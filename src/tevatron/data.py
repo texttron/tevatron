@@ -43,7 +43,7 @@ class TrainDataset(Dataset):
     def __len__(self):
         return self.total_len
 
-    def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
+    def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding], List[BatchEncoding], List[float]]:
         group = self.train_data[item]
         epoch = int(self.trainer.state.epoch)
 
@@ -53,33 +53,56 @@ class TrainDataset(Dataset):
         encoded_query = self.create_one_example(qry, is_query=True)
 
         encoded_passages = []
+        encoded_positive_passages = []
         group_positives = group['positives']
         group_negatives = group['negatives']
+        neg_scores = group['neg_score']
+
 
         if self.data_args.positive_passage_no_shuffle:
             pos_psg = group_positives[0]
         else:
             pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
-        encoded_passages.append(self.create_one_example(pos_psg))
+        pos_psg_out = self.create_one_example(pos_psg)
+        encoded_positive_passages.append(pos_psg_out)
+        encoded_passages.append(pos_psg_out)
+
 
         negative_size = self.data_args.train_n_passages - 1
+        # if len(group_negatives) < negative_size:
+        #     negs = random.choices(group_negatives, k=negative_size)
+        # elif self.data_args.train_n_passages == 1:
+        #     negs = []
+        # elif self.data_args.negative_passage_no_shuffle:
+        #     negs = group_negatives[:negative_size]
+        # else:
+        #     _offset = epoch * negative_size % len(group_negatives)
+        #     negs = [x for x in group_negatives]
+        #     random.Random(_hashed_seed).shuffle(negs)
+        #     negs = negs * 2
+        #     negs = negs[_offset: _offset + negative_size]
+
+        # for neg_psg in negs:
+        #     encoded_passages.append(self.create_one_example(neg_psg))
+
         if len(group_negatives) < negative_size:
-            negs = random.choices(group_negatives, k=negative_size)
+            neg_indices = random.choices(range(len(group_negatives)), k=negative_size)
         elif self.data_args.train_n_passages == 1:
-            negs = []
+            neg_indices = []
         elif self.data_args.negative_passage_no_shuffle:
-            negs = group_negatives[:negative_size]
+            neg_indices = list(range(negative_size))
         else:
             _offset = epoch * negative_size % len(group_negatives)
-            negs = [x for x in group_negatives]
-            random.Random(_hashed_seed).shuffle(negs)
-            negs = negs * 2
-            negs = negs[_offset: _offset + negative_size]
+            neg_indices = list(range(len(group_negatives)))
+            random.Random(_hashed_seed).shuffle(neg_indices)
+            neg_indices = (neg_indices * 2)[_offset: _offset + negative_size]
 
-        for neg_psg in negs:
+        selected_neg_scores = [neg_scores[i] for i in neg_indices]
+        for neg_index in neg_indices:
+            neg_psg = group_negatives[neg_index]
             encoded_passages.append(self.create_one_example(neg_psg))
 
-        return encoded_query, encoded_passages
+        return encoded_query, encoded_passages, encoded_positive_passages, selected_neg_scores
 
 
 class EncodeDataset(Dataset):

@@ -87,13 +87,13 @@ class EncoderModel(nn.Module):
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.extend_multi_transformerencoderlayer = torch.nn.TransformerEncoderLayer(self.embed_dim, self.num_heads, batch_first = True, dim_feedforward=3072).to(self.device)
-        # if args.identity_bert: # was default(true) in hard-nce-el
-        #self.extend_multi_transformerencoderlayer = IdentityInitializedTransformerEncoderLayer(self.embed_dim, self.num_heads, args = args).to(self.device) #TODO: AttributeError!
+        #self.extend_multi_transformerencoderlayer = torch.nn.TransformerEncoderLayer(self.embed_dim, self.num_heads, batch_first = True, dim_feedforward=3072).to(self.device)
+        #if args.identity_bert: # was true in hard-nce-el
+        self.extend_multi_transformerencoderlayer = IdentityInitializedTransformerEncoderLayer(self.embed_dim, self.num_heads, args = args).to(self.device) #TODO: AttributeError!
         self.extend_multi_transformerencoder = torch.nn.TransformerEncoder(self.extend_multi_transformerencoderlayer, self.num_layers).to(self.device)
 
 
-    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
+    def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None, positive_passage: Dict[str, Tensor] = None, neg_score: Tensor = None):
         # query's 'input_ids' have shape [128, 32] : seems like batch size is 128 in encoding
         # passage's 'input_ids' have shape [128, 128] : seems like batch size is 128 in encoding
 
@@ -142,10 +142,19 @@ class EncoderModel(nn.Module):
             # cross-entropy loss
             student_loss = self.compute_loss(scores, target) 
 
-            original_q_reps = self.original_encode_query(query)
-            original_p_reps = self.original_encode_passage(passage)
+            # compute teacher scores
+            original_q_reps = self.original_encode_query(query) #torch tensor [8, 768] 
+            original_positive_p_reps = self.original_encode_passage(positive_passage) #torch [8, 768]
+            original_positive_scores = self.compute_positive_similarity(original_q_reps, original_positive_p_reps)
+            original_neg_scores = neg_scores # list of [8,63]
+            print("org_pos_reps size ", original_positive_p_reps.size())
+            print("org_pos_scores size ", original_positive_scores.size())
+            print("org_neg_scores size ", original_neg_scores.size())
 
-            teacher_scores = self.compute_subset_similarity(original_q_reps, original_p_reps) #TODO: 어떻게 score를 낼지?
+            #TODO: make teacher_scores of torch tensor [8, 64]. Per query, Add one corresponding positive_score in front of 63 neg_scores
+            teacher_scores = torch.cat([original_positive_scores, original_neg_scores], dim = 1) # [8, 64]
+
+            raise Exception("encoder")
 
             # distillation loss
             teacher_loss = distillation_loss(scores, teacher_scores) 
@@ -153,6 +162,9 @@ class EncoderModel(nn.Module):
             #TODO: if args, set alpha
             alpha = 0.5
             loss = alpha*student_loss + (1-alpha)*teacher_loss
+
+            print("loss ", loss)
+            raise Exception("debugging encoder")
             if self.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval, model.eval
@@ -183,23 +195,20 @@ class EncoderModel(nn.Module):
     def compute_similarity(self, q_reps, p_reps): # dot product
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
 
-    def compute_subset_similarity(self, q_reps, p_reps): # for KL divergence, teacher score should be also computed by chunks
+    def compute_positive_similarity(self, q_reps, positive_p_reps): # for KL divergence, teacher score should be also computed by chunks
         num_queries = q_reps.size(0)
-        chunk_size = p_reps.size(0) // q_reps.size(0)  # Number of passages per query
         similarities = []
 
+        # only append similarity of ith element of q_reps and ith element of positive_p_reps
         for i in range(num_queries):
-            # Get the relevant passages for the current query
-            start_idx = i * chunk_size
-            end_idx = start_idx + chunk_size
-            relevant_p_reps = p_reps[start_idx:end_idx]
+            # Compute similarity for each query and its corresponding positive passage
+            similarity = torch.matmul(q_reps[i].unsqueeze(0), positive_p_reps[i].unsqueeze(1))
+            similarities.append(similarity)
 
-            # Compute similarity for the current query and its corresponding passages
-            sim = self.compute_similarity(q_reps[i].unsqueeze(0), relevant_p_reps)
-            similarities.append(sim)
+        # Convert list of tensors to a single tensor
+        similarities = torch.cat(similarities, dim=0)
+        return similarities.squeeze()
 
-        # Concatenate to get a final tensor of shape [8, 30]
-        return torch.cat(similarities, dim=0)
 
 
     def compute_loss(self, scores, target):

@@ -1,4 +1,4 @@
-class TrainPreProcessor:
+class TrainPreProcessor: #TODO?
     def __init__(self, tokenizer, query_max_length=32, text_max_length=256, separator=' '):
         self.tokenizer = tokenizer
         self.query_max_length = query_max_length
@@ -6,6 +6,7 @@ class TrainPreProcessor:
         self.separator = separator
 
     def __call__(self, example):
+        print("example ", example)
         query = self.tokenizer.encode(example['query'],
                                       add_special_tokens=False,
                                       max_length=self.query_max_length,

@@ -7,35 +7,46 @@ from datetime import datetime
 from multiprocessing import Pool
 from tevatron.preprocessor import MarcoPassageTrainPreProcessor as TrainPreProcessor
 
-
 def load_ranking(rank_file, relevance, n_sample, depth):
     with open(rank_file) as rf:
         lines = iter(rf)
-        q_0, p_0, _ = next(lines).strip().split()
+        q_0, p_0, score_0 = next(lines).strip().split()
 
         curr_q = q_0
-        negatives = [] if p_0 in relevance[q_0] else [p_0]
+        neg_candidates = [] if p_0 in relevance[q_0] else [(p_0, float(score_0))]
 
         while True:
             try:
-                q, p, _ = next(lines).strip().split()
+                q, p, score = next(lines).strip().split()
                 if q != curr_q:
-                    negatives = negatives[:depth]
-                    random.shuffle(negatives)
-                    yield curr_q, relevance[curr_q], negatives[:n_sample]
+                    neg_candidates = neg_candidates[:depth]
+                    random.shuffle(neg_candidates)
+
+                    # Extract passages and scores
+                    neg_passages, neg_scores = zip(*neg_candidates[:n_sample]) if neg_candidates else ([], [])
+
+                    yield curr_q, relevance[curr_q], list(neg_passages), list(neg_scores)
                     curr_q = q
-                    negatives = [] if p in relevance[q] else [p]
+                    neg_candidates = [] if p in relevance[q] else [(p, float(score))]
                 else:
                     if p not in relevance[q]:
-                        negatives.append(p)
+                        #negatives.append(p)
+                        neg_candidates.append((p, float(score)))
+                        
             except StopIteration:
-                negatives = negatives[:depth]
-                random.shuffle(negatives)
-                yield curr_q, relevance[curr_q], negatives[:n_sample]
+                neg_candidates = neg_candidates[:depth]
+                random.shuffle(neg_candidates)
+
+                # Extract passages and scores
+                neg_passages, neg_scores = zip(*neg_candidates[:n_sample]) if neg_candidates else ([], [])
+
+                yield curr_q, relevance[curr_q], list(neg_passages), list(neg_scores)
+
                 return
 
 
-random.seed(datetime.now())
+#random.seed(datetime.now())
+random.seed()
 parser = ArgumentParser()
 parser.add_argument('--tokenizer_name', required=True)
 parser.add_argument('--hn_file', required=True)

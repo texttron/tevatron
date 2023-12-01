@@ -73,11 +73,12 @@ class SimpleTrainPreProcessor:
         return passage_encoded
 
     def process_one(self, train):
-        q, pp, nn = train
+        q, pp, nn, neg_score = train
         train_example = {
             'query': self.get_query(q),
             'positives': [self.get_passage(p) for p in pp],
             'negatives': [self.get_passage(n) for n in nn],
+            'neg_score': neg_score,
         }
 
         return json.dumps(train_example)
