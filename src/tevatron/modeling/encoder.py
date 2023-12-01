@@ -182,6 +182,17 @@ class EncoderModel(nn.Module):
         else:
             pooler = None
 
+        ## if peft is enabled wrap the model with PEFT
+        if model_args.peft:
+            from peft import get_peft_model, LoraConfig, TaskType
+            peft_config = LoraConfig(task_type="Embedding", inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
+            if model_args.untie_encoder:
+                lm_q = get_peft_model(lm_q, peft_config)
+                lm_p = get_peft_model(lm_p, peft_config)
+            else:
+                lm_q = get_peft_model(lm_q, peft_config)
+                lm_p = lm_q
+            lm_q.print_trainable_parameters()
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
@@ -216,10 +227,20 @@ class EncoderModel(nn.Module):
                 )
                 untie_encoder = False
             else:
-                logger.info(f'try loading tied weight')
-                logger.info(f'loading model weight from {model_name_or_path}')
-                lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
-                lm_p = lm_q
+                # if file adapter_model in the model_name_or_path, load it
+                if os.path.exists(os.path.join(model_name_or_path, 'adapter_model.bin')):
+                    logger.info(f'found adapter_model.bin, loading it')
+                    from peft import PeftConfig, PeftModel
+                    peft_config = PeftConfig.from_pretrained(model_name_or_path)
+                    inference_model = cls.TRANSFORMER_CLS.from_pretrained(peft_config.base_model_name_or_path)
+                    inference_model = PeftModel.from_pretrained(inference_model, model_name_or_path)
+                    lm_q = inference_model
+                    lm_p = lm_q
+                else:
+                    logger.info(f'try loading tied weight')
+                    logger.info(f'loading model weight from {model_name_or_path}')
+                    lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+                    lm_p = lm_q
         else:
             logger.info(f'try loading tied weight')
             logger.info(f'loading model weight from {model_name_or_path}')
