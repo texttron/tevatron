@@ -2,8 +2,7 @@ import logging
 import os
 import sys
 
-import torch
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoTokenizer
 from transformers import (
     HfArgumentParser,
     set_seed,
@@ -11,10 +10,10 @@ from transformers import (
 
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.data import TrainDataset, QPCollator
+from tevatron.dataset import TrainDataset
+from tevatron.collator import TrainCollator
 from tevatron.modeling import DenseModel
 from tevatron.trainer import TevatronTrainer as Trainer, GCTrainer
-from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
 
@@ -59,43 +58,26 @@ def main():
 
     set_seed(training_args.seed)
 
-    num_labels = 1
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=num_labels,
-        cache_dir=model_args.cache_dir,
-    )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir
-    )
-    model = DenseModel.build(
-        model_args,
-        training_args,
-        config=config,
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
-                                   cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    if training_args.local_rank > 0:
-        print("Waiting for main process to perform the mapping")
-        torch.distributed.barrier()
-    train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
-    if training_args.local_rank == 0:
-        print("Loading results from main process")
-        torch.distributed.barrier()
+    model = DenseModel.build(
+        model_args,
+        training_args,
+        cache_dir=model_args.cache_dir,
+    )
+
+    train_dataset = TrainDataset(data_args)
+    collator = TrainCollator(data_args, tokenizer)
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
     trainer = trainer_cls(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=QPCollator(
-            tokenizer,
-            max_p_len=data_args.p_max_len,
-            max_q_len=data_args.q_max_len
-        ),
+        data_collator=collator
     )
     train_dataset.trainer = trainer
 

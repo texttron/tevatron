@@ -43,72 +43,81 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    train_dir: str = field(
-        default=None, metadata={"help": "Path to train directory"}
-    )
     dataset_name: str = field(
-        default=None, metadata={"help": "huggingface dataset name"}
+        default='json', metadata={"help": "huggingface dataset name"}
     )
-    passage_field_separator: str = field(default=' ')
-    dataset_proc_num: int = field(
-        default=12, metadata={"help": "number of proc used in dataset preprocess"}
+
+    dataset_config: str = field(
+        default=None, metadata={"help": "huggingface dataset config, useful for datasets with sub-datasets"}
     )
-    train_n_passages: int = field(default=8)
+
+    dataset_path: str = field(
+        default=None, metadata={"help": "Path to local data files or directory"}
+    )
+
+    dataset_split: str = field(
+        default='train', metadata={"help": "dataset split"}
+    )
+
+    dataset_cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+    )
+
+    dataset_number_of_shards: int = field(
+        default=1, metadata={"help": "number of shards to split the dataset into"}
+    )
+
+    dataset_shard_index: int = field(
+        default=0, metadata={"help": "shard index to use, to be used with dataset_number_of_shards"}
+    )
+
+    train_group_size: int = field(
+        default=8, metadata={"help": "number of passages used to train for each query"}
+    )
+
     positive_passage_no_shuffle: bool = field(
-        default=False, metadata={"help": "always use the first positive passage"})
+        default=False, metadata={"help": "always use the first positive passage for training"})
     negative_passage_no_shuffle: bool = field(
-        default=False, metadata={"help": "always use the first negative passages"})
+        default=False, metadata={"help": "always use the first n negative passages for training"})
 
-    encode_in_path: List[str] = field(default=None, metadata={"help": "Path to data to encode"})
-    encoded_save_path: str = field(default=None, metadata={"help": "where to save the encode"})
-    encode_is_qry: bool = field(default=False)
-    encode_num_shard: int = field(default=1)
-    encode_shard_index: int = field(default=0)
+    encode_is_query: bool = field(default=False)
+    encode_output_path: str = field(default=None, metadata={"help": "where to save the encode"})
 
-    q_max_len: int = field(
+
+    query_max_len: Optional[int] = field(
         default=32,
         metadata={
             "help": "The maximum total input sequence length after tokenization for query. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."
         },
     )
-    p_max_len: int = field(
+    passage_max_len: Optional[int] = field(
         default=128,
         metadata={
             "help": "The maximum total input sequence length after tokenization for passage. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."
         },
     )
-    data_cache_dir: Optional[str] = field(
-        default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+
+    query_prefix: str = field(
+        default='', metadata={"help": "prefix or instruction for query"}
     )
 
-    def __post_init__(self):
-        if self.dataset_name is not None:
-            info = self.dataset_name.split('/')
-            self.dataset_split = info[-1] if len(info) == 3 else 'train'
-            self.dataset_name = "/".join(info[:-1]) if len(info) == 3 else '/'.join(info)
-            self.dataset_language = 'default'
-            if ':' in self.dataset_name:
-                self.dataset_name, self.dataset_language = self.dataset_name.split(':')
-        else:
-            self.dataset_name = 'json'
-            self.dataset_split = 'train'
-            self.dataset_language = 'default'
-        if self.train_dir is not None:
-            if os.path.isdir(self.train_dir):
-                files = os.listdir(self.train_dir)
-                # change all train directory paths to absolute
-                self.train_dir = os.path.join(os.path.abspath(os.getcwd()), self.train_dir)
-                self.train_path = [
-                    os.path.join(self.train_dir, f)
-                    for f in files
-                    if f.endswith('jsonl') or f.endswith('json')
-                ]
-            else:
-                self.train_path = [self.train_dir]
-        else:
-            self.train_path = None
+    passage_prefix: str = field(
+        default='', metadata={"help": "prefix or instruction for passage"}
+    )
+
+    append_eos_token: bool = field(
+        default=False, metadata={"help": "append eos token to query and passage, this is currently used for repllama"}
+    )
+
+    pad_to_multiple_of: Optional[int] = field(
+        default=16,
+        metadata={
+            "help": "If set will pad the sequence to a multiple of the provided value. This is especially useful to "
+                    "enable the use of Tensor Cores on NVIDIA hardware with compute capability >= 7.5 (Volta)."
+        },
+    )
 
 
 @dataclass

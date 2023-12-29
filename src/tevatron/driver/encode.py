@@ -10,16 +10,16 @@ from tqdm import tqdm
 import torch
 
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoTokenizer
 from transformers import (
     HfArgumentParser,
 )
 
 from tevatron.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.data import EncodeDataset, EncodeCollator
+from tevatron.dataset import EncodeDataset
+from tevatron.collator import EncodeCollator
 from tevatron.modeling import EncoderOutput, DenseModel
-from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +44,7 @@ def main():
         level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
     )
 
-    num_labels = 1
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=num_labels,
-        cache_dir=model_args.cache_dir,
-    )
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir
@@ -57,28 +52,22 @@ def main():
 
     model = DenseModel.load(
         model_name_or_path=model_args.model_name_or_path,
-        config=config,
         cache_dir=model_args.cache_dir,
     )
 
-    text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_is_qry:
-        encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args,
-                                        cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    else:
-        encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args,
-                                         cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
-                                   tokenizer, max_len=text_max_length)
+    encode_dataset = EncodeDataset(
+        data_args=data_args,
+    )
+
+    encode_collator = EncodeCollator(
+        data_args=data_args,
+        tokenizer=tokenizer,
+    )
 
     encode_loader = DataLoader(
         encode_dataset,
         batch_size=training_args.per_device_eval_batch_size,
-        collate_fn=EncodeCollator(
-            tokenizer,
-            max_length=text_max_length,
-            padding='max_length'
-        ),
+        collate_fn=encode_collator,
         shuffle=False,
         drop_last=False,
         num_workers=training_args.dataloader_num_workers,
@@ -94,7 +83,7 @@ def main():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
-                if data_args.encode_is_qry:
+                if data_args.encode_is_query:
                     model_output: EncoderOutput = model(query=batch)
                     encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
@@ -103,7 +92,7 @@ def main():
 
     encoded = np.concatenate(encoded)
 
-    with open(data_args.encoded_save_path, 'wb') as f:
+    with open(data_args.encode_output_path, 'wb') as f:
         pickle.dump((encoded, lookup_indices), f)
 
 
