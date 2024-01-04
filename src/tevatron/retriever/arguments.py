@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional
 from transformers import TrainingArguments
 
 
@@ -25,10 +25,10 @@ class ModelArguments:
         metadata={"help": "no weight sharing between qry passage encoders"}
     )
 
-    # out projection
-    add_pooler: bool = field(default=False)
-    projection_in_dim: int = field(default=768)
-    projection_out_dim: int = field(default=768)
+    pooling: str = field(
+        default='cls',
+        metadata={"help": "pooling method for query and passage encoder"}
+    )
     normalize: bool = field(default=False)
 
     # for Jax training
@@ -123,8 +123,6 @@ class DataArguments:
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):
     warmup_ratio: float = field(default=0.1)
-    negatives_x_device: bool = field(default=False, metadata={"help": "share negatives across devices"})
-    do_encode: bool = field(default=False, metadata={"help": "run the encoding loop"})
 
     grad_cache: bool = field(default=False, metadata={"help": "Use gradient cache update"})
     gc_q_chunk_size: int = field(default=4)

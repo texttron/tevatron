@@ -6,9 +6,8 @@ import torch
 from torch import nn, Tensor
 from transformers import AutoModelForSequenceClassification, PreTrainedModel
 from transformers.file_utils import ModelOutput
-
-from tevatron.arguments import ModelArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from transformers import TrainingArguments
+from tevatron.reranker.arguments import ModelArguments
 
 import logging
 
@@ -23,7 +22,7 @@ class RerankerOutput(ModelOutput):
 class RerankerModel(nn.Module):
     TRANSFORMER_CLS = AutoModelForSequenceClassification
 
-    def __init__(self, hf_model: PreTrainedModel, train_batch_size: int=None):
+    def __init__(self, hf_model: PreTrainedModel, train_batch_size: int = None):
         super().__init__()
         self.hf_model = hf_model
         self.train_batch_size = train_batch_size
@@ -58,27 +57,12 @@ class RerankerModel(nn.Module):
     ):
         if os.path.isdir(model_args.model_name_or_path):
             logger.info(f'loading model weight from local {model_args.model_name_or_path}')
-            hf_model = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+            hf_model = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, num_labels=1, **hf_kwargs)
         else:
             logger.info(f'loading model weight from huggingface {model_args.model_name_or_path}')
             hf_model = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
         model = cls(hf_model=hf_model, train_batch_size=train_args.per_device_train_batch_size)
         return model 
-
-    @classmethod
-    def load(
-            cls,
-            model_name_or_path,
-            **hf_kwargs,
-    ):
-        if os.path.isdir(model_name_or_path):
-            logger.info(f'loading model weight from local {model_name_or_path}')
-            hf_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
-        else:
-            logger.info(f'loading model weight from huggingface {model_name_or_path}')
-            hf_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
-        model = cls(hf_model=hf_model)
-        return model
 
     def save(self, output_dir: str):
         self.hf_model.save_pretrained(output_dir)

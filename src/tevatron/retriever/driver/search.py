@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 from itertools import chain
 from tqdm import tqdm
 
-from .retriever import BaseFaissIPRetriever
+from tevatron.retriever.searcher import FaissFlatSearcher
 
 import logging
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def main():
     logger.info(f'Pattern match found {len(index_files)} files; loading them into index.')
 
     p_reps_0, p_lookup_0 = pickle_load(index_files[0])
-    retriever = BaseFaissIPRetriever(p_reps_0)
+    retriever = FaissFlatSearcher(p_reps_0)
 
     shards = chain([(p_reps_0, p_lookup_0)], map(pickle_load, index_files[1:]))
     if len(index_files) > 1:

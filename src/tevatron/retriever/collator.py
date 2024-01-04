@@ -2,7 +2,7 @@ import logging
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer
-from tevatron.arguments import DataArguments
+from tevatron.retriever.arguments import DataArguments
 
 
 logger = logging.getLogger(__name__)

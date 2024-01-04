@@ -15,11 +15,11 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, \
+from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.dataset import EncodeDataset
-from tevatron.collator import EncodeCollator
-from tevatron.modeling import EncoderOutput, DenseModel
+from tevatron.retriever.dataset import EncodeDataset
+from tevatron.retriever.collator import EncodeCollator
+from tevatron.retriever.modeling import EncoderOutput, DenseModel
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,12 @@ def main():
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir
     )
-
-    model = DenseModel.load(
-        model_name_or_path=model_args.model_name_or_path,
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.unk_token_id
+    tokenizer.padding_side = 'right'
+    
+    model = DenseModel.build(
+        model_args=model_args,
         cache_dir=model_args.cache_dir,
     )
 

@@ -1,15 +1,21 @@
-import numpy as np
 import faiss
+import numpy as np
+from tqdm import tqdm
+
 
 import logging
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
 
-class BaseFaissIPRetriever:
+class FaissFlatSearcher:
     def __init__(self, init_reps: np.ndarray):
         index = faiss.IndexFlatIP(init_reps.shape[1])
+        # check if cuda is available
+        if faiss.get_num_gpus() > 0:
+            logger.info("Using GPU")
+            res = faiss.StandardGpuResources()
+            index = faiss.index_cpu_to_gpu(res, 0, index)
         self.index = index
 
     def add(self, p_reps: np.ndarray):
@@ -32,7 +38,7 @@ class BaseFaissIPRetriever:
         return all_scores, all_indices
 
 
-class FaissRetriever(BaseFaissIPRetriever):
+class FaissSearcher(FaissFlatSearcher):
 
     def __init__(self, init_reps: np.ndarray, factory_str: str):
         index = faiss.index_factory(init_reps.shape[1], factory_str)
