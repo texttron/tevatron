@@ -43,11 +43,9 @@ class UniCoilEncoder(BertPreTrainedModel):
 class UniCoilModel(EncoderModel):
     TRANSFORMER_CLS = UniCoilEncoder
 
-    def encode_passage(self, psg):
-        return self.lm_p(**psg)
-
     def encode_query(self, qry):
-        return self.lm_q(**qry)
+        return self.encoder(**qry)
 
-    def compute_similarity(self, q_reps, p_reps):
-        return torch.matmul(q_reps, p_reps.transpose(0, 1))
+    def encode_passage(self, psg):
+        # encode passage is the same as encode query
+        return self.encode_query(psg)

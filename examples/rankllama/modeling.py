@@ -70,7 +70,7 @@ class RerankerModel(nn.Module):
             model_args: ModelArguments,
             train_args: TrainingArguments,
             **hf_kwargs,
-    ):
+    ):  
         base_model = AutoModelForSequenceClassification.from_pretrained(model_args.model_name_or_path, num_labels=1, **hf_kwargs)
         if train_args.gradient_checkpointing:
             base_model.enable_input_require_grads()

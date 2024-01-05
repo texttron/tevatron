@@ -70,6 +70,7 @@ def main():
     
     model = DenseModel.build(
         model_args,
+        training_args,
         cache_dir=model_args.cache_dir,
     )
 

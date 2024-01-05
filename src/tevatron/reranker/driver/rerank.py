@@ -50,9 +50,9 @@ def main():
         tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = 'right'
 
-    model = RerankerModel.build(
-        model_args=model_args,
-        train_args=training_args,
+    model = RerankerModel.load(
+        model_args.model_name_or_path,
+        lora_name_or_path=model_args.lora_name_or_path,
         cache_dir=model_args.cache_dir,
     )
 
@@ -86,7 +86,7 @@ def main():
                         all_results[qid] = []
                     all_results[qid].append((docid, score))
 
-    with open(data_args.encoded_save_path, 'w') as f:
+    with open(data_args.rerank_save_path, 'w') as f:
         for qid in all_results:
             results = sorted(all_results[qid], key=lambda x: x[1], reverse=True)
             for docid, score in results:

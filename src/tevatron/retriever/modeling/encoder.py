@@ -1,6 +1,3 @@
-import os
-import copy
-
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -9,8 +6,10 @@ import torch.distributed as dist
 from torch import nn, Tensor
 
 from transformers import PreTrainedModel, AutoModel
+from peft import LoraConfig, LoraModel, TaskType, get_peft_model
+
 from transformers.file_utils import ModelOutput
-from tevatron.retriever.arguments import ModelArguments
+from tevatron.retriever.arguments import ModelArguments, TevatronTrainingArguments as TrainingArguments
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,15 +27,15 @@ class EncoderModel(nn.Module):
     TRANSFORMER_CLS = AutoModel
 
     def __init__(self,
-                 lm_q: PreTrainedModel,
-                 lm_p: PreTrainedModel,
-                 model_args: ModelArguments,
+                 encoder: PreTrainedModel,
+                 pooling: str = 'cls',
+                 normalize: bool = False,
                  ):
         super().__init__()
-        self.config = lm_q.config
-        self.lm_q = lm_q
-        self.lm_p = lm_p
-        self.model_args = model_args
+        self.config = encoder.config
+        self.encoder = encoder
+        self.pooling = pooling
+        self.normalize = normalize
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.is_ddp = dist.is_initialized()
         if self.is_ddp:
@@ -91,6 +90,9 @@ class EncoderModel(nn.Module):
 
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
+    
+    def gradient_checkpointing_enable(self):
+        self.encoder.gradient_checkpointing_enable()
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
         if t is None:
@@ -109,46 +111,68 @@ class EncoderModel(nn.Module):
     def build(
             cls,
             model_args: ModelArguments,
+            train_args: TrainingArguments,
             **hf_kwargs,
-    ):
-        # load local
-        if os.path.isdir(model_args.model_name_or_path):
-            if model_args.untie_encoder:
-                _qry_model_path = os.path.join(model_args.model_name_or_path, 'query_model')
-                _psg_model_path = os.path.join(model_args.model_name_or_path, 'passage_model')
-                if not os.path.exists(_qry_model_path):
-                    _qry_model_path = model_args.model_name_or_path
-                    _psg_model_path = model_args.model_name_or_path
-                logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = cls.TRANSFORMER_CLS.from_pretrained(
-                    _qry_model_path,
-                    **hf_kwargs
-                )
-                logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = cls.TRANSFORMER_CLS.from_pretrained(
-                    _psg_model_path,
-                    **hf_kwargs
-                )
+    ):  
+        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+        if base_model.config.pad_token_id is None:
+            base_model.config.pad_token_id = 0
+        if model_args.lora or model_args.lora_name_or_path:
+            if train_args.gradient_checkpointing:
+                base_model.enable_input_require_grads()
+            if model_args.lora_name_or_path:
+                lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
+                lora_model = LoraModel.from_pretrained(base_model, model_args.lora_name_or_path)
             else:
-                lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
-                lm_p = lm_q
-        # load pre-trained
+                lora_config = LoraConfig(
+                    base_model_name_or_path=model_args.model_name_or_path,
+                    task_type=TaskType.FEATURE_EXTRACTION,
+                    r=model_args.lora_r,
+                    lora_alpha=model_args.lora_alpha,
+                    lora_dropout=model_args.lora_dropout,
+                    target_modules=model_args.lora_target_modules.split(','),
+                    inference_mode=False
+                )
+                lora_model = get_peft_model(base_model, lora_config)
+            model = cls(
+                encoder=lora_model,
+                pooling=model_args.pooling,
+                normalize=model_args.normalize
+            )
         else:
-            lm_q = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
-            lm_p = copy.deepcopy(lm_q) if model_args.untie_encoder else lm_q
+            model = cls(
+                encoder=base_model,
+                pooling=model_args.pooling,
+                normalize=model_args.normalize
+            )
+        return model
 
-        model = cls(
-            lm_q=lm_q,
-            lm_p=lm_p,
-            model_args=model_args,
-        )
+    @classmethod
+    def load(cls,
+            model_name_or_path: str,
+            pooling: str = 'cls',
+            normalize: bool = False,
+            lora_name_or_path: str = None,
+            **hf_kwargs):
+        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+        if base_model.config.pad_token_id is None:
+            base_model.config.pad_token_id = 0
+        if lora_name_or_path:
+            lora_config = LoraConfig.from_pretrained(lora_name_or_path, **hf_kwargs)
+            lora_model = LoraModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
+            lora_model = lora_model.merge_and_unload()
+            model = cls(
+                encoder=lora_model,
+                pooling=pooling,
+                normalize=normalize
+            )
+        else:
+            model = cls(
+                encoder=base_model,
+                pooling=pooling,
+                normalize=normalize
+            )
         return model
 
     def save(self, output_dir: str):
-        if self.model_args.untie_encoder:
-            os.makedirs(os.path.join(output_dir, 'query_model'))
-            os.makedirs(os.path.join(output_dir, 'passage_model'))
-            self.lm_q.save_pretrained(os.path.join(output_dir, 'query_model'))
-            self.lm_p.save_pretrained(os.path.join(output_dir, 'passage_model'))
-        else:
-            self.lm_q.save_pretrained(output_dir)
+        self.encoder.save_pretrained(output_dir)

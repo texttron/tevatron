@@ -9,12 +9,11 @@ logger = logging.getLogger(__name__)
 class SpladeModel(EncoderModel):
     TRANSFORMER_CLS = AutoModelForMaskedLM
 
-    def encode_passage(self, psg):
-        psg_out = self.lm_p(**psg, return_dict=True).logits
-        aggregated_psg_out, _ = torch.max(torch.log(1 + torch.relu(psg_out)) * psg['attention_mask'].unsqueeze(-1), dim=1)
-        return aggregated_psg_out
-
     def encode_query(self, qry):
-        qry_out = self.lm_q(**qry, return_dict=True).logits
+        qry_out = self.encoder(**qry, return_dict=True).logits
         aggregated_psg_out, _ = torch.max(torch.log(1 + torch.relu(qry_out)) * qry['attention_mask'].unsqueeze(-1), dim=1)
         return aggregated_psg_out
+    
+    def encode_passage(self, psg):
+        # encode passage is the same as encode query
+        return self.encode_query(psg)

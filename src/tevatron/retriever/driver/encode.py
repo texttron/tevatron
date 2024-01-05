@@ -53,8 +53,11 @@ def main():
         tokenizer.pad_token_id = tokenizer.unk_token_id
     tokenizer.padding_side = 'right'
     
-    model = DenseModel.build(
-        model_args=model_args,
+    model = DenseModel.load(
+        model_args.model_name_or_path,
+        pooling=model_args.pooling,
+        normalize=model_args.normalize,
+        lora_name_or_path=model_args.lora_name_or_path,
         cache_dir=model_args.cache_dir,
     )
 

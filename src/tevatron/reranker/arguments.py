@@ -17,6 +17,30 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
+    # for lora
+    lora: bool = field(default=False,
+        metadata={"help": "do parameter-efficient fine-tuning with lora"}
+    )
+
+    lora_name_or_path: Optional[str] = field(
+        default=None, metadata={"help": "Path to pretrained lora model or model identifier from huggingface.co/models"}
+    )
+
+    lora_r: int = field(
+        default=8,
+        metadata={"help": "lora r"}
+    )
+
+    lora_alpha: int = field(
+        default=64,
+        metadata={"help": "lora alpha"}
+    )
+
+    lora_dropout: float = field(
+        default=0.1,
+        metadata={"help": "lora dropout"}
+    )
+
 
 
 @dataclass
@@ -58,9 +82,7 @@ class DataArguments:
     negative_passage_no_shuffle: bool = field(
         default=False, metadata={"help": "always use the first n negative passages for training"})
 
-    encode_is_query: bool = field(default=False)
-    encode_output_path: str = field(default=None, metadata={"help": "where to save the encode"})
-
+    rerank_output_path: str = field(default=None, metadata={"help": "where to save the rerank output"})
 
     rerank_max_len: Optional[int] = field(
         default=512,
