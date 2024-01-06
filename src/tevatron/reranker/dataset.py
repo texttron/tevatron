@@ -15,7 +15,7 @@ def format_pair(query: str, passage: str, title: str, query_prefix: str, passage
 
 
 class RerankerTrainDataset(Dataset):
-    def __init__(self, data_args: DataArguments, trainer: None):
+    def __init__(self, data_args: DataArguments, trainer = None):
         self.data_args = data_args
         self.train_data = load_dataset(
             self.data_args.dataset_name,

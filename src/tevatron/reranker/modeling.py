@@ -34,8 +34,14 @@ class RerankerModel(nn.Module):
         if train_batch_size:
             self.register_buffer(
                 'target_label',
-                torch.zeros(self.train_batch_size, dtype=torch.long)
+                torch.zeros(self.train_batch_size, dtype=torch.long, device=self.hf_model.device)
             )
+        for name, param in self.hf_model.named_parameters():
+            # for some reason, ds zero 3 left some weights empty
+            if 'modules_to_save' in name and param.numel() == 0:
+                logger.warning(f'parameter {name}, shape {param.shape} is empty')
+                param.data = nn.Linear(self.hf_model.config.hidden_size, 1).weight.data
+                logger.warning('{} data: {}'.format(name, param.data.cpu().numpy()))
 
     def forward(self, pair: Dict[str, Tensor] = None):
         ranker_logits = self.hf_model(**pair, return_dict=True).logits
@@ -51,6 +57,9 @@ class RerankerModel(nn.Module):
             loss = None,
             scores = ranker_logits
         )
+    
+    def gradient_checkpointing_enable(self, **kwargs):
+        self.hf_model.base_model.model.gradient_checkpointing_enable(**kwargs)
 
     @classmethod
     def build(
@@ -60,7 +69,7 @@ class RerankerModel(nn.Module):
             **hf_kwargs,
     ):
         base_model = cls.TRANSFORMER_CLS.from_pretrained(
-            model_args.base_model_name_or_path,
+            model_args.model_name_or_path,
             num_labels=1,
             **hf_kwargs,
         )

@@ -41,6 +41,11 @@ class ModelArguments:
         metadata={"help": "lora dropout"}
     )
 
+    lora_target_modules: str = field(
+        default="q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj",
+        metadata={"help": "lora target modules"}
+    )
+
 
 
 @dataclass

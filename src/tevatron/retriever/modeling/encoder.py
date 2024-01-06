@@ -91,8 +91,8 @@ class EncoderModel(nn.Module):
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
     
-    def gradient_checkpointing_enable(self):
-        self.encoder.gradient_checkpointing_enable()
+    def gradient_checkpointing_enable(self, **kwargs):
+        self.encoder.model.gradient_checkpointing_enable()
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
         if t is None:

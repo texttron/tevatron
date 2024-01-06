@@ -4,15 +4,15 @@ In this doc, we show the steps to train dense retriever for MS MARCO passage ran
 
 ## Training
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_msmarco \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
   --dataset_name Tevatron/msmarco-passage \
   --fp16 \
-  --per_device_train_batch_size 16 \
-  --train_group_size 16 \
-  --dataloader_num_workers 4 \
+  --per_device_train_batch_size 8 \
+  --train_group_size 8 \
+  --dataloader_num_workers 1 \
   --learning_rate 1e-5 \
   --query_max_len 16 \
   --passage_max_len 128 \
@@ -26,12 +26,12 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
 ```bash
 for s in $(seq -f "%02g" 0 19)
 do
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
-  --model_name_or_path model_msmarco \
+  --model_name_or_path Luyu/co-condenser-marco-retriever \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --passagge_max_len 128 \
+  --passage_max_len 128 \
   --dataset_name Tevatron/msmarco-passage-corpus \
   --encode_output_path corpus_emb.${s}.pkl \
   --dataset_number_of_shards 20 \

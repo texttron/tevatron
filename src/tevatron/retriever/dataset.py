@@ -19,7 +19,7 @@ def format_passage(text: str, title: str = '', prefix: str = '') -> str:
 
 
 class TrainDataset(Dataset):
-    def __init__(self, data_args: DataArguments, trainer: None):
+    def __init__(self, data_args: DataArguments, trainer = None):
         self.data_args = data_args
         self.train_data = load_dataset(
             self.data_args.dataset_name,
