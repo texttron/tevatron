@@ -232,15 +232,17 @@ def main():
 
         def fwd_fn(params, batch):
             out = model(**batch, params=params, train=True)[0][:, 0, :]
-            return out
-            # if train_args.pooling in ['bos', 'cls']:
-            #     return out[:, 0]
-            # elif train_args.pooling == 'eos':
-            #     mask = batch['attention_mask']
-            #     eos_indices = mask.sum(axis=1) - 1
-            #     return jax.lax.dynamic_index_in_dim(out, eos_indices, axis=1)
-            # else:
-            #     raise ValueError(f"Pooling {train_args.pooling} not supported")
+            if train_args.pooling in ['bos', 'cls']:
+                return out[:, 0]
+            elif train_args.pooling == 'eos':
+                mask = batch['attention_mask']
+                eos_indices = mask.sum(axis=1) - 1
+                @jax.vmap
+                def gather_eos(x, eos_idx):
+                    return x[eos_idx]
+                return gather_eos(out, eos_indices)
+            else:
+                raise ValueError(f"Pooling {train_args.pooling} not supported")
         
         if train_args.grad_cache:
             if not _gradcache_available:

@@ -280,7 +280,10 @@ def main():
             elif train_args.pooling == 'eos':
                 mask = batch['attention_mask']
                 eos_indices = mask.sum(axis=1) - 1
-                return jax.lax.dynamic_index_in_dim(out, eos_indices, axis=1)
+                @jax.vmap
+                def gather_eos(x, eos_idx):
+                    return x[eos_idx]
+                return gather_eos(out, eos_indices)
             else:
                 raise ValueError(f"Pooling {train_args.pooling} not supported")
         
