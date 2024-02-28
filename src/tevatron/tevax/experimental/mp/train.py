@@ -231,7 +231,7 @@ def main():
         passages['dropout_rng'] = p_rngs
 
         def fwd_fn(params, batch):
-            out = model(**batch, params=params, train=True)[0][:, 0, :]
+            out = model(**batch, params=params, train=True)[0]
             if train_args.pooling in ['bos', 'cls']:
                 return out[:, 0]
             elif train_args.pooling == 'eos':
