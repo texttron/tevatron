@@ -28,6 +28,11 @@ class ModelArguments:
         metadata={"help": "normalize query and passage representations"}
     )
 
+    temperature: float = field(
+        default=1.0,
+        metadata={"help": "temperature for softmax"}
+    )
+
     # for lora
     lora: bool = field(default=False,
         metadata={"help": "do parameter-efficient fine-tuning with lora"}

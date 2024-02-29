@@ -1,9 +1,10 @@
 ```
-deepspeed --include localhost:0,1,2,3,4,5,6,7 --master_port 60000 --module tevatron.reranker.driver.train \
+deepspeed --include localhost:4,5,6,7 --master_port 60000 --module tevatron.reranker.driver.train \
   --deepspeed deepspeed/ds_zero3_config.json \
   --output_dir model_rankllama \
-  --model_name_or_path meta-llama/Llama-2-7b-hf \
+  --model_name_or_path mistralai/Mistral-7B-v0.1 \
   --lora \
+  --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \
   --save_steps 200 \
   --dataset_name Tevatron/msmarco-passage \
   --bf16 \

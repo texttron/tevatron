@@ -6,7 +6,7 @@ import torch.distributed as dist
 from torch import nn, Tensor
 
 from transformers import PreTrainedModel, AutoModel
-from peft import LoraConfig, LoraModel, TaskType, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model, PeftModel
 
 from transformers.file_utils import ModelOutput
 from tevatron.retriever.arguments import ModelArguments, TevatronTrainingArguments as TrainingArguments
@@ -30,12 +30,14 @@ class EncoderModel(nn.Module):
                  encoder: PreTrainedModel,
                  pooling: str = 'cls',
                  normalize: bool = False,
+                 temperature: float = 1.0,
                  ):
         super().__init__()
         self.config = encoder.config
         self.encoder = encoder
         self.pooling = pooling
         self.normalize = normalize
+        self.temperature = temperature
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.is_ddp = dist.is_initialized()
         if self.is_ddp:
@@ -65,7 +67,7 @@ class EncoderModel(nn.Module):
             target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
             target = target * (p_reps.size(0) // q_reps.size(0))
 
-            loss = self.compute_loss(scores, target)
+            loss = self.compute_loss(scores / self.temperature, target)
             if self.is_ddp:
                 loss = loss * self.world_size  # counter average weight reduction
         # for eval
@@ -122,7 +124,7 @@ class EncoderModel(nn.Module):
                 base_model.enable_input_require_grads()
             if model_args.lora_name_or_path:
                 lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
-                lora_model = LoraModel.from_pretrained(base_model, model_args.lora_name_or_path)
+                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path)
             else:
                 lora_config = LoraConfig(
                     base_model_name_or_path=model_args.model_name_or_path,
@@ -137,13 +139,15 @@ class EncoderModel(nn.Module):
             model = cls(
                 encoder=lora_model,
                 pooling=model_args.pooling,
-                normalize=model_args.normalize
+                normalize=model_args.normalize,
+                temperature=model_args.temperature
             )
         else:
             model = cls(
                 encoder=base_model,
                 pooling=model_args.pooling,
-                normalize=model_args.normalize
+                normalize=model_args.normalize,
+                temperature=model_args.temperature
             )
         return model
 
@@ -159,7 +163,7 @@ class EncoderModel(nn.Module):
             base_model.config.pad_token_id = 0
         if lora_name_or_path:
             lora_config = LoraConfig.from_pretrained(lora_name_or_path, **hf_kwargs)
-            lora_model = LoraModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
+            lora_model = PeftModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
             lora_model = lora_model.merge_and_unload()
             model = cls(
                 encoder=lora_model,

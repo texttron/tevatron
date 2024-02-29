@@ -31,10 +31,15 @@ class TevatronTrainer(Trainer):
             prefix = 'encoder.'
             assert all(k.startswith(prefix) for k in state_dict.keys()), list(state_dict.keys())
             state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
-            lora_state_dict = get_peft_model_state_dict(self.model.lm_q, state_dict)
-            if self.args.process_index <= 0:
-                torch.save(lora_state_dict, os.path.join(output_dir, "adapter_model.bin"))
-                print(f"Save adapter model at {output_dir}")
+            if isinstance(self.model.encoder, PeftModel):
+                lora_state_dict = get_peft_model_state_dict(self.model.encoder, state_dict)
+                if self.args.process_index <= 0:
+                    torch.save(lora_state_dict, os.path.join(output_dir, "adapter_model.bin"))
+                    print(f"Save adapter model at {output_dir}")
+            else:
+                if self.args.process_index <= 0:
+                    torch.save(state_dict, os.path.join(output_dir, "adapter_model.bin"))
+                    print(f"Save model at {output_dir}")
 
     def compute_loss(self, model, inputs):
         query, passage = inputs
