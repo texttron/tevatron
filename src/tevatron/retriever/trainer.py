@@ -6,7 +6,7 @@ import torch
 from transformers.trainer import Trainer
 import torch.distributed as dist
 from transformers.deepspeed import is_deepspeed_zero3_enabled
-from peft import get_peft_model_state_dict
+from peft import get_peft_model_state_dict, PeftModel
 
 
 import logging
@@ -38,7 +38,7 @@ class TevatronTrainer(Trainer):
                     print(f"Save adapter model at {output_dir}")
             else:
                 if self.args.process_index <= 0:
-                    torch.save(state_dict, os.path.join(output_dir, "adapter_model.bin"))
+                    torch.save(state_dict, os.path.join(output_dir, "pytorch_model.bin"))
                     print(f"Save model at {output_dir}")
 
     def compute_loss(self, model, inputs):

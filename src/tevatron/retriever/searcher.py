@@ -12,10 +12,10 @@ class FaissFlatSearcher:
     def __init__(self, init_reps: np.ndarray):
         index = faiss.IndexFlatIP(init_reps.shape[1])
         # check if cuda is available
-        if faiss.get_num_gpus() > 0:
-            logger.info("Using GPU")
-            res = faiss.StandardGpuResources()
-            index = faiss.index_cpu_to_gpu(res, 0, index)
+        # if faiss.get_num_gpus() > 0:
+        #     logger.info("Using GPU")
+        #     res = faiss.StandardGpuResources()
+        #     index = faiss.index_cpu_to_gpu(res, 0, index)
         self.index = index
 
     def add(self, p_reps: np.ndarray):
