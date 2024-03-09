@@ -26,14 +26,6 @@ from magix.models import ENCODER_MODEL_MAPPING
 
 from ...loss import contrastive_loss
 
-# logger with date and time
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    datefmt='%m/%d/%Y %H:%M:%S',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
 # TODO: maybe use tevatron TrainDataset instead
 class TrainDataset:
     def __init__(
@@ -158,6 +150,14 @@ def main():
     train_args: TrainArgs = args.train_args
     model_args: ModelArgs = args.model_args
     
+    # logger with date and time
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        datefmt='%m/%d/%Y %H:%M:%S',
+        level=logging.INFO
+    )
+    logger = logging.getLogger(__name__)
+    
     # dataset setup
     if train_args.train_file.endswith('.jsonl'):
         train_data = datasets.load_dataset('json', data_files=train_args.train_file)['train']
@@ -166,6 +166,9 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name,
         add_eos_token=True, use_fast=True, padding_side='right', legacy=False)
+    if tokenizer.pad_token_id is None:
+        logger.warning("Tokenizer does not have a pad token. Adding eos token as pad token")
+        tokenizer.pad_token = tokenizer.eos_token
 
     train_dataset = TrainDataset(
         train_data, train_args.num_target_passages, tokenizer,
