@@ -17,8 +17,9 @@ may happen. Suggestions, feature requests and PRs are welcomed.*
 ## Installation
 
 ## Usage-PyTorch (GPU)
-<details>
-<summary><h3>Training</h3></summary>
+
+
+<details><h3><summary>Training</summary></h3>
 
 <details><summary><h4>Mistral-7B</h4></summary>
 
