@@ -15,39 +15,77 @@ may happen. Suggestions, feature requests and PRs are welcomed.*
 - Jax/Flax training/encoding on TPU
 
 ## Installation
-First install neural network and similarity search backends, 
-namely Pytorch (or Jax) and FAISS.
-Check out the official installation guides for [Pytorch](https://pytorch.org/get-started/locally/#start-locally)
-, [Jax](https://github.com/google/jax) / [Flax](https://flax.readthedocs.io/en/latest/installation.html) 
-and [FAISS](https://github.com/facebookresearch/faiss/blob/main/INSTALL.md) accordingly.
 
-Then install Tevatron with pip,
+## Usage-PyTorch (GPU)
+<details>
+<summary><h3>Training</h3></summary>
+
+<details><summary><h4>Mistral-7B</h4></summary>
+
 ```bash
-pip install tevatron
+deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retriever.driver.train \
+  --deepspeed deepspeed/ds_zero3_config.json \
+  --output_dir retriever-mistral \
+  --model_name_or_path mistralai/Mistral-7B-v0.1 \
+  --lora \
+  --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \
+  --save_steps 50 \
+  --dataset_name Tevatron/msmarco-passage-aug \
+  --query_prefix "Query: " \
+  --passage_prefix "Passage: " \
+  --bf16 \
+  --pooling eos \
+  --append_eos_token \
+  --normalize \
+  --temperature 0.01 \
+  --per_device_train_batch_size 8 \
+  --gradient_checkpointing \
+  --train_group_size 16 \
+  --learning_rate 1e-4 \
+  --query_max_len 32 \
+  --passage_max_len 128 \
+  --num_train_epochs 1 \
+  --logging_steps 10 \
+  --overwrite_output_dir \
+  --gradient_accumulation_steps 4
 ```
 
-Or typically for development and research, clone this repo and install as editable,
-```
-git https://github.com/texttron/tevatron
-cd tevatron
-pip install --editable .
-```
+In batch passages per query: 8x4x16 = 512
 
-> Note: The current code base has been tested with, `torch==1.10.1`, `faiss-cpu==1.7.2`, `transformers==4.15.0`, `datasets==1.17.0`
+Number of queries per update: 8x4x4 = 128
 
-Optionally, you can also install GradCache to support our gradient cache feature during training by:
+The training tooks about 70 hours on 4xA6000 GPU.
+
+Equivalent training tooks about 110 hours on 1xA100 GPU.
+
+</details>
+
+<details><summary><h4>BERT</h4></summary></details>
+
 ```bash
-git clone https://github.com/luyug/GradCache
-cd GradCache
-pip install .
+deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retriever.driver.train \
+  --deepspeed deepspeed/ds_zero3_config.json \
+  --output_dir retriever-bert \
+  --model_name_or_path bert-base-uncased \
+  --dataset_name Tevatron/msmarco-passage \
+  --bf16 \
+  --pooling cls \
+  --per_device_train_batch_size 32 \
+  --train_group_size 16 \
+  --learning_rate 1e-5 \
+  --query_max_len 32 \
+  --passage_max_len 128 \
+  --num_train_epochs 5 \
+  --logging_steps 10 \
+  --overwrite_output_dir
 ```
 
-## Documentation
-- [**Please view the documentation here**](http://tevatron.ai/)
+</details>
 
+## Usage-JAX (TPU/GPU)
 
-## Examples
-In the `/examples` folder, we provided full pipeline instructions for various IR/QA tasks.
+## Retrieval
+
 
 ## Citation
 If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).
