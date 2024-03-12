@@ -31,6 +31,7 @@ from magix.lora import Lora
 from grad_cache import cachex
 
 from ...loss import contrastive_loss
+from .loss import contrastive_loss_2dm
 
 #TODO: use tevatron dataset instead
 class TrainDataset:
@@ -166,6 +167,7 @@ class ModelArgs:
     model_name: str = None
     model_cache_dir: str = None
     mesh_shape: List[int] = list_field(-1, 1)
+    fully_shard_params: bool = True
     
     def __post_init__(self):
         if self.model_type not in ENCODER_MODEL_MAPPING:
@@ -195,6 +197,7 @@ def main():
         model_args.model_name,
         add_eos_token=True, use_fast=True, padding_side='right', legacy=False)
     if tokenizer.pad_token_id is None:
+        logger.warning("Tokenizer does not have a pad token. Adding eos token as pad token")
         tokenizer.pad_token = tokenizer.eos_token
     train_dataset = TrainDataset(
         train_data, train_args.num_target_passages, tokenizer,
@@ -236,28 +239,36 @@ def main():
     mesh = magix.create_device_mesh(model_args.mesh_shape)    
     _model_cls = ENCODER_MODEL_MAPPING[model_args.model_type]
     sharding_config = _model_cls.partition_rules
-    model, params = magix.load_model_hub(_model_cls, model_args.model_name, sharding_config, mesh,)
-
-    DUPLICATED = NamedSharding(mesh, PS()) 
-    def init_lora_and_opt(params):
-        lora_params = lora.init_params(
-            jax.random.PRNGKey(train_args.seed+100), params)
-        return lora_params, optimizer.init(lora_params)
-    lora_shapes, opt_shapes = jax.eval_shape(init_lora_and_opt, params)
-    lora_sharding = jax.tree_map(lambda _: DUPLICATED, lora_shapes)
-    opt_sharding = jax.tree_map(lambda _: DUPLICATED, opt_shapes)
-    
-    if is_new_train:
-        lora_params = jax.jit(lora.init_params, out_shardings=lora_sharding)(jax.random.PRNGKey(train_args.seed+100), params)
-        opt_state = jax.jit(optimizer.init, out_shardings=opt_sharding)(lora_params)
+    if model_args.fully_shard_params:
+        model_sharding_config = sharding_config
     else:
-        restored = magix.checkpoint_utils.load_by_sharding(
-            checkpoint_manager, 
-            items=('lora', 'optimizer'), 
-            dummies=(lora_shapes, opt_shapes), 
-            shardings=(lora_sharding, opt_sharding)
+        model_sharding_config = magix.spmd_utils.duplicate_over(sharding_config, 'data')
+    
+    model, params = magix.load_model_hub(_model_cls, model_args.model_name, model_sharding_config, mesh, half=True)
+
+    rng = jax.random.key(train_args.seed)
+    dropout_rng, data_rng, lora_rng = jax.random.split(rng, 3)
+    
+    def create_lora_and_opt_states(rng, params):
+        lora_params = lora.init_params(rng, params)
+        opt_state = optimizer.init(lora_params)
+        return lora_params, opt_state
+    
+    lora_shapes, opt_shapes = jax.eval_shape(create_lora_and_opt_states, lora_rng, params)
+    lora_sharding = magix.lora.create_lora_sharding(model_sharding_config, mesh, lora_shapes)
+    opt_sharding = magix.lora.create_lora_sharding(sharding_config, mesh, opt_shapes)
+
+    if is_new_train:
+        lora_params = jax.jit(lora.init_params, out_shardings=lora_sharding) (lora_rng, params)
+        opt_state = jax.jit(optimizer.init, out_shardings=opt_sharding) (lora_params)
+    else:
+        loaded = magix.checkpoint_utils.load_by_sharding(
+            checkpoint_manager,
+            items=['lora', 'optimizer'],
+            dummies=[lora_shapes, opt_shapes],
+            shardings=[lora_sharding, opt_sharding]
         )
-        lora_params, opt_state = restored['lora'], restored['optimizer']
+        lora_params, opt_state = loaded['lora'], loaded['optimizer']
 
     
     def train_step_cached(params, lora_params, opt_state, queries, passages, dropout_rng, query_num_chunks=4, passage_num_chunks=8):        
@@ -318,10 +329,6 @@ def main():
         donate_argnums=(1,2),
         out_shardings=(magix.item_sharding(lora_params), magix.item_sharding(opt_state), None),
     )
-    
-    
-    rng = jax.random.key(train_args.seed)
-    dropout_rng, data_rng = jax.random.split(rng)
     
     # train loop
     lastest_step = checkpoint_manager.latest_step()
