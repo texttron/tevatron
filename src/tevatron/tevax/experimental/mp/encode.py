@@ -69,10 +69,7 @@ def main():
     logger.info(f"Arguments: {args}")
     
     # Create mesh
-    mesh = Mesh(
-        devices = mesh_utils.create_device_mesh(args.mesh_shape),
-        axis_names=('data', 'model')
-    )
+    mesh = magix.create_device_mesh((args.mesh_shape[0], args.mesh_shape[1]))
 
     # Load the model
     _model_cls = ENCODER_MODEL_MAPPING[args.model_type]

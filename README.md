@@ -133,8 +133,9 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 
 ### Training
 
+> For GPU training, set `XLA_PYTHON_CLIENT_MEM_FRACTION=.95` and make sure the query and passage length are multiples of 64 if TransformersEngine is installed.
+
 ```bash
-XLA_PYTHON_CLIENT_MEM_FRACTION=.95
 python -m tevatron.tevax.experimental.mp.train_lora  \
    --checkpoint_dir retriever-mistral-jax \
    --train_file Tevatron/msmarco-passage \
@@ -167,12 +168,12 @@ python -m tevatron.tevax.experimental.mp.encode  \
    --tokenizer_name_or_path mistralai/Mistral-7B-v0.1 \
    --dataset_name_or_path Tevatron/msmarco-passage \
    --split dev \
-   --output_path $EMBEDDING_OUTPUT_DIR/query-dev.pkl \
+   --output_dir $EMBEDDING_OUTPUT_DIR/query-embedding \
    --batch_size 32 \
    --input_type query \
-   --max_seq_length 32 \
+   --max_seq_length 64 \
    --mesh_shape 1 -1 \
-   --lora retriever-mistral-jax \
+   --lora retriever-mistral-jax/lora \
    --scale_by_dim
 ```
 
@@ -184,20 +185,20 @@ python -m tevatron.tevax.experimental.mp.encode  \
    --model_config_name_or_path mistralai/Mistral-7B-v0.1 \
    --tokenizer_name_or_path mistralai/Mistral-7B-v0.1 \
    --dataset_name_or_path Tevatron/msmarco-passage-corpus \
-   --output_path $EMBEDDING_OUTPUT_DIR/corpus.pkl \
+   --output_dir $EMBEDDING_OUTPUT_DIR/corpus-embedding \
    --batch_size 32 \
    --input_type passage \
    --max_seq_length 128 \
    --mesh_shape 1 -1 \
-   --lora retriever-mistral-jax \
+   --lora retriever-mistral-jax/lora \
    --scale_by_dim
 ```
 
 ### Retrieval
 ```bash
 set -f && python -m tevatron.retriever.driver.search \
-    --query_reps $EMBEDDING_OUTPUT_DIR/query-dev.pkl \
-    --passage_reps $EMBEDDING_OUTPUT_DIR/corpus*.pkl \
+    --query_reps $EMBEDDING_OUTPUT_DIR/query-embedding/*.pkl \
+    --passage_reps $EMBEDDING_OUTPUT_DIR/corpus-embedding/*.pkl \
     --depth 1000 \
     --batch_size 64 \
     --save_text \
