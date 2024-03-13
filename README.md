@@ -69,7 +69,7 @@ EMBEDDING_OUTPUT_DIR=<folder to save query embedding>
 CUDA_VISIBLE_DEVICES=4 python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
   --model_name_or_path mistralai/Mistral-7B-v0.1 \
-  --lora_name_or_path model_repllama \
+  --lora_name_or_path retriever-mistral \
   --lora \
   --query_prefix "Query: " \
   --passage_prefix "Passage: " \
@@ -95,7 +95,7 @@ gpuid=$s
 CUDA_VISIBLE_DEVICES=$gpuid python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
   --model_name_or_path mistralai/Mistral-7B-v0.1 \
-  --lora_name_or_path model_repllama \
+  --lora_name_or_path retriever-mistral \
   --lora \
   --query_prefix "Query: " \
   --passage_prefix "Passage: " \
@@ -129,17 +129,18 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 
 </details>
 
-<details><summary><b>Jax/Flax (TPU/GPU)</b></summary>
+<details><summary><b>Jax (TPU/GPU)</b></summary>
 
 ### Training
 
 ```bash
+XLA_PYTHON_CLIENT_MEM_FRACTION=.95
 python -m tevatron.tevax.experimental.mp.train_lora  \
-   --checkpoint_dir $MODEL_SAVE_DIR \
-   --train_file $DATA_PATH \
+   --checkpoint_dir retriever-mistral-jax \
+   --train_file Tevatron/msmarco-passage \
    --model_name mistralai/Mistral-7B-v0.1 \
    --model_type mistral \
-   --batch_size 32 \
+   --batch_size 128 \
    --num_target_passages 16 \
    --learning_rate 1e-4 \
    --seed 12345 \
@@ -161,17 +162,17 @@ python -m tevatron.tevax.experimental.mp.train_lora  \
 ```bash
 python -m tevatron.tevax.experimental.mp.encode  \
    --model_type mistral \
-   --model_name_or_path $CHECKPOINT_DIR \
-   --output_path $EMBEDDING_OUTPUT_DIR/query-dev.pkl \
+   --model_name_or_path mistralai/Mistral-7B-v0.1 \
    --model_config_name_or_path mistralai/Mistral-7B-v0.1 \
    --tokenizer_name_or_path mistralai/Mistral-7B-v0.1 \
    --dataset_name_or_path Tevatron/msmarco-passage \
    --split dev \
+   --output_path $EMBEDDING_OUTPUT_DIR/query-dev.pkl \
    --batch_size 32 \
    --input_type query \
    --max_seq_length 32 \
    --mesh_shape 1 -1 \
-   --lora True \
+   --lora retriever-mistral-jax \
    --scale_by_dim
 ```
 
@@ -179,16 +180,16 @@ python -m tevatron.tevax.experimental.mp.encode  \
 ```bash
 python -m tevatron.tevax.experimental.mp.encode  \
    --model_type mistral \
-   --model_name_or_path $CHECKPOINT_DIR \
-   --output_path $EMBEDDING_OUTPUT_DIR/corpus.pkl \
+   --model_name_or_path mistralai/Mistral-7B-v0.1 \
    --model_config_name_or_path mistralai/Mistral-7B-v0.1 \
    --tokenizer_name_or_path mistralai/Mistral-7B-v0.1 \
    --dataset_name_or_path Tevatron/msmarco-passage-corpus \
+   --output_path $EMBEDDING_OUTPUT_DIR/corpus.pkl \
    --batch_size 32 \
    --input_type passage \
    --max_seq_length 128 \
    --mesh_shape 1 -1 \
-   --lora $PATH_TO_LORA \
+   --lora retriever-mistral-jax \
    --scale_by_dim
 ```
 
