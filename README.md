@@ -1,23 +1,25 @@
-# Tevatron
-Tevatron is a simple and efficient toolkit for training and running dense retrievers with deep language models. 
-The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast
-development and testing. A set of easy-to-use interfaces to Huggingface's state-of-the-art pre-trained transformers
-ensures Tevatron's superior performance.
+# Tevatron V2
+Tevatron aims to provide a flexible and efficient toolkit that enables training and inference for neural retrieval models at scale.
 
-*Tevatron is currently under initial development stage. We will be actively adding new features and API changes
-may happen. Suggestions, feature requests and PRs are welcomed.*
+> Some of the features in Tevatron v1 is not yet migrated to Tevatron v2. We are working on it.
+> If you are looking for the Tevatron v1 features, please pull the [v1 branch]().
 
 ## Features
-- Command line interface for dense retriever training/encoding and dense index search.
-- Flexible and extendable Pytorch retriever models. 
-- Highly efficient Trainer, a subclass of  Huggingface Trainer, that naively support training performance features like mixed precision and distributed data parallel.
-- Fast and memory-efficient train/inference data access based on memory mapping with Apache Arrow through Huggingface datasets.
-- Jax/Flax training/encoding on TPU
+- Training billion-scale LLM neural retriever on GPUs and TPUs.
+- Parameter efficient tuning with LoRA.
+- Integration with DeepSpeed, flash attention, gradient accumulation, and other efficient training techniques.
+- Self-contained datasets for neural retrieval and open-domain QA tasks.
+- Direct loading and finetuning SoTA pre-trained models (BGE-Embbedding, Instruct-E5) from HuggingFace.
 
 ## Installation
 
-## Toolkit Usage
+<details><summary><b>PyTorch (GPU)</b></summary></details>
+<details><summary><b>JAX (TPU)</b></summary></details>
+<details><summary><b>JAX (GPU)</b></summary></details>
 
+
+
+## Toolkit Usage
 
 <details><summary><b>PyTorch (GPU)</b></summary>
 
@@ -55,7 +57,7 @@ In batch passages per query: 8x4x16 = 512
 
 Number of queries per update: 8x4x4 = 128
 
-The training tooks about 70 hours on 4xA6000 GPU.
+The above training setting tooks about 70 hours on 4xA6000 GPU.
 
 Equivalent training tooks about 110 hours on 1xA100 GPU.
 
@@ -138,7 +140,7 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 ```bash
 python -m tevatron.tevax.experimental.mp.train_lora  \
    --checkpoint_dir retriever-mistral-jax \
-   --train_file Tevatron/msmarco-passage \
+   --train_file Tevatron/msmarco-passage-aug \
    --model_name mistralai/Mistral-7B-v0.1 \
    --model_type mistral \
    --batch_size 128 \
@@ -156,6 +158,14 @@ python -m tevatron.tevax.experimental.mp.train_lora  \
    --passage_num_chunks 32 \
    --query_num_chunks 4
 ```
+
+In batch passages per query: 128x16 = 2048
+
+Number of queries per update: 128
+
+The above training setting tooks about 42 hours on a v4-8 TPU VM.
+
+Equivalent training tooks about 80 hours on 1xA100 GPU.
 
 ### Encoding
 
@@ -222,9 +232,16 @@ If you find Tevatron helpful, please consider citing our [paper](https://arxiv.o
 }
 ```
 
+
 ## Contacts
 If you have a toolkit specific question, feel free to open an issue. 
 
 You can also reach out to us for general comments/suggestions/questions through email.
 - Luyu Gao luyug@cs.cmu.edu
 - Xueguang Ma x93ma@uwaterloo.ca
+
+
+## Acknowledgement
+
+* We thank all the contributors of dependency libraries.
+* We thank Google's [TPU research cloud](https://sites.research.google/trc/about/) for providing TPU resources.
