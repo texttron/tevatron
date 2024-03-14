@@ -13,15 +13,119 @@ Tevatron aims to provide a flexible and efficient toolkit that enables training 
 
 ## Installation
 
-<details><summary><b>PyTorch (GPU)</b></summary></details>
-<details><summary><b>JAX (TPU)</b></summary></details>
-<details><summary><b>JAX (GPU)</b></summary></details>
-
-
-
-## Toolkit Usage
-
 <details><summary><b>PyTorch (GPU)</b></summary>
+
+0. Clone the repository.
+1. Install PyTorch based on your CUDA version from [PyTorch](https://pytorch.org/get-started/locally/).
+2. Install dependencies and Tevatron.
+```bash
+pip install transformers datasets peft
+pip install deepspeed accelerate
+pip install faiss
+pip install -e .
+```
+
+
+</details>
+<details><summary><b>JAX (TPU)</b></summary>
+
+0. Clone the repository.
+1. Install JAX by following the [official guide](https://jax.readthedocs.io/en/latest/installation.html#pip-installation-google-cloud-tpu)
+2. Install dependencies
+```bash
+pip install transformers datasets
+pip install flax optax
+```
+3. Install Magix and GradCache
+```bash
+git clone https://github.com/luyug/magix.git
+cd magix && pip install -e . && cd ..
+git clone https://github.com/luyug/GradCache.git
+cd GradCache && pip install -e . && cd ..
+```
+
+4. Install Tevatron
+```bash
+pip install -e .
+```
+
+</details>
+<details><summary><b>JAX (GPU)</b></summary>
+
+To run the JAX implementation of Tevatron on GPU, we encourage using the jax-toolbox [jax container](https://github.com/NVIDIA/JAX-Toolbox/pkgs/container/jax) image from NVIDIA.
+
+Below is a Dockerfile example to set up Tevatron on top of the jax container.
+```Dockerfile
+FROM ghcr.io/nvidia/jax:jax-2024-03-08
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3-pip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir transformers sentencepiece simple_parsing datasets orbax==0.4.8 && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+RUN git clone https://github.com/luyug/magix.git && \
+    cd magix && pip install -e . && cd .. && \
+    git clone https://github.com/luyug/GradCache.git \
+    cd GradCache && pip install -e . && cd .. \
+    git clone https://github.com/texttron/tevatron.git && \
+    cd tevatron && pip install -e .
+```
+
+
+
+
+</details>
+
+
+
+## Tevatron 101
+In this example, we will demonstrate how to use Tevatron to LoRA fine-tune a Mistral-7B model on the MSMARCO passage dataset. The obtained LLM Retriever is expected to have `MRR@10=42.3` on the MS MARCO dev set with straightforward training.
+
+<details><summary><b>Data Preparation</b></summary>
+
+Tevatron takes training or inference data in `jsonl` format with each line organized as a json object as follows:
+### 1. Training Data
+```json
+{
+   "query_id": "<query id>",
+   "query": "<query text>",
+   "positive_passages": [
+     {"docid": "<passage id>", "title": "<passage title>", "text": "<passage body>"},
+     ...
+   ],
+   "negative_passages": [
+     {"docid": "<passage id>", "title": "<passage title>", "text": "<passage body>"},
+     ...
+   ]
+}
+```
+where the passages in `positive_passages` are the annotated relevant passages of the `query` 
+and passages in `negative_passages` are usually non-relevant (hard negative) passages from top results of a retrieval system (e.g. BM25, DPR). Additional fields such as `answers` for QA datasets can be included as well.
+
+#### 2. Corpus Data
+```json
+{
+   "docid": "<passage id>",
+   "title": "<passage title>",
+   "text": "<passage body>"
+}
+```
+where each line represents a passage in the corpus.
+
+### Self-Contained Dataset
+Tevatron self-contained several commonlly used datasets for neural retrieval. 
+(via [HuggingFace](https://huggingface.co/Tevatron)).
+These datasets can downloaded automatically during training and encoding
+by setting `--dataset_name <hgf dataset name>`.
+
+In this example, we will use the self-contained dataset `Tevatron/msmarco-passage-aug` for training, whose hard negative passages are sampled from the mix of top200 BM25 and top200 CoCondenser results.
+
+</details>
+
+
+<details><summary><b>Run with PyTorch (GPU)</b></summary>
 
 ### Training
 
@@ -131,7 +235,7 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 
 </details>
 
-<details><summary><b>Jax (TPU/GPU)</b></summary>
+<details><summary><b>Run with JAX (TPU/GPU)</b></summary>
 
 ### Training
 
@@ -163,7 +267,7 @@ In batch passages per query: 128x16 = 2048
 
 Number of queries per update: 128
 
-The above training setting tooks about 42 hours on a v4-8 TPU VM.
+The above training setting tooks about 35 hours on a v4-8 TPU VM.
 
 Equivalent training tooks about 80 hours on 1xA100 GPU.
 
