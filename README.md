@@ -2,7 +2,7 @@
 Tevatron aims to provide a flexible and efficient toolkit that enables training and inference for neural retrieval models at scale.
 
 > Some of the features in Tevatron v1 is not yet migrated to Tevatron v2. We are working on it.
-> If you are looking for the Tevatron v1 features, please pull the [v1 branch]().
+> If you are looking for the Tevatron v1 features, please pull the [v1 branch](https://github.com/texttron/tevatron/tree/tevatron-v1).
 
 ## Features
 - Training billion-scale LLM neural retriever on GPUs and TPUs.
