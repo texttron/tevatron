@@ -4,17 +4,18 @@ In this doc, we show the steps to train dense retriever for MS MARCO passage ran
 
 ## Training
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_msmarco \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
   --dataset_name Tevatron/msmarco-passage \
   --fp16 \
   --per_device_train_batch_size 8 \
-  --train_n_passages 8 \
-  --learning_rate 5e-6 \
-  --q_max_len 16 \
-  --p_max_len 128 \
+  --train_group_size 8 \
+  --dataloader_num_workers 1 \
+  --learning_rate 1e-5 \
+  --query_max_len 16 \
+  --passage_max_len 128 \
   --num_train_epochs 3 \
   --logging_steps 500 \
   --overwrite_output_dir
@@ -25,30 +26,31 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
 ```bash
 for s in $(seq -f "%02g" 0 19)
 do
-python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
-  --model_name_or_path model_msmarco \
+  --model_name_or_path Luyu/co-condenser-marco-retriever \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --p_max_len 128 \
+  --passage_max_len 128 \
   --dataset_name Tevatron/msmarco-passage-corpus \
-  --encoded_save_path corpus_emb.${s}.pkl \
-  --encode_num_shard 20 \
-  --encode_shard_index ${s}
+  --encode_output_path corpus_emb.${s}.pkl \
+  --dataset_number_of_shards 20 \
+  --dataset_shard_index ${s}
 done
 ```
 
-### Encode Corpus
+### Encode Queries
 ```bash
-python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
   --output_dir=temp \
   --model_name_or_path model_msmarco \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/msmarco-passage/dev \
-  --encoded_save_path query_emb.pkl \
-  --q_max_len 32 \
-  --encode_is_qry
+  --dataset_name Tevatron/msmarco-passage \
+  --dataset_split dev \
+  --encode_output_path query_emb.pkl \
+  --query_max_len 32 \
+  --encode_is_query
 ```
 
 ## Search the Corpus
