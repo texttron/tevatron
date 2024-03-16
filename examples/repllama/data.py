@@ -7,8 +7,7 @@ from datasets import load_dataset
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, BatchEncoding, DataCollatorWithPadding
 
-
-from tevatron.arguments import DataArguments
+from tevatron.retriever.arguments import DataArguments
 
 from trainer import TevatronTrainer
 
@@ -17,26 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 class HFTrainDataset:
-    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
-        data_files = data_args.train_path
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str, separator=' '):
+        data_files = data_args.dataset_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
-                                    data_args.dataset_language,
                                     data_files=data_files, cache_dir=cache_dir, use_auth_token=True)[data_args.dataset_split]
         self.preprocessor = TrainPreProcessor
         self.tokenizer = tokenizer
-        self.q_max_len = data_args.q_max_len
-        self.p_max_len = data_args.p_max_len
-        self.proc_num = data_args.dataset_proc_num
-        self.neg_num = data_args.train_n_passages - 1
-        self.separator = getattr(self.tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
+        self.query_max_len = data_args.query_max_len
+        self.passage_max_len = data_args.passage_max_len
+        self.proc_num = data_args.dataset_number_of_shards
+        self.neg_num = data_args.train_group_size - 1
+        self.separator = getattr(self.tokenizer, separator, separator)
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
-                self.preprocessor(self.tokenizer, self.q_max_len, self.p_max_len, self.separator),
+                self.preprocessor(self.tokenizer, self.query_max_len, self.passage_max_len, self.separator),
                 batched=False,
                 num_proc=self.proc_num,
                 remove_columns=self.dataset.column_names,
@@ -79,18 +77,17 @@ class HFQueryDataset:
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
-                                    data_args.dataset_language,
                                     data_files=data_files, cache_dir=cache_dir, use_auth_token=True)[data_args.dataset_split]
         self.preprocessor = QueryPreProcessor
         self.tokenizer = tokenizer
-        self.q_max_len = data_args.q_max_len
-        self.proc_num = data_args.dataset_proc_num
+        self.query_max_len = data_args.query_max_len
+        self.proc_num = data_args.dataset_shard_index
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
-                self.preprocessor(self.tokenizer, self.q_max_len),
+                self.preprocessor(self.tokenizer, self.query_max_len),
                 batched=False,
                 num_proc=self.proc_num,
                 remove_columns=self.dataset.column_names,
@@ -115,27 +112,26 @@ class QueryPreProcessor:
 
 
 class HFCorpusDataset:
-    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str):
+    def __init__(self, tokenizer: PreTrainedTokenizer, data_args: DataArguments, cache_dir: str, separator=' '):
         data_files = data_args.encode_in_path
         if data_files:
             data_files = {data_args.dataset_split: data_files}
         self.dataset = load_dataset(data_args.dataset_name,
-                                    data_args.dataset_language,
                                     data_files=data_files, cache_dir=cache_dir, use_auth_token=True)[data_args.dataset_split]
         script_prefix = data_args.dataset_name
         if script_prefix.endswith('-corpus'):
             script_prefix = script_prefix[:-7]
         self.preprocessor = CorpusPreProcessor
         self.tokenizer = tokenizer
-        self.p_max_len = data_args.p_max_len
-        self.proc_num = data_args.dataset_proc_num
-        self.separator = getattr(self.tokenizer, data_args.passage_field_separator, data_args.passage_field_separator)
+        self.passage_max_len = data_args.passage_max_len
+        self.proc_num = data_args.dataset_number_of_shards
+        self.separator = getattr(self.tokenizer, separator, separator)
 
     def process(self, shard_num=1, shard_idx=0):
         self.dataset = self.dataset.shard(shard_num, shard_idx)
         if self.preprocessor is not None:
             self.dataset = self.dataset.map(
-                self.preprocessor(self.tokenizer, self.p_max_len, self.separator),
+                self.preprocessor(self.tokenizer, self.passage_max_len, self.separator),
                 batched=False,
                 num_proc=self.proc_num,
                 remove_columns=self.dataset.column_names,
@@ -178,7 +174,7 @@ class TrainDataset(Dataset):
         item = self.tok.prepare_for_model(
             text_encoding + [self.tok.eos_token_id],
             truncation='only_first',
-            max_length=self.data_args.q_max_len if is_query else self.data_args.p_max_len,
+            max_length=self.data_args.query_max_len if is_query else self.data_args.passage_max_len,
             padding=False,
             return_attention_mask=False,
             return_token_type_ids=False,
@@ -207,10 +203,10 @@ class TrainDataset(Dataset):
             pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
         encoded_passages.append(self.create_one_example(pos_psg))
 
-        negative_size = self.data_args.train_n_passages - 1
+        negative_size = self.data_args.train_group_size - 1
         if len(group_negatives) < negative_size:
             negs = random.choices(group_negatives, k=negative_size)
-        elif self.data_args.train_n_passages == 1:
+        elif self.data_args.train_group_size == 1:
             negs = []
         elif self.data_args.negative_passage_no_shuffle:
             negs = group_negatives[:negative_size]
