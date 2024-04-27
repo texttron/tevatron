@@ -7,7 +7,7 @@ from torch import nn, Tensor
 from transformers import AutoModelForSequenceClassification, PreTrainedModel
 from transformers.file_utils import ModelOutput
 from transformers import TrainingArguments
-from peft import LoraConfig, LoraModel, TaskType, get_peft_model
+from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 
 
 from tevatron.reranker.arguments import ModelArguments
@@ -80,7 +80,7 @@ class RerankerModel(nn.Module):
                 base_model.enable_input_require_grads()
             if model_args.lora_name_or_path:
                 lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
-                lora_model = LoraModel.from_pretrained(base_model, model_args.lora_name_or_path)
+                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
             else:
                 lora_config = LoraConfig(
                     base_model_name_or_path=model_args.model_name_or_path,
@@ -108,12 +108,12 @@ class RerankerModel(nn.Module):
              model_name_or_path: str,
              lora_name_or_path: str = None,
              **hf_kwargs):
-        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, num_labels=1, **hf_kwargs, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
         if lora_name_or_path:
             lora_config = LoraConfig.from_pretrained(lora_name_or_path, **hf_kwargs)
-            lora_model = LoraModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
+            lora_model = PeftModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
             lora_model = lora_model.merge_and_unload()
             model = cls(
                 hf_model=lora_model,

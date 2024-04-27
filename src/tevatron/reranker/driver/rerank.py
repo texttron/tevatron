@@ -47,7 +47,7 @@ def main():
         cache_dir=model_args.cache_dir
     )
     if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+        tokenizer.pad_token_id = 0
     tokenizer.padding_side = 'right'
 
     model = RerankerModel.load(
@@ -77,7 +77,7 @@ def main():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
                 model_output = model(batch)
-                scores = model_output.scores.cpu().detach().numpy()
+                scores = model_output.scores.cpu().detach().float().numpy()
                 for i in range(len(scores)):
                     qid = batch_query_ids[i]
                     docid = batch_text_ids[i]
@@ -86,7 +86,7 @@ def main():
                         all_results[qid] = []
                     all_results[qid].append((docid, score))
 
-    with open(data_args.rerank_save_path, 'w') as f:
+    with open(data_args.rerank_output_path, 'w') as f:
         for qid in all_results:
             results = sorted(all_results[qid], key=lambda x: x[1], reverse=True)
             for docid, score in results:

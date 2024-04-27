@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_pair(query: str, passage: str, title: str, query_prefix: str, passage_prefix: str):
+    title = title.replace('-', ' ').strip()
     return f'{query_prefix} {query} {passage_prefix} {title} {passage}'.strip()
 
 
@@ -94,7 +95,7 @@ class RerankerInferenceDataset(Dataset):
         return len(self.inference_data)
 
     def __getitem__(self, item) -> Tuple[str, str]:
-        example = self.encode_data[item]
+        example = self.inference_data[item]
         query_id = example['query_id']
         query = example['query']
         text_id = example['docid']
