@@ -21,7 +21,8 @@ class DenseModel(EncoderModel):
         if self.pooling in ['cls', 'first']:
             reps = last_hidden_state[:, 0]
         elif self.pooling in ['mean', 'avg', 'average']:
-            reps = last_hidden_state.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+            masked_hiddens = last_hidden_state.masked_fill(~attention_mask[..., None].bool(), 0.0)
+            reps = masked_hiddens.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
         elif self.pooling in ['last', 'eos']:
             sequence_lengths = attention_mask.sum(dim=1) - 1
             batch_size = last_hidden_state.shape[0]
