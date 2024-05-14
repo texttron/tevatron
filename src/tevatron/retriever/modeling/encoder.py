@@ -124,7 +124,7 @@ class EncoderModel(nn.Module):
                 base_model.enable_input_require_grads()
             if model_args.lora_name_or_path:
                 lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
-                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path)
+                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path, is_trainable=True)
             else:
                 lora_config = LoraConfig(
                     base_model_name_or_path=model_args.model_name_or_path,
