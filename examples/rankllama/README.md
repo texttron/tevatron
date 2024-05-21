@@ -25,17 +25,18 @@ python prepare_rerank_file.py \
 
 ### Run Reranking
 ```
-CUDA_VISIBLE_DEVICES=0 python reranker_inference.py \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.reranker.driver.rerank \
   --output_dir=temp \
   --model_name_or_path castorini/rankllama-v1-7b-lora-passage \
   --tokenizer_name meta-llama/Llama-2-7b-hf \
-  --encode_in_path rerank_input.repllama.psg.dl19.jsonl \
+  --dataset_path rerank_input.repllama.psg.dl19.jsonl \
   --fp16 \
   --per_device_eval_batch_size 64 \
-  --q_max_len 32 \
-  --p_max_len 164 \
+  --rerank_max_len $(( 32 + 164 )) \
   --dataset_name json \
-  --encoded_save_path run.rankllama.psg.dl19.txt
+  --query_prefix "query: " \
+  --passage_prefix "document: " \
+  --rerank_output_path run.rankllama.psg.dl19.txt
 ```
 
 ### Convert run format to trec
@@ -54,30 +55,31 @@ python -m tevatron.utils.format.convert_result_to_trec \
 python -m pyserini.eval.trec_eval -c -m ndcg_cut.10 dl19-passage run.rankllama.psg.dl19.trec
 
 Results:
-ndcg_cut_10             all     0.7568
+ndcg_cut_10             all     0.7655
 ```
 
 
 # Train Rank LLaMA from scratch
 ```
-deepspeed --include localhost:0,1,2,3 reranker_train.py \
-  --deepspeed ds_config.json \
-  --output_dir model_rankllama \
-  --model_name_or_path meta-llama/Llama-2-7b-hf \
-  --save_steps 200 \
-  --dataset_name Tevatron/msmarco-passage \
+deepspeed --master_port 60000 --num_nodes 1 --num_gpus 1 --module tevatron.reranker.driver.train \
+  --deepspeed deepspeed/ds_zero3_config.json \
+  --output_dir model_rankmistral \
+  --model_name_or_path mistralai/Mistral-7B-v0.1 \
+  --lora \
+  --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \
+  --save_steps 50 \
+  --dataset_name Tevatron/msmarco-passage-aug \
+  --query_prefix "query: " \
+  --passage_prefix "document: " \
   --bf16 \
-  --per_device_train_batch_size 4 \
-  --gradient_accumulation_steps 8 \
+  --per_device_train_batch_size 16 \
   --gradient_checkpointing \
-  --train_n_passages 16 \
+  --train_group_size 16 \
   --learning_rate 1e-4 \
-  --q_max_len 32 \
-  --p_max_len 196 \
+  --rerank_max_len $(( 32 + 164 )) \
   --num_train_epochs 1 \
-  --logging_steps 10 \
-  --overwrite_output_dir \
-  --dataset_proc_num 32
+  --logging_steps 100 \
+  --gradient_accumulation_steps 4
 ```
 
 
