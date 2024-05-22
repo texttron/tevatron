@@ -8,13 +8,14 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
-from tevatron.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from transformers import TrainingArguments
+
+from tevatron.reranker.arguments import ModelArguments, DataArguments
 
 from tevatron.reranker.modeling import RerankerModel
-from tevatron.reranker.data import RerankerTrainDataset, RerankerTrainCollator
+from tevatron.reranker.dataset import RerankerTrainDataset
+from tevatron.reranker.collator import RerankerTrainCollator
 from tevatron.reranker.trainer import RerankerTrainer
-from tevatron.datasets import HFTrainDataset
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +77,10 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
-                                   cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     if training_args.local_rank > 0:
         print("Waiting for main process to perform the mapping")
         torch.distributed.barrier()
-    train_dataset = RerankerTrainDataset(data_args, train_dataset.process(), tokenizer)
+    train_dataset = RerankerTrainDataset(data_args)
     if training_args.local_rank == 0:
         print("Loading results from main process")
         torch.distributed.barrier()
@@ -91,9 +90,8 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         data_collator=RerankerTrainCollator(
-            tokenizer,
-            max_p_len=data_args.p_max_len,
-            max_q_len=data_args.q_max_len
+            data_args=data_args,
+            tokenizer=tokenizer,
         ),
     )
     train_dataset.trainer = trainer

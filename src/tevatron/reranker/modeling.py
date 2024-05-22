@@ -70,7 +70,6 @@ class RerankerModel(nn.Module):
     ):
         base_model = cls.TRANSFORMER_CLS.from_pretrained(
             model_args.model_name_or_path,
-            num_labels=1,
             **hf_kwargs,
         )
         if base_model.config.pad_token_id is None:
@@ -89,7 +88,7 @@ class RerankerModel(nn.Module):
                     lora_alpha=model_args.lora_alpha,
                     lora_dropout=model_args.lora_dropout,
                     target_modules=model_args.lora_target_modules.split(','),
-                    inference_mode=False
+                    inference_mode=False,
                 )
                 lora_model = get_peft_model(base_model, lora_config)
             model = cls(

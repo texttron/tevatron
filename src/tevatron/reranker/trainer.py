@@ -25,7 +25,10 @@ class RerankerTrainer(Trainer):
             if state_dict is None:
                 state_dict = self.model.state_dict()
             prefix = 'hf_model.'
-            assert all(k.startswith(prefix) for k in state_dict.keys()), list(state_dict.keys())
+            assert all(
+                k.startswith(prefix) or k == "target_label"
+                for k in state_dict.keys()
+            ), list(state_dict.keys())
             state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
             lora_state_dict = get_peft_model_state_dict(self.model.hf_model, state_dict)
             if self.args.process_index <= 0:
