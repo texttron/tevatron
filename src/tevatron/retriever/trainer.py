@@ -30,6 +30,8 @@ class TevatronTrainer(Trainer):
         if not isinstance(self.model, supported_classes):
             raise ValueError(f"Unsupported model class {self.model}")
         else:
+            if state_dict is None:
+                state_dict = self.model.state_dict()
             prefix = 'encoder.'
             assert all(k.startswith(prefix) for k in state_dict.keys()), list(state_dict.keys())
             state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
