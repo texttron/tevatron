@@ -153,12 +153,12 @@ class EncoderModel(nn.Module):
 
     @classmethod
     def load(cls,
-            model_name_or_path: str,
-            pooling: str = 'cls',
-            normalize: bool = False,
-            lora_name_or_path: str = None,
-            **hf_kwargs):
-        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs)
+             model_name_or_path: str,
+             pooling: str = 'cls',
+             normalize: bool = False,
+             lora_name_or_path: str = None,
+             **hf_kwargs):
+        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, device_map='auto', **hf_kwargs)
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
         if lora_name_or_path:
