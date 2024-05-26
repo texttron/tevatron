@@ -50,8 +50,15 @@ def main():
         cache_dir=model_args.cache_dir
     )
     if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.unk_token_id
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = 'right'
+
+    if training_args.bf16:
+        torch_dtype = torch.bfloat16
+    elif training_args.fp16:
+        torch_dtype = torch.float16
+    else:
+        torch_dtype = torch.float32
     
     model = DenseModel.load(
         model_args.model_name_or_path,
@@ -59,6 +66,7 @@ def main():
         normalize=model_args.normalize,
         lora_name_or_path=model_args.lora_name_or_path,
         cache_dir=model_args.cache_dir,
+        torch_dtype=torch_dtype
     )
 
     encode_dataset = EncodeDataset(
@@ -85,7 +93,7 @@ def main():
 
     for (batch_ids, batch) in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
-        with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
+        with torch.cuda.amp.autocast() if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
