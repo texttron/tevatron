@@ -65,7 +65,7 @@ def main():
     )
 
     if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.unk_token_id
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = 'right'
     
     model = DenseModel.build(
