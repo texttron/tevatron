@@ -1,6 +1,6 @@
 # RankLLaMA reranking example
 
-> code tested on transformers==4.33.0 peft==0.4.0 A6000 GPU
+> code tested on transformers==4.41.0 peft==0.11.1 A6000 GPU
 
 In this example, we take the retrieval results from the first stage retriever RepLLaMA and do rerank with cross-encoder on RankLLaMA Passage Ranking datasets.
 
