@@ -4,7 +4,7 @@ from typing import List, Tuple
 from datasets import load_dataset
 from torch.utils.data import Dataset
 
-from tevatron.retriever.arguments import DataArguments
+from tevatron.reranker.arguments import DataArguments
 
 import logging
 logger = logging.getLogger(__name__)
