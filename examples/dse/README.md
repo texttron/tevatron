@@ -57,7 +57,7 @@ wait
 
 CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
-  --model_name_or_path microsoft/Phi-3-vision-128k-instruct \
+  --model_name_or_path Tevatron/Phi-3-vision-128k-instruct-clone \
   --lora_name_or_path dse-nq-retriever \
   --lora \
   --bf16 \
