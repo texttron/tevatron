@@ -2,13 +2,13 @@
 
 : '
 Example usage:
-./eval_beir.sh --lora_name_path /retriever-mistral/checkpoint-7600 \
-                    --dataset arguana \
+./eval_beir.sh --dataset arguana \
                     --tokenizer mistralai/Mistral-7B-v0.1 \
                     --model_name_path mistralai/Mistral-7B-v0.1 \
                     --embedding_dir beir_embedding_arguana \
                     --query_prefix "Query: " \
-                    --passage_prefix "Passage: "
+                    --passage_prefix "Passage: " \
+                    [--lora_name_path /retriever-mistral/checkpoint-7600]
  '
 
 # Default values
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
     --query_prefix) query_prefix="$2"; shift 2 ;;
     --passage_prefix) passage_prefix="$2"; shift 2 ;;
     --help) 
-      echo "Usage: $0 --lora_name_path <path> --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix>"
+      echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>]"
       exit 0 ;;
     *) 
       echo "Unknown argument: $1"; 
@@ -41,14 +41,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check if required arguments are provided
-if [ -z "$lora_name_path" ] || [ -z "$dataset" ] || [ -z "$tokenizer" ] || [ -z "$model_name_path" ] || [ -z "$embedding_dir" ]; then
+if [ -z "$dataset" ] || [ -z "$tokenizer" ] || [ -z "$model_name_path" ] || [ -z "$embedding_dir" ]; then
   echo "Missing required arguments. Please provide all necessary options."
-  echo "Usage: $0 --lora_name_path <path> --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix>"
+  echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>]"
   exit 1
 fi
 
 # Create the embedding directory if it doesn't exist
 mkdir -p $embedding_dir
+
+# Prepare optional lora arguments
+lora_args=""
+if [ -n "$lora_name_path" ]; then
+  lora_args="--lora --lora_name_or_path ${lora_name_path}"
+fi
 
 # Encode passages
 for s in $(seq -f "%02g" 0 7); do
@@ -57,12 +63,11 @@ for s in $(seq -f "%02g" 0 7); do
     --model_name_or_path ${model_name_path} \
     --tokenizer_name ${tokenizer} \
     --fp16 \
-    --lora \
-    --lora_name_or_path ${lora_name_path} \
+    ${lora_args} \
     --pooling eos \
     --passage_prefix "${passage_prefix}" \
     --per_device_eval_batch_size 64 \
-    --passage_max_len 156 \
+    --passage_max_len 512 \
     --dataset_name Tevatron/beir-corpus \
     --dataset_config ${dataset} \
     --encode_output_path $embedding_dir/corpus_${dataset}.${s}.pkl \
@@ -76,8 +81,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --model_name_or_path ${model_name_path} \
   --tokenizer_name ${tokenizer} \
   --fp16 \
-  --lora \
-  --lora_name_or_path ${lora_name_path} \
+  ${lora_args} \
   --pooling eos \
   --query_prefix "${query_prefix}" \
   --per_device_eval_batch_size 64 \
@@ -85,7 +89,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --dataset_config ${dataset} \
   --dataset_split "test" \
   --encode_output_path $embedding_dir/query_${dataset}.pkl \
-  --query_max_len 32 \
+  --query_max_len 512 \
   --encode_is_query
 
 # Perform retrieval
