@@ -8,8 +8,9 @@ Example usage:
                     --embedding_dir beir_embedding_arguana \
                     --query_prefix "Query: " \
                     --passage_prefix "Passage: " \
-                    [--lora_name_path /retriever-mistral/checkpoint-7600]
- '
+                    [--lora_name_path /retriever-mistral/checkpoint-7600] \
+                    [--normalize]
+'
 
 # Default values
 lora_name_path=""
@@ -19,6 +20,7 @@ model_name_path=""
 embedding_dir=""
 query_prefix="Query: "
 passage_prefix="Passage: "
+normalize_flag=""
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -30,8 +32,9 @@ while [[ $# -gt 0 ]]; do
     --embedding_dir) embedding_dir="$2"; shift 2 ;;
     --query_prefix) query_prefix="$2"; shift 2 ;;
     --passage_prefix) passage_prefix="$2"; shift 2 ;;
+    --normalize) normalize_flag="--normalize"; shift ;;
     --help) 
-      echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>]"
+      echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>] [--normalize]"
       exit 0 ;;
     *) 
       echo "Unknown argument: $1"; 
@@ -43,7 +46,7 @@ done
 # Check if required arguments are provided
 if [ -z "$dataset" ] || [ -z "$tokenizer" ] || [ -z "$model_name_path" ] || [ -z "$embedding_dir" ]; then
   echo "Missing required arguments. Please provide all necessary options."
-  echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>]"
+  echo "Usage: $0 --dataset <dataset> --tokenizer <tokenizer> --model_name_path <model> --embedding_dir <directory> --query_prefix <prefix> --passage_prefix <prefix> [--lora_name_path <path>] [--normalize]"
   exit 1
 fi
 
@@ -64,6 +67,7 @@ for s in $(seq -f "%02g" 0 7); do
     --tokenizer_name ${tokenizer} \
     --fp16 \
     ${lora_args} \
+    ${normalize_flag} \
     --pooling eos \
     --passage_prefix "${passage_prefix}" \
     --per_device_eval_batch_size 64 \
@@ -82,6 +86,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --tokenizer_name ${tokenizer} \
   --fp16 \
   ${lora_args} \
+  ${normalize_flag} \
   --pooling eos \
   --query_prefix "${query_prefix}" \
   --per_device_eval_batch_size 64 \
