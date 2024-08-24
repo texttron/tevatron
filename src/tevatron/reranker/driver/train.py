@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments, TevatronTrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
