@@ -7,6 +7,7 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
+from transformers import TrainingArguments
 
 from tevatron.reranker.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
