@@ -15,7 +15,6 @@ from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.dataset import RerankerTrainDataset
 from tevatron.reranker.collator import RerankerTrainCollator
 from tevatron.reranker.trainer import RerankerTrainer
-from tevatron.reranker.gc_trainer import GradCacheTrainer as GCTrainer
 
 logger = logging.getLogger(__name__)
 
