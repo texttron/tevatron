@@ -121,6 +121,5 @@ class DataArguments:
 class TevatronTrainingArguments(TrainingArguments):
     warmup_ratio: float = field(default=0.1)
 
-    grad_cache: bool = field(default=False, metadata={"help": "Use gradient cache update"})
-    gc_q_chunk_size: int = field(default=4)
-    gc_p_chunk_size: int = field(default=32)
+    grad_cache: bool = field(default=False, metadata={"help": "Use gradient cache"})
+    gc_chunk_size: Optional[int] = field(default=None, metadata={"help": "Chunk size for gradient cache"})
