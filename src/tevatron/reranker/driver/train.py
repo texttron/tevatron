@@ -19,7 +19,7 @@ from tevatron.reranker.trainer import RerankerTrainer
 logger = logging.getLogger(__name__)
 
 def main():
-    parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments, TevatronTrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataArguments, TevatronTrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args, tevatron_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
