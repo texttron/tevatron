@@ -1,18 +1,34 @@
 import logging
 import os
 import sys
+import torch
 from transformers import AutoTokenizer
 from transformers import (
     HfArgumentParser,
     set_seed,
 )
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
 from tevatron.reranker.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.dataset import RerankerTrainDataset
 from tevatron.reranker.collator import RerankerTrainCollator
-from tevatron.reranker.trainer import RerankerTrainer  # Make sure this is your updated RerankerTrainer
+from tevatron.reranker.trainer import RerankerTrainer
 
 logger = logging.getLogger(__name__)
+
+
+def setup_ddp():
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        # We're running in a distributed environment
+        import torch.distributed as dist
+        rank = int(os.environ['RANK'])
+        world_size = int(os.environ['WORLD_SIZE'])
+        dist.init_process_group(backend="nccl")
+        return rank
+    else:
+        # We're not running in a distributed environment
+        return -1
 
 
 def main():
@@ -23,29 +39,22 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    if (
-            os.path.exists(training_args.output_dir)
-            and os.listdir(training_args.output_dir)
-            and training_args.do_train
-            and not training_args.overwrite_output_dir
-    ):
-        raise ValueError(
-            f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
-        )
+    local_rank = setup_ddp()
+    training_args.local_rank = local_rank
 
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
+        level=logging.INFO if local_rank in [-1, 0] else logging.WARN,
     )
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-        training_args.local_rank,
+        local_rank,
         training_args.device,
         training_args.n_gpu,
-        bool(training_args.local_rank != -1),
-        training_args.fp16,
+        bool(local_rank != -1),
+        training_args.fp16 or training_args.bf16,
     )
     logger.info("Training/evaluation parameters %s", training_args)
     logger.info("MODEL parameters %s", model_args)
@@ -67,11 +76,16 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
+    # Move model to GPU
+    if local_rank != -1:
+        model = model.to(local_rank)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
 
-    # Add GradCache-specific arguments to training_args
     training_args.gc_chunk_size = getattr(training_args, 'gc_chunk_size', 2)
+    training_args.grad_cache = getattr(training_args, 'grad_cache', False)
 
     trainer = RerankerTrainer(
         model=model,
@@ -81,7 +95,7 @@ def main():
     )
     train_dataset.trainer = trainer
 
-    trainer.train()  # TODO: resume training
+    trainer.train()
     trainer.save_model()
     if trainer.is_world_process_zero():
         tokenizer.save_pretrained(training_args.output_dir)

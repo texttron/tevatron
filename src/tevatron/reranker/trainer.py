@@ -7,7 +7,6 @@ from transformers import Trainer, TrainingArguments
 from transformers.trainer_utils import PredictionOutput
 
 from grad_cache import GradCache
-
 from grad_cache.functional import cached, cat_input_tensor
 from torch.cuda.amp import autocast
 
@@ -39,22 +38,26 @@ def split_inputs(model_input, chunk_size):
 class RerankerTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        logger.info("Initializing RerankerTrainer with GradCache")
+        logger.info("Initializing RerankerTrainer")
         self.args: TrainingArguments
 
-        # Add these lines to include the necessary parameters
-        self.gc_chunk_size = getattr(self.args, 'gc_chunk_size', 4)  # default to 4 if not provided
+        self.gc_chunk_size = getattr(self.args, 'gc_chunk_size', 4)
+        self.use_grad_cache = getattr(self.args, 'grad_cache', False)
 
-        self.gc = GradCache(
-            models=[self.model],
-            chunk_sizes=self.gc_chunk_size,
-            loss_fn=contrastive_loss,
-            split_input_fn=split_inputs,
-            get_rep_fn=lambda x: x.scores,
-            fp16=self.args.fp16,
-            scaler=self.scaler if self.args.fp16 else None
-        )
-        logger.info(f"GradCache initialized with chunk size: {self.gc_chunk_size}")
+        if self.use_grad_cache:
+            # If the model is wrapped in DDP, we need to use the .module attribute
+            model_for_gc = self.model.module if hasattr(self.model, 'module') else self.model
+
+            self.gc = GradCache(
+                models=[model_for_gc],
+                chunk_sizes=self.gc_chunk_size,
+                loss_fn=contrastive_loss,
+                split_input_fn=split_inputs,
+                get_rep_fn=lambda x: x.scores,
+                fp16=self.args.fp16,
+                # scaler: GradScaler = None,
+            )
+            logger.info(f"GradCache initialized with chunk size: {self.gc_chunk_size}")
 
     def compute_loss(self, model, inputs, return_outputs=False):
         logger.debug(f"Computing loss with inputs: {inputs.keys()}")
@@ -68,8 +71,11 @@ class RerankerTrainer(Trainer):
         logger.debug("Entering training step")
         model.train()
         inputs = self._prepare_inputs(inputs)
-        _distributed = self.args.local_rank > -1
-        loss = self.gc(inputs, no_sync_except_last=_distributed)
+        if self.use_grad_cache:
+            _distributed = self.args.local_rank != -1
+            loss = self.gc(inputs, no_sync_except_last=_distributed)
+        else:
+            loss = self.compute_loss(model, inputs)
         logger.debug(f"Training step loss: {loss.item()}")
         return loss
 

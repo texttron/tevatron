@@ -38,9 +38,6 @@ class RerankerModel(nn.Module):
             scores=outputs.logits
         )
 
-    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs = None):
-        return False
-
     @classmethod
     def build(
             cls,
