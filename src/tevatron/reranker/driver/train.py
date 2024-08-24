@@ -77,7 +77,7 @@ def main():
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
 
-    trainer_cls = GCTrainer if training_args.grad_cache else RerankerTrainer
+    trainer_cls = RerankerTrainer
     trainer = trainer_cls(
         model=model,
         args=training_args,
