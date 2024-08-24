@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional
 
 import torch
 from torch import nn, Tensor
@@ -23,37 +23,22 @@ class RerankerOutput(ModelOutput):
 class RerankerModel(nn.Module):
     TRANSFORMER_CLS = AutoModelForSequenceClassification
 
-    def __init__(self, hf_model: PreTrainedModel, train_batch_size: int = None):
+    def __init__(self, hf_model: PreTrainedModel):
         super().__init__()
-        logger.info(f"Initializing RerankerModel with train_batch_size: {train_batch_size}")
+        logger.info("Initializing RerankerModel")
         self.config = hf_model.config
         self.hf_model = hf_model
-        self.train_batch_size = train_batch_size
-        self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
-        if train_batch_size:
-            self.register_buffer(
-                'target_label',
-                torch.zeros(self.train_batch_size, dtype=torch.long, device=self.hf_model.device)
-            )
         logger.info(f"RerankerModel initialized with config: {self.config}")
 
-    def forward(self, input_ids: Tensor = None, attention_mask: Tensor = None, labels: Tensor = None, **kwargs):
+    def forward(self, input_ids: Tensor = None, attention_mask: Tensor = None, **kwargs):
         logger.debug(f"Forward pass with input shape: {input_ids.shape if input_ids is not None else 'None'}")
         outputs = self.hf_model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
 
-        if labels is not None:
-            loss = self.cross_entropy(outputs.logits.view(self.train_batch_size, -1), labels)
-            logger.debug(f"Computed loss: {loss.item()}")
-        else:
-            loss = None
-            logger.debug("No labels provided, skipping loss computation")
-
         return RerankerOutput(
-            loss=loss,
             scores=outputs.logits
         )
 
-    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None):
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs = None):
         return False
 
     @classmethod
@@ -94,16 +79,10 @@ class RerankerModel(nn.Module):
                     inference_mode=False,
                 )
                 lora_model = get_peft_model(base_model, lora_config)
-            model = cls(
-                hf_model=lora_model,
-                train_batch_size=train_args.per_device_train_batch_size,
-            )
+            model = cls(hf_model=lora_model)
         else:
             logger.info("Building model without LoRA")
-            model = cls(
-                hf_model=base_model,
-                train_batch_size=train_args.per_device_train_batch_size,
-            )
+            model = cls(hf_model=base_model)
         return model
 
     @classmethod
@@ -123,14 +102,10 @@ class RerankerModel(nn.Module):
             lora_config = LoraConfig.from_pretrained(lora_name_or_path, **hf_kwargs)
             lora_model = PeftModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
             lora_model = lora_model.merge_and_unload()
-            model = cls(
-                hf_model=lora_model,
-            )
+            model = cls(hf_model=lora_model)
         else:
             logger.info("Loading model without LoRA")
-            model = cls(
-                hf_model=base_model,
-            )
+            model = cls(hf_model=base_model)
         return model
 
     def save(self, output_dir: str):
