@@ -9,7 +9,6 @@ from transformers.file_utils import ModelOutput
 from transformers import TrainingArguments
 from peft import LoraConfig, PeftModel, TaskType, get_peft_model
 
-
 from tevatron.reranker.arguments import ModelArguments
 
 import logging
@@ -21,6 +20,7 @@ logger = logging.getLogger(__name__)
 class RerankerOutput(ModelOutput):
     loss: Optional[Tensor] = None
     scores: Optional[Tensor] = None
+
 
 class RerankerModel(nn.Module):
     TRANSFORMER_CLS = AutoModelForSequenceClassification
@@ -49,17 +49,18 @@ class RerankerModel(nn.Module):
             grouped_logits = ranker_logits.view(self.train_batch_size, -1)
             loss = self.cross_entropy(grouped_logits, self.target_label)
             return RerankerOutput(
-                loss = loss,
-                scores = ranker_logits
+                loss=loss,
+                scores=ranker_logits
             )
 
         return RerankerOutput(
-            loss = None,
-            scores = ranker_logits
+            loss=None,
+            scores=ranker_logits
         )
-    
+
     def gradient_checkpointing_enable(self, **kwargs):
-        self.hf_model.base_model.model.gradient_checkpointing_enable(**kwargs)
+        return False
+        # self.hf_model.base_model.model.gradient_checkpointing_enable(**kwargs)
 
     @classmethod
     def build(
@@ -79,7 +80,9 @@ class RerankerModel(nn.Module):
                 base_model.enable_input_require_grads()
             if model_args.lora_name_or_path:
                 lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
-                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
+                lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path,
+                                                       torch_dtype=torch.bfloat16,
+                                                       attn_implementation="flash_attention_2")
             else:
                 lora_config = LoraConfig(
                     base_model_name_or_path=model_args.model_name_or_path,
@@ -107,7 +110,9 @@ class RerankerModel(nn.Module):
              model_name_or_path: str,
              lora_name_or_path: str = None,
              **hf_kwargs):
-        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, num_labels=1, **hf_kwargs, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
+        base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, num_labels=1, **hf_kwargs,
+                                                         torch_dtype=torch.bfloat16,
+                                                         attn_implementation="flash_attention_2")
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
         if lora_name_or_path:
