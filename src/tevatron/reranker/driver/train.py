@@ -1,20 +1,19 @@
 import logging
 import os
 import sys
-
 from transformers import AutoTokenizer
 from transformers import (
     HfArgumentParser,
     set_seed,
 )
-
 from tevatron.reranker.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
 from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.dataset import RerankerTrainDataset
 from tevatron.reranker.collator import RerankerTrainCollator
-from tevatron.reranker.trainer import RerankerTrainer
+from tevatron.reranker.trainer import RerankerTrainer  # Make sure this is your updated RerankerTrainer
 
 logger = logging.getLogger(__name__)
+
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TevatronTrainingArguments))
@@ -71,6 +70,9 @@ def main():
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
 
+    # Add GradCache-specific arguments to training_args
+    training_args.gc_chunk_size = getattr(training_args, 'gc_chunk_size', 2)
+
     trainer = RerankerTrainer(
         model=model,
         args=training_args,
@@ -83,6 +85,7 @@ def main():
     trainer.save_model()
     if trainer.is_world_process_zero():
         tokenizer.save_pretrained(training_args.output_dir)
+
 
 if __name__ == "__main__":
     main()
