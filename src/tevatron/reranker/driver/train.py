@@ -10,7 +10,7 @@ from transformers import (
 from transformers import TrainingArguments
 
 from tevatron.reranker.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+    TevatronTrainingArguments
 from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.dataset import RerankerTrainDataset
 from tevatron.reranker.collator import RerankerTrainCollator
@@ -18,17 +18,21 @@ from tevatron.reranker.trainer import RerankerTrainer
 
 logger = logging.getLogger(__name__)
 
-
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments, TevatronTrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args, tevatron_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+        model_args, data_args, training_args, tevatron_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+        tevatron_args: TevatronTrainingArguments
+
+    # Combine TrainingArguments and TevatronTrainingArguments
+    for key, value in vars(tevatron_args).items():
+        setattr(training_args, key, value)
 
     if (
             os.path.exists(training_args.output_dir)
@@ -56,6 +60,7 @@ def main():
     )
     logger.info("Training/evaluation parameters %s", training_args)
     logger.info("MODEL parameters %s", model_args)
+    logger.info("Tevatron parameters %s", tevatron_args)
 
     set_seed(training_args.seed)
 
@@ -76,8 +81,7 @@ def main():
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
 
-    trainer_cls = RerankerTrainer
-    trainer = trainer_cls(
+    trainer = RerankerTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -89,7 +93,6 @@ def main():
     trainer.save_model()
     if trainer.is_world_process_zero():
         tokenizer.save_pretrained(training_args.output_dir)
-
 
 if __name__ == "__main__":
     main()
