@@ -55,7 +55,8 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir
+        cache_dir=model_args.cache_dir,
+        trust_remote_code=True
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.unk_token_id
