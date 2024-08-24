@@ -7,16 +7,17 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
-from transformers import TrainingArguments
 
-from tevatron.reranker.arguments import ModelArguments, DataArguments
-
+from tevatron.reranker.arguments import ModelArguments, DataArguments, \
+    TevatronTrainingArguments as TrainingArguments
 from tevatron.reranker.modeling import RerankerModel
 from tevatron.reranker.dataset import RerankerTrainDataset
-from tevatron.reranker.trainer import RerankerTrainer
 from tevatron.reranker.collator import RerankerTrainCollator
+from tevatron.reranker.trainer import RerankerTrainer
+from tevatron.reranker.gc_trainer import GradCacheTrainer as GCTrainer
 
 logger = logging.getLogger(__name__)
+
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
@@ -65,6 +66,7 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.unk_token_id
     tokenizer.padding_side = 'right'
+
     model = RerankerModel.build(
         model_args,
         training_args,
@@ -74,7 +76,8 @@ def main():
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
 
-    trainer = RerankerTrainer(
+    trainer_cls = GCTrainer if training_args.grad_cache else RerankerTrainer
+    trainer = trainer_cls(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
