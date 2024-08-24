@@ -116,3 +116,11 @@ class DataArguments:
                     "enable the use of Tensor Cores on NVIDIA hardware with compute capability >= 7.5 (Volta)."
         },
     )
+
+@dataclass
+class TevatronTrainingArguments(TrainingArguments):
+    warmup_ratio: float = field(default=0.1)
+
+    grad_cache: bool = field(default=False, metadata={"help": "Use gradient cache update"})
+    gc_q_chunk_size: int = field(default=4)
+    gc_p_chunk_size: int = field(default=32)
