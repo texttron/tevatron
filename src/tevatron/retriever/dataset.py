@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def format_query(query: str, prefix: str = '') -> str:
-    return f'{prefix} {query.strip()}'.strip()
+    return f'{prefix}{query.strip()}'.strip()
 
 def format_passage(text: str, title: str = '', prefix: str = '') -> str:
-    return f'{prefix} {title.strip()} {text.strip()}'.strip()
+    return f'{prefix}{title.strip()} {text.strip()}'.strip()
 
 
 class TrainDataset(Dataset):
