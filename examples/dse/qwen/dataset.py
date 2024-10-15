@@ -39,6 +39,7 @@ class TrainDataset(Dataset):
             for idx, docid in enumerate(self.corpus['docid']):
                 self.docid2idx[str(docid)] = idx
         else:
+            # handle docmatix
             for idx in range(len(self.corpus)):
                 self.docid2idx[str(idx)] = idx
         if self.data_args.dataset_number_of_shards > 1:
@@ -55,9 +56,9 @@ class TrainDataset(Dataset):
         if 'image' in self.corpus.features:
             image = self.corpus[self.docid2idx[docid]]['image']
         elif 'images' in self.corpus.features:
+            # handle docmatrix
             example_id, image_id = docid.split('_')
             image = self.corpus[self.docid2idx[example_id]]['images'][int(image_id)]
-        image = image.resize((1344, 1344))
         return image
         
 
@@ -123,6 +124,7 @@ class EncodeDataset(Dataset):
             for idx, docid in enumerate(self.corpus['docid']):
                 self.docid2idx[str(docid)] = idx
         else:
+            # handle docmatix
             for idx in range(len(self.corpus)):
                 self.docid2idx[str(idx)] = idx
         if self.data_args.dataset_number_of_shards > 1:
@@ -140,7 +142,6 @@ class EncodeDataset(Dataset):
         elif 'images' in self.corpus.features:
             example_id, image_id = docid.split('_')
             image = self.corpus[self.docid2idx[example_id]]['images'][int(image_id)]
-        image = image.resize((1344, 1344))
         return image
 
     def __getitem__(self, item) -> Tuple[str, str]:

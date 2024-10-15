@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 from torch import nn, Tensor
 
-from transformers import PreTrainedModel, AutoModelForCausalLM
+from transformers import PreTrainedModel, Qwen2VLForConditionalGeneration
 from peft import LoraConfig, TaskType, get_peft_model, PeftModel
 
 from transformers.file_utils import ModelOutput
@@ -24,7 +24,7 @@ class EncoderOutput(ModelOutput):
 
 
 class DSEModel(nn.Module):
-    TRANSFORMER_CLS = AutoModelForCausalLM
+    TRANSFORMER_CLS = Qwen2VLForConditionalGeneration
 
     def __init__(self,
                  encoder: PreTrainedModel,
@@ -84,11 +84,15 @@ class DSEModel(nn.Module):
         )
 
     def encode_query(self, qry):
+        cache_position = torch.arange(0, qry['input_ids'].shape[0], device=qry['input_ids'].device)
+        qry = self.encoder.prepare_inputs_for_generation(**qry, use_cache=True, cache_position=cache_position)
         query_hidden_states = self.encoder(**qry, return_dict=True, output_hidden_states=True)
         query_hidden_states = query_hidden_states.hidden_states[-1]
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg):
+        cache_position = torch.arange(0, psg['input_ids'].shape[0], device=psg['input_ids'].device)
+        psg = self.encoder.prepare_inputs_for_generation(**psg, use_cache=True, cache_position=cache_position)
         passage_hidden_states = self.encoder(**psg, return_dict=True, output_hidden_states=True)
         passage_hidden_states = passage_hidden_states.hidden_states[-1]
         return self._pooling(passage_hidden_states, psg['attention_mask'])
@@ -123,7 +127,7 @@ class DSEModel(nn.Module):
             **hf_kwargs,
     ):  
         base_model = cls.TRANSFORMER_CLS.from_pretrained(model_args.model_name_or_path, **hf_kwargs, attn_implementation="flash_attention_2", torch_dtype=torch.bfloat16, trust_remote_code=True)
-        base_model.padding_side = "right"
+        base_model.padding_side = "left"
         if model_args.lora or model_args.lora_name_or_path:
             if train_args.gradient_checkpointing:
                 base_model.enable_input_require_grads()
@@ -164,7 +168,7 @@ class DSEModel(nn.Module):
             lora_name_or_path: str = None,
             **hf_kwargs):
         base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, **hf_kwargs, attn_implementation="flash_attention_2", torch_dtype=torch.bfloat16, trust_remote_code=True, use_cache=False)
-        base_model.padding_side = "right"
+        base_model.padding_side = "left"
         if lora_name_or_path:
             lora_config = LoraConfig.from_pretrained(lora_name_or_path, **hf_kwargs)
             lora_model = PeftModel.from_pretrained(base_model, lora_name_or_path, config=lora_config)
@@ -193,9 +197,11 @@ class DSEModel(nn.Module):
             masked_hiddens = last_hidden_state.masked_fill(~attention_mask[..., None].bool(), 0.0)
             reps = masked_hiddens.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
         elif self.pooling in ['last', 'eos']:
-            sequence_lengths = attention_mask.sum(dim=1) - 1
-            batch_size = last_hidden_state.shape[0]
-            reps = last_hidden_state[torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths]
+            # assume left padding
+            reps = last_hidden_state[:, -1]
+            # sequence_lengths = attention_mask.sum(dim=1) - 1
+            # batch_size = last_hidden_state.shape[0]
+            # reps = last_hidden_state[torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths]
         else:
             raise ValueError(f'unknown pooling method: {self.pooling}')
         if self.normalize:
