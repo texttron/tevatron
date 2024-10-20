@@ -65,7 +65,7 @@ def main():
         max_pixels=2560*28*28,
     )
     
-    processor.tokenizer.padding_side = "right"
+    processor.tokenizer.padding_side = "left"
     
     model = DSEModel.build(
         model_args,
