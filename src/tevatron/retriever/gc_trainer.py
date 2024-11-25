@@ -88,7 +88,7 @@ class GradCacheTrainer(TevatronTrainer):
             scaler=self.scaler if self.args.fp16 else None
         )
 
-    def training_step(self, model, inputs) -> torch.Tensor:
+    def training_step(self, model, inputs, num_items_in_batch: int=None) -> torch.Tensor:
         model.train()
         queries, passages = self._prepare_inputs(inputs)
         queries, passages = {'query': queries}, {'passage': passages}

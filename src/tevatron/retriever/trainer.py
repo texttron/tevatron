@@ -7,7 +7,6 @@ from transformers.trainer import Trainer, TRAINING_ARGS_NAME
 import torch.distributed as dist
 from .modeling import EncoderModel
 
-
 import logging
 logger = logging.getLogger(__name__)
 
