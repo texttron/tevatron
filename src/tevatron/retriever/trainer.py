@@ -7,7 +7,6 @@ from transformers.trainer import Trainer, TRAINING_ARGS_NAME
 import torch.distributed as dist
 from .modeling import EncoderModel
 
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class TevatronTrainer(Trainer):
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
-    def compute_loss(self, model, inputs):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage = inputs
         return model(query=query, passage=passage).loss
 
