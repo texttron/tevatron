@@ -16,11 +16,11 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, \
+from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.modeling import EncoderOutput, SpladeModel
-from tevatron.datasets import HFQueryDataset, HFCorpusDataset
+from tevatron.retriever.dataset import EncodeDataset
+from tevatron.retriever.collator import EncodeCollator
+from tevatron.retriever.modeling import EncoderOutput, SpladeModel
 
 logger = logging.getLogger(__name__)
 
@@ -62,25 +62,19 @@ def main():
         config=config,
         cache_dir=model_args.cache_dir,
     )
+    encode_dataset = EncodeDataset(
+        data_args=data_args,
+    )
 
-    text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_is_qry:
-        encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args,
-                                        cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    else:
-        encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args,
-                                         cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
-                                   tokenizer, max_len=text_max_length)
+    encode_collator = EncodeCollator(
+        data_args=data_args,
+        tokenizer=tokenizer,
+    )
 
     encode_loader = DataLoader(
         encode_dataset,
         batch_size=training_args.per_device_eval_batch_size,
-        collate_fn=EncodeCollator(
-            tokenizer,
-            max_length=text_max_length,
-            padding='max_length'
-        ),
+        collate_fn=encode_collator,
         shuffle=False,
         drop_last=False,
         num_workers=training_args.dataloader_num_workers,
@@ -91,7 +85,7 @@ def main():
     model.eval()
     vocab_dict = tokenizer.get_vocab()
     vocab_dict = {v: k for k, v in vocab_dict.items()}
-    collection_file = open(data_args.encoded_save_path, "w")
+    collection_file = open(data_args.encode_output_path, "w")
 
     for (batch_ids, batch) in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
@@ -99,7 +93,7 @@ def main():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
-                if data_args.encode_is_qry:
+                if data_args.encode_is_query:
                     model_output: EncoderOutput = model(query=batch)
                     reps = model_output.q_reps.cpu().detach().numpy()
                 else:
@@ -119,7 +113,7 @@ def main():
                         print("empty input =>", id_)
                         dict_splade[vocab_dict[998]] = 1  # in case of empty doc we fill with "[unused993]" token (just to fill
                         # and avoid issues with anserini), in practice happens just a few times ...
-                    if not data_args.encode_is_qry:
+                    if not data_args.encode_is_query:
                         dict_ = dict(id=id_, content="", vector=dict_splade)
                         json_dict = json.dumps(dict_)  
                         collection_file.write(json_dict + "\n")
