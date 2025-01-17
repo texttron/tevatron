@@ -52,7 +52,7 @@ CUDA_VISIBLE_DEVICES=0 python search.py \
 
 ## Evaluate
 ```bash
-python eval_retrieval.py --run_file run.dse-nq.txt --k 1
+python eval_retrieval.py --run_file run.colpali-nq.txt --k 1
 
 # top-1 score
 Top-k Accuracy: 0.3518005540166205
