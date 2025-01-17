@@ -17,8 +17,8 @@ CUDA_VISIBLE_DEVICES=0 python encode.py \
   --dataset_name Tevatron/wiki-ss-corpus \
   --corpus_name Tevatron/wiki-ss-corpus \
   --dataset_number_of_shards $encode_num_shard \
-  --dataset_shard_index $shard \
-  --encode_output_path corpus.shard.$shard.pkl
+  --dataset_shard_index $i \
+  --encode_output_path corpus.shard.$i.pkl
 done
 
 ```
