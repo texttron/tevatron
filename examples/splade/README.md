@@ -32,23 +32,24 @@ python encode_splade.py \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
   --fp16 \
+  --passage_max_len 128 \
   --per_device_eval_batch_size 512 \
   --dataset_name Tevatron/msmarco-passage-corpus \
-  --encode_num_shard 10 \
-  --encode_shard_index ${i} \
-  --encoded_save_path encoding_splade/corpus/split${i}.jsonl
+  --dataset_number_of_shards 10 \
+  --dataset_shard_index ${i} \
+  --encode_output_path encoding_splade/corpus/split${i}.jsonl
 done
 
-python -m encode_splade.py \
+python encode_splade.py \
   --output_dir encoding_splade \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
   --fp16 \
-  --q_max_len 128 \
-  --encode_is_qry \
+  --query_max_len 128 \
+  --encode_is_query \
   --per_device_eval_batch_size 128 \
   --dataset_name Tevatron/msmarco-passage/dev \
-  --encoded_save_path encoding_splade/query/dev.tsv
+  --encode_output_path encoding_splade/query/dev.tsv
 ```
 
 ## Index SPLADE with anserini
