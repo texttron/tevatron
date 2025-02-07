@@ -95,3 +95,23 @@ class EncodeCollator:
             return_tensors='pt',
         )
         return text_ids, collated_texts
+
+
+@dataclass
+class VllmEncodeCollator(EncodeCollator):
+    def __call__(self, features: List[Tuple[str, str]]):
+        text_ids = [x[0] for x in features]
+        texts = [x[1] for x in features]
+        max_length = self.data_args.query_max_len if self.data_args.encode_is_query else self.data_args.passage_max_len
+        collated_texts = self.tokenizer(
+            texts,
+            padding=False,
+            truncation=True,
+            max_length=max_length-1 if self.data_args.append_eos_token else max_length,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            add_special_tokens=True,
+        )
+        if self.data_args.append_eos_token:
+            collated_texts['input_ids'] = [x + [self.tokenizer.eos_token_id] for x in collated_texts['input_ids']]
+        return text_ids, collated_texts['input_ids']
