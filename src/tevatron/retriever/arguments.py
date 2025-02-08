@@ -43,7 +43,7 @@ class ModelArguments:
     )
 
     lora_r: int = field(
-        default=8,
+        default=16,
         metadata={"help": "lora r"}
     )
 
@@ -92,6 +92,22 @@ class DataArguments:
 
     dataset_cache_dir: Optional[str] = field(
         default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+    )
+
+    corpus_name: str = field(
+        default='json', metadata={"help": "huggingface dataset name for corpus"}
+    )
+
+    corpus_config: str = field(
+        default=None, metadata={"help": "huggingface dataset config for corpus, useful for datasets with sub-datasets"}
+    )
+
+    corpus_path: str = field(
+        default=None, metadata={"help": "Path to local corpus files or directory"}
+    )
+
+    corpus_split: str = field(
+        default='train', metadata={"help": "corpus split"}
     )
 
     dataset_number_of_shards: int = field(
