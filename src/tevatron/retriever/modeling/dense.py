@@ -25,11 +25,13 @@ class DenseModel(EncoderModel):
             masked_hiddens = last_hidden_state.masked_fill(~attention_mask[..., None].bool(), 0.0)
             reps = masked_hiddens.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
         elif self.pooling in ['last', 'eos']:
-            # sequence_lengths = attention_mask.sum(dim=1) - 1
-            # batch_size = last_hidden_state.shape[0]
-            # reps = last_hidden_state[torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths]
-            # it is left padded, so the last token is the representation
-            reps = last_hidden_state[:, -1]
+            left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+            if left_padding:
+                reps = last_hidden_state[:, -1]
+            else:
+                sequence_lengths = attention_mask.sum(dim=1) - 1
+                batch_size = last_hidden_state.shape[0]
+                reps = last_hidden_state[torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths]
         else:
             raise ValueError(f'unknown pooling method: {self.pooling}')
         if self.normalize:

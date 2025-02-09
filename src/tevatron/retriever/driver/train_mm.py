@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import yaml
 
 from transformers import AutoProcessor
 from transformers import (
@@ -11,7 +12,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.retriever.dataset import TrainDataset
+from tevatron.retriever.dataset import TrainDataset, MultiTrainDataset
 from tevatron.retriever.collator import MultiModalTrainCollator
 from tevatron.retriever.modeling import MultiModalDenseModel
 from tevatron.retriever.trainer import TevatronTrainer
@@ -74,7 +75,13 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = TrainDataset(data_args)
+    if data_args.train_yaml is not None:
+        with open(data_args.train_yaml, 'r') as f:
+            train_yaml = yaml.safe_load(f)
+        dataset_list = train_yaml['train']
+        corpus_list = train_yaml['corpus']
+
+    train_dataset = MultiTrainDataset(data_args, dataset_list, corpus_list) if data_args.train_yaml is not None else TrainDataset(data_args)
     collator = MultiModalTrainCollator(data_args, processor)
 
     trainer = TevatronTrainer(
@@ -83,7 +90,8 @@ def main():
         train_dataset=train_dataset,
         data_collator=collator
     )
-    train_dataset.trainer = trainer
+    
+    train_dataset.set_trainer(trainer)
     
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):
