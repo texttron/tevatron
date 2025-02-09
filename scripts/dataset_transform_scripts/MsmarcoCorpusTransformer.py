@@ -1,26 +1,26 @@
 from datasets import load_dataset, load_dataset_builder, Image, DatasetDict
 
-def loadDatasets():
+def load_datasets():
     # available splits: ['train']
-    dsDict = load_dataset("Tevatron/msmarco-passage-corpus")
-    return dsDict
+    ds_dict = load_dataset("Tevatron/msmarco-passage-corpus")
+    return ds_dict
 
-def transformDataset(ds):
+def transform_dataset(ds):
     new_image_column = [None] * len(ds)
     new_source_column = ["msmarco"] * len(ds)
     trans_ds = ds.add_column("image", new_image_column).add_column("source", new_source_column)
     return trans_ds.cast_column("image", Image())
 
-def uploadDataset(new_dsDict):
-    new_dsDict.push_to_hub("SamanthaZJQ/msmarco-passage-corpus-2.0")
+def upload_dataset(new_ds_dict):
+    new_ds_dict.push_to_hub("SamanthaZJQ/msmarco-passage-corpus-2.0")
 
 def main():
-    dsDict = loadDatasets()
-    print(dsDict)
-    dsDict = {split: transformDataset(dsDict[split]) for split in dsDict}
-    print(dsDict["train"][0])
+    ds_dict = load_datasets()
+    print(ds_dict)
+    ds_dict = {split: transform_dataset(ds_dict[split]) for split in ds_dict}
+    print(ds_dict["train"][0])
     # perform dataset update
-    uploadDataset(DatasetDict(dsDict))
+    upload_dataset(DatasetDict(ds_dict))
     # verify feature
     print(load_dataset_builder("SamanthaZJQ/msmarco-passage-corpus-2.0").info.features)
 

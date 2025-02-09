@@ -1,12 +1,12 @@
 from datasets import load_dataset, load_dataset_builder, Image, DatasetDict, Value, Sequence
 
 
-def loadDatasets():
+def load_datasets():
     # available splits: ['train', 'test']
     ds = load_dataset("vidore/colpali_train_set")
     return ds
 
-def transformPassages(entry, indices):
+def transform_passages(entry, indices):
     num_row = len(entry["query"])
     return {
         # transform positive/negative document to id
@@ -18,8 +18,8 @@ def transformPassages(entry, indices):
         "source": ["colpali: "+str(source) for source in entry['source']],
     }
 
-def transformDataset(ds):
-    trans_ds = ds.map(transformPassages, remove_columns=["options", "page", "model", "prompt", "answer_type", "image", "image_filename"], batched=True, with_indices=True, num_proc=8)
+def transform_dataset(ds):
+    trans_ds = ds.map(transform_passages, remove_columns=["options", "page", "model", "prompt", "answer_type", "image", "image_filename"], batched=True, with_indices=True, num_proc=8)
 
     # rename attributes
     trans_ds = trans_ds.rename_column("query", "query_text")
@@ -29,16 +29,16 @@ def transformDataset(ds):
     # reorder columns
     return trans_ds.select_columns(['query_id', 'query_text', 'query_image', 'positive_document_ids', 'negative_document_ids', 'answer', 'source'])
 
-def uploadDataset(new_dsDict):
-    new_dsDict.push_to_hub("SamanthaZJQ/colpali-passage-2.0")
+def upload_dataset(new_ds_dict):
+    new_ds_dict.push_to_hub("SamanthaZJQ/colpali-passage-2.0")
 
 def main():
-    dsDict = loadDatasets()
-    print(dsDict)
-    dsDict = {split: transformDataset(dsDict[split]) for split in dsDict}
-    print(dsDict["train"][0])
+    ds_dict = load_datasets()
+    print(ds_dict)
+    ds_dict = {split: transform_dataset(ds_dict[split]) for split in ds_dict}
+    print(ds_dict["train"][0])
     # perform dataset update
-    uploadDataset(DatasetDict(dsDict))
+    upload_dataset(DatasetDict(ds_dict))
     # verify feature
     print("-------------------")
     print(load_dataset_builder("SamanthaZJQ/colpali-passage-2.0").info.features)

@@ -1,12 +1,12 @@
 from datasets import load_dataset, load_dataset_builder, Image, DatasetDict, Value, Sequence
 
-def loadDatasets():
+def load_datasets():
     # available splits: ['train', 'dev', 'dl19', 'dl20']
-    dsDict = load_dataset("Tevatron/msmarco-passage-aug")
-    return dsDict
+    ds_dict = load_dataset("Tevatron/msmarco-passage-aug")
+    return ds_dict
 
 
-def transformPassages(entry):
+def transform_passages(entry):
     return {
         # transform positive/negative document to id
         "positive_document_ids": [[passage['docid'] for passage in passages] for passages in entry['positive_passages']],
@@ -17,9 +17,9 @@ def transformPassages(entry):
         "answer": [None] * len(entry["query"]),
     }
 
-def transformDataset(ds):
+def transform_dataset(ds):
     # convert document_ids to store a list of string docid
-    trans_ds = ds.map(transformPassages, remove_columns=["positive_passages", "negative_passages"], batched=True, num_proc=8)
+    trans_ds = ds.map(transform_passages, remove_columns=["positive_passages", "negative_passages"], batched=True, num_proc=8)
     
     # rename attributes
     trans_ds = trans_ds.rename_column("query", "query_text")
@@ -29,15 +29,15 @@ def transformDataset(ds):
     # reorder columns
     return trans_ds.select_columns(['query_id', 'query_text', 'query_image', 'positive_document_ids', 'negative_document_ids', 'answer', 'source'])
 
-def uploadDataset(new_dsDict):
-    new_dsDict.push_to_hub("SamanthaZJQ/msmarco-passage-aug-2.0")
+def upload_dataset(new_ds_dict):
+    new_ds_dict.push_to_hub("SamanthaZJQ/msmarco-passage-aug-2.0")
 
 def main():
-    dsDict = loadDatasets()
-    print(dsDict)
-    dsDict = {split: transformDataset(dsDict[split]) for split in dsDict}
+    ds_dict = load_datasets()
+    print(ds_dict)
+    ds_dict = {split: transform_dataset(ds_dict[split]) for split in ds_dict}
     # # perform dataset update
-    uploadDataset(DatasetDict(dsDict))
+    upload_dataset(DatasetDict(ds_dict))
     # # verify feature
     print("-------------------")
     print(load_dataset_builder("SamanthaZJQ/msmarco-passage-aug-2.0").info.features)
