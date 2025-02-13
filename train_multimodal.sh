@@ -1,6 +1,6 @@
 deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retriever.driver.train_mm \
   --deepspeed deepspeed/ds_zero0_config.json \
-  --output_dir retriever-qwen25vl-bge-ir \
+  --output_dir retriever-qwen25vl-bge-pixmo-colpali-wiki \
   --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
   --lora \
   --lora_target_modules q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj \
