@@ -85,7 +85,7 @@ def main():
         train_dataset=train_dataset,
         data_collator=collator
     )
-    train_dataset.trainer = trainer
+    train_dataset.set_trainer(trainer)
     
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):

@@ -21,13 +21,16 @@ class TrainDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
         )
-        self.corpus = load_dataset(
-            self.data_args.corpus_name if corpus_name is None else corpus_name,
-            self.data_args.corpus_config,
-            data_files=self.data_args.corpus_path if corpus_path is None else corpus_path,
-            split=self.data_args.corpus_split,
-            cache_dir=self.data_args.dataset_cache_dir,
-        )
+        if self.data_args.corpus_name is None and corpus_name is None:
+            self.corpus = None
+        else:
+            self.corpus = load_dataset(
+                self.data_args.corpus_name if corpus_name is None else corpus_name,
+                self.data_args.corpus_config,
+                data_files=self.data_args.corpus_path if corpus_path is None else corpus_path,
+                split=self.data_args.corpus_split,
+                cache_dir=self.data_args.dataset_cache_dir,
+            )
         self.trainer = trainer
 
     def set_trainer(self, trainer):
@@ -49,10 +52,36 @@ class TrainDataset(Dataset):
         epoch = int(self.trainer.state.epoch)
 
         _hashed_seed = hash(item + self.trainer.args.seed)
+
+        if 'positive_passages' in group:
+            # this dataset is in old format text data, for backward compatibility
+            query_text = group['query']
+            query_image = None
+            formated_query = (self.data_args.query_prefix + query_text, query_image)
+            formated_documents = []
+            selected_positive_document = group['positive_passages'][(_hashed_seed + epoch) % len(group['positive_passages'])]
+            positive_document_text = selected_positive_document['title'] + ' ' + selected_positive_document['text'] if 'title' in selected_positive_document else selected_positive_document['text']
+            formated_documents.append((self.data_args.passage_prefix + positive_document_text, None))
+            negative_size = self.data_args.train_group_size - 1
+            if len(group['negative_passages']) < negative_size:
+                selected_negative_documents = random.choices(group['negative_passages'], k=negative_size)
+            elif self.data_args.train_group_size == 1:
+                selected_negative_documents = []
+            else:
+                _offset = epoch * negative_size % len(group['negative_passages'])
+                selected_negative_documents = [x for x in group['negative_passages']]
+                random.Random(_hashed_seed).shuffle(selected_negative_documents)
+                selected_negative_documents = selected_negative_documents * 2
+                selected_negative_documents = selected_negative_documents[_offset: _offset + negative_size]
+            for negative_document in selected_negative_documents:
+                negative_document_text = negative_document['title'] + ' ' + negative_document['text'] if 'title' in negative_document else negative_document['text']
+                formated_documents.append((self.data_args.passage_prefix + negative_document_text, None))
+            return formated_query, formated_documents
+
         query_id = group['query_id']
-        query_text = group['query_text']
+        query_text = '' if 'query_text' not in group else group['query_text']
         query_text = '' if query_text is None else query_text
-        query_image = group['query_image']
+        query_image = None if 'query_image' not in group else group['query_image']
         positive_document_ids = group['positive_document_ids']
         negative_document_ids = group['negative_document_ids']
 
@@ -98,7 +127,9 @@ class MultiTrainDataset(Dataset):
                 dataset_path = dataset_name_or_path
             else:
                 dataset_name = dataset_name_or_path
-            if os.path.isdir(corpus_name_or_path):
+            if corpus_name_or_path is None:
+                corpus_name = None
+            elif os.path.isdir(corpus_name_or_path):
                 corpus_name = corpus_name_or_path
             elif corpus_name_or_path.endswith('.jsonl'):
                 corpus_name = 'json'

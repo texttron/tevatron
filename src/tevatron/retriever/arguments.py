@@ -95,7 +95,7 @@ class DataArguments:
     )
 
     corpus_name: str = field(
-        default='json', metadata={"help": "huggingface dataset name for corpus"}
+        default=None, metadata={"help": "huggingface dataset name for corpus"}
     )
 
     corpus_config: str = field(
