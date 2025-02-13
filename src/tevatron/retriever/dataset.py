@@ -1,82 +1,157 @@
 import random
+import os
 from typing import List, Tuple
 
 from datasets import load_dataset
 from torch.utils.data import Dataset
 
-
+from PIL import Image
 from tevatron.retriever.arguments import DataArguments
 
 import logging
 logger = logging.getLogger(__name__)
 
-
-def format_query(query: str, prefix: str = '') -> str:
-    return f'{prefix}{query.strip()}'.strip()
-
-def format_passage(text: str, title: str = '', prefix: str = '') -> str:
-    return f'{prefix}{title.strip()} {text.strip()}'.strip()
-
-
 class TrainDataset(Dataset):
-    def __init__(self, data_args: DataArguments, trainer = None):
+    def __init__(self, data_args: DataArguments, trainer = None, dataset_name = None, corpus_name = None, dataset_path = None, corpus_path = None):
         self.data_args = data_args
         self.train_data = load_dataset(
-            self.data_args.dataset_name,
+            self.data_args.dataset_name if dataset_name is None else dataset_name,
             self.data_args.dataset_config,
-            data_files=self.data_args.dataset_path,
+            data_files=self.data_args.dataset_path if dataset_path is None else dataset_path,
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
         )
-        if self.data_args.dataset_number_of_shards > 1:
-            self.encode_data = self.encode_data.shard(
-                num_shards=self.data_args.dataset_number_of_shards,
-                index=self.data_args.dataset_shard_index,
+        if self.data_args.corpus_name is None and corpus_name is None:
+            self.corpus = None
+        else:
+            self.corpus = load_dataset(
+                self.data_args.corpus_name if corpus_name is None else corpus_name,
+                self.data_args.corpus_config,
+                data_files=self.data_args.corpus_path if corpus_path is None else corpus_path,
+                split=self.data_args.corpus_split,
+                cache_dir=self.data_args.dataset_cache_dir,
             )
+        self.trainer = trainer
+
+    def set_trainer(self, trainer):
         self.trainer = trainer
 
     def __len__(self):
         return len(self.train_data)
+    
+    def _get_info_from_docid(self, docid, prefix):
+        document_info = self.corpus[int(docid)]
+        assert int(document_info['docid']) == int(docid)
+        image = None if 'image' not in document_info else document_info['image']
+        text = None if 'text' not in document_info else document_info['text']
+        text = '' if text is None else text
+        return prefix + text, image
 
-    def __getitem__(self, item) -> Tuple[str, List[str]]:
+    def __getitem__(self, item):
         group = self.train_data[item]
         epoch = int(self.trainer.state.epoch)
 
         _hashed_seed = hash(item + self.trainer.args.seed)
 
-        query = group['query']
-        group_positives = group['positive_passages']
-        group_negatives = group['negative_passages']
+        if 'positive_passages' in group:
+            # this dataset is in old format text data, for backward compatibility
+            query_text = group['query']
+            query_image = None
+            formated_query = (self.data_args.query_prefix + query_text, query_image)
+            formated_documents = []
+            selected_positive_document = group['positive_passages'][(_hashed_seed + epoch) % len(group['positive_passages'])]
+            positive_document_text = selected_positive_document['title'] + ' ' + selected_positive_document['text'] if 'title' in selected_positive_document else selected_positive_document['text']
+            formated_documents.append((self.data_args.passage_prefix + positive_document_text, None))
+            negative_size = self.data_args.train_group_size - 1
+            if len(group['negative_passages']) < negative_size:
+                selected_negative_documents = random.choices(group['negative_passages'], k=negative_size)
+            elif self.data_args.train_group_size == 1:
+                selected_negative_documents = []
+            else:
+                _offset = epoch * negative_size % len(group['negative_passages'])
+                selected_negative_documents = [x for x in group['negative_passages']]
+                random.Random(_hashed_seed).shuffle(selected_negative_documents)
+                selected_negative_documents = selected_negative_documents * 2
+                selected_negative_documents = selected_negative_documents[_offset: _offset + negative_size]
+            for negative_document in selected_negative_documents:
+                negative_document_text = negative_document['title'] + ' ' + negative_document['text'] if 'title' in negative_document else negative_document['text']
+                formated_documents.append((self.data_args.passage_prefix + negative_document_text, None))
+            return formated_query, formated_documents
 
-        formated_query = format_query(query, self.data_args.query_prefix)
-        formated_passages = []
+        query_id = group['query_id']
+        query_text = '' if 'query_text' not in group else group['query_text']
+        query_text = '' if query_text is None else query_text
+        query_image = None if 'query_image' not in group else group['query_image']
+        positive_document_ids = group['positive_document_ids']
+        negative_document_ids = group['negative_document_ids']
 
-        if self.data_args.positive_passage_no_shuffle:
-            pos_psg = group_positives[0]
-        else:
-            pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
+        formated_query = (self.data_args.query_prefix + query_text, query_image)
+        formated_documents = []
+
+        selected_positive_document_id = positive_document_ids[(_hashed_seed + epoch) % len(positive_document_ids)]
         
-        formated_passages.append(format_passage(pos_psg['text'], pos_psg['title'], self.data_args.passage_prefix))
+        formated_documents.append(self._get_info_from_docid(selected_positive_document_id, self.data_args.passage_prefix))
 
         negative_size = self.data_args.train_group_size - 1
-        if len(group_negatives) < negative_size:
-            negs = random.choices(group_negatives, k=negative_size)
+        if len(negative_document_ids) < negative_size:
+            selected_negative_document_ids = random.choices(negative_document_ids, k=negative_size)
         elif self.data_args.train_group_size == 1:
-            negs = []
-        elif self.data_args.negative_passage_no_shuffle:
-            negs = group_negatives[:negative_size]
+            selected_negative_document_ids = []
         else:
-            _offset = epoch * negative_size % len(group_negatives)
-            negs = [x for x in group_negatives]
-            random.Random(_hashed_seed).shuffle(negs)
-            negs = negs * 2
-            negs = negs[_offset: _offset + negative_size]
+            _offset = epoch * negative_size % len(negative_document_ids)
+            selected_negative_document_ids = [x for x in negative_document_ids]
+            random.Random(_hashed_seed).shuffle(selected_negative_document_ids)
+            selected_negative_document_ids = selected_negative_document_ids * 2
+            selected_negative_document_ids = selected_negative_document_ids[_offset: _offset + negative_size]
 
-        for neg_psg in negs:
-            formated_passages.append(format_passage(neg_psg['text'], neg_psg['title'], self.data_args.passage_prefix))
+        for negative_document_id in selected_negative_document_ids:
+            formated_documents.append(self._get_info_from_docid(negative_document_id, self.data_args.passage_prefix))
 
-        return formated_query, formated_passages
+        return formated_query, formated_documents
 
+class MultiTrainDataset(Dataset):
+
+    def __init__(self, data_args: DataArguments, dataset_list = None, corpus_list = None, trainer = None):
+        self.data_args = data_args
+        self.trainer = trainer
+        self.train_datasets = []
+        for dataset_name_or_path, corpus_name_or_path in zip(dataset_list, corpus_list):
+            dataset_name = None
+            dataset_path = None
+            corpus_name = None
+            corpus_path = None
+            if os.path.isdir(dataset_name_or_path):
+                dataset_name = dataset_name_or_path
+            elif dataset_name_or_path.endswith('.jsonl'):
+                dataset_name = 'json'
+                dataset_path = dataset_name_or_path
+            else:
+                dataset_name = dataset_name_or_path
+            if corpus_name_or_path is None:
+                corpus_name = None
+            elif os.path.isdir(corpus_name_or_path):
+                corpus_name = corpus_name_or_path
+            elif corpus_name_or_path.endswith('.jsonl'):
+                corpus_name = 'json'
+                corpus_path = corpus_name_or_path
+            else:
+                corpus_name = corpus_name_or_path
+            self.train_datasets.append(TrainDataset(data_args, trainer, dataset_name, corpus_name, dataset_path, corpus_path))
+
+    def __len__(self):
+        return sum([len(dataset) for dataset in self.train_datasets])
+
+    def __getitem__(self, item):
+        dataset_index = 0
+        while item >= len(self.train_datasets[dataset_index]):
+            item -= len(self.train_datasets[dataset_index])
+            dataset_index += 1
+        return self.train_datasets[dataset_index][item]
+
+    def set_trainer(self, trainer):
+        for dataset in self.train_datasets:
+            dataset.set_trainer(trainer)
+            
 
 class EncodeDataset(Dataset):
 
@@ -98,12 +173,17 @@ class EncodeDataset(Dataset):
     def __len__(self):
         return len(self.encode_data)
 
-    def __getitem__(self, item) -> Tuple[str, str]:
-        text = self.encode_data[item]
+    def __getitem__(self, item):
+        content = self.encode_data[item]
         if self.data_args.encode_is_query:
-            text_id = text['query_id']
-            formated_text = format_query(text['query'], self.data_args.query_prefix)
+            content_id = content['query_id']
+            content_text = content['query_text'] if 'query_text' in content else ''
+            content_text = self.data_args.query_prefix + content_text
+            content_image = content['query_image'] if 'query_image' in content else None
         else:
-            text_id = text['docid']
-            formated_text = format_passage(text['text'], text['title'], self.data_args.passage_prefix)
-        return text_id, formated_text
+            content_id = content['docid']
+            content_text = content['text'] if 'text' in content else None
+            content_text = '' if content_text is None else content_text
+            content_text = self.data_args.passage_prefix + content_text
+            content_image = content['image'] if 'image' in content else None
+        return content_id, content_text, content_image
