@@ -21,7 +21,7 @@ Tevatron aims to provide a flexible and efficient toolkit that enables training 
 ```bash
 pip install transformers datasets peft
 pip install deepspeed accelerate
-pip install faiss
+pip install faiss-cpu
 pip install -e .
 ```
 

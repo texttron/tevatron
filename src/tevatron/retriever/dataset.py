@@ -180,13 +180,19 @@ class EncodeDataset(Dataset):
         content = self.encode_data[item]
         if self.data_args.encode_is_query:
             content_id = content['query_id']
-            content_text = content['query_text'] if 'query_text' in content else ''
+            if 'query_text' in content:
+                content_text = content['query_text']
+            elif 'query' in content: # integrate with tevatron-v1 format
+                content_text = content['query']
+            else:
+                content_text = ''
             content_text = self.data_args.query_prefix + content_text
+
             content_image = content['query_image'] if 'query_image' in content else None
         else:
             content_id = content['docid']
-            content_text = content['text'] if 'text' in content else None
-            content_text = '' if content_text is None else content_text
-            content_text = self.data_args.passage_prefix + content_text
+            content_text = content['text'] if 'text' in content else ''
+            content_text = content['title'] + ' ' + content_text if 'title' in content else content_text
+            content_text = self.data_args.passage_prefix + content_text.strip()
             content_image = content['image'] if 'image' in content else None
         return content_id, content_text, content_image
