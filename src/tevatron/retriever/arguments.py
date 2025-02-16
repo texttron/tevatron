@@ -170,6 +170,10 @@ class DataArguments:
         },
     )
 
+    num_proc: int = field(
+        default=1, metadata={"help": "number of processes to use for loading the dataset"}
+    )
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):

@@ -20,6 +20,7 @@ class TrainDataset(Dataset):
             data_files=self.data_args.dataset_path if dataset_path is None else dataset_path,
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
+            num_proc=self.data_args.num_proc,
         )
         if self.data_args.corpus_name is None and corpus_name is None:
             self.corpus = None
@@ -30,6 +31,7 @@ class TrainDataset(Dataset):
                 data_files=self.data_args.corpus_path if corpus_path is None else corpus_path,
                 split=self.data_args.corpus_split,
                 cache_dir=self.data_args.dataset_cache_dir,
+                num_proc=self.data_args.num_proc,
             )
         self.trainer = trainer
 
@@ -163,6 +165,7 @@ class EncodeDataset(Dataset):
             data_files=self.data_args.dataset_path,
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
+            num_proc=self.data_args.num_proc,
         )
         if self.data_args.dataset_number_of_shards > 1:
             self.encode_data = self.encode_data.shard(

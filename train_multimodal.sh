@@ -1,4 +1,4 @@
-deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retriever.driver.train_mm \
+deepspeed --include localhost:0,1,2,3,4,5,6,7,8 --master_port 60000 --module tevatron.retriever.driver.train_mm \
   --deepspeed deepspeed/ds_zero0_config.json \
   --output_dir retriever-qwen25vl-bge-pixmo-colpali-wiki \
   --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
@@ -23,5 +23,7 @@ deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retr
   --num_train_epochs 1 \
   --logging_steps 1 \
   --overwrite_output_dir \
-  --gradient_accumulation_steps 4 \
-  --warmup_ratio 0.005
+  --gradient_accumulation_steps 2 \
+  --warmup_ratio 0.005 \
+  --report_to wandb \
+  --dataloader_num_workers 4
