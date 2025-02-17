@@ -1,4 +1,5 @@
 import logging
+from inspect import classify_class_attrs
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -280,3 +281,51 @@ class VllmEncodeCollator(EncodeCollator):
         if self.data_args.append_eos_token:
             collated_texts['input_ids'] = [x + [self.tokenizer.eos_token_id] for x in collated_texts['input_ids']]
         return text_ids, collated_texts['input_ids']
+
+
+@dataclass
+class VllmMultiModalEncodeCollator(MultiModalEncodeCollator):
+    def __call__(self, features):
+        """
+        Collate function for encoding.
+        :param features: list of (id, text, image) tuples
+        but in this case, it's just image is None
+        """
+        content_ids = [x[0] for x in features]
+        texts = [x[1] for x in features]
+        images = [x[2] for x in features]
+        messages = []
+        max_length = self.data_args.query_max_len if self.data_args.encode_is_query else self.data_args.passage_max_len
+        for idx in range(len(texts)):
+            text = texts[idx]
+            image = images[idx]
+            content = []
+            if text:
+                text = self.processor.tokenizer.decode(
+                    self.processor.tokenizer.encode(text, max_length=max_length, truncation=True)
+                )
+                content.append({'type': 'text', 'text': text})
+            if image:
+                content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+            else:
+                image = Image.new('RGB', (28, 28))
+                content.append({'type': 'image', 'image': image, 'resized_height': 1, 'resized_width': 1})
+                # content.append({'type': 'text', 'text': 'What is shown in this image?'})
+            message = [
+                {
+                    'role': 'user',
+                    'content': content
+                }
+            ]
+            messages.append(message)
+
+        texts = [
+            self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=False)
+            for msg in messages
+        ]
+
+        if self.data_args.append_eos_token:
+            texts = [x + '<|endoftext|>' for x in texts]
+
+        return content_ids, texts, images
+

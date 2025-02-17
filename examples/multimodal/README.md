@@ -71,7 +71,7 @@ do
 CUDA_VISIBLE_DEVICES=$s python -m tevatron.retriever.driver.encode_mm  \
   --output_dir=temp \
   --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
-  --lora_name_or_path /scratch3/zhu042/tevatron/retriever-qwen25vl-bge-pixmo-colpali5-wiki/checkpoint-4000 \
+  --lora_name_or_path ${CKPT} \
   --lora \
   --bf16 \
   --per_device_eval_batch_size 16 \
@@ -94,7 +94,7 @@ wait
 
 #### Search
 ```bash
-mkdir -p beir_results/retriever-qwen25vl-bge-pixmo-colpali5-wiki/scifact
+mkdir -p beir_results/retriever-qwen25vl-bge-pixmo-colpali-wiki/scifact
 python -m tevatron.retriever.driver.search \
     --query_reps beir_embedding/${CKPT}/${DATASET}/queries.pkl \
     --passage_reps beir_embedding/${CKPT}/${DATASET}/'corpus.*.pkl' \
