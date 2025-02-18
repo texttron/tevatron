@@ -1,5 +1,4 @@
 import logging
-from inspect import classify_class_attrs
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
