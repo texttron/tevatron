@@ -5,6 +5,7 @@ import glob
 from argparse import ArgumentParser
 from itertools import chain
 from tqdm import tqdm
+import faiss
 
 from tevatron.retriever.searcher import FaissFlatSearcher
 
@@ -76,6 +77,23 @@ def main():
 
     q_reps, q_lookup = pickle_load(args.query_reps)
     q_reps = q_reps
+
+    num_gpus = faiss.get_num_gpus()
+    if num_gpus == 0:
+        logger.info("No GPU found or using faiss-cpu. Back to CPU.")
+    else:
+        logger.info(f"Using {num_gpus} GPU")
+        if num_gpus == 1:
+            co = faiss.GpuClonerOptions()
+            co.useFloat16 = True
+            res = faiss.StandardGpuResources()
+            retriever.index = faiss.index_cpu_to_gpu(res, 0, retriever.index, co)
+        else:
+            co = faiss.GpuMultipleClonerOptions()
+            co.shard = True
+            co.useFloat16 = True
+            retriever.index = faiss.index_cpu_to_all_gpus(retriever.index, co,
+                                                     ngpu=num_gpus)
 
     logger.info('Index Search Start')
     all_scores, psg_indices = search_queries(retriever, q_reps, look_up, args)

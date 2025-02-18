@@ -20,6 +20,7 @@ class TrainDataset(Dataset):
             data_files=self.data_args.dataset_path if dataset_path is None else dataset_path,
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
+            num_proc=self.data_args.num_proc,
         )
         if self.data_args.corpus_name is None and corpus_name is None:
             self.corpus = None
@@ -30,6 +31,7 @@ class TrainDataset(Dataset):
                 data_files=self.data_args.corpus_path if corpus_path is None else corpus_path,
                 split=self.data_args.corpus_split,
                 cache_dir=self.data_args.dataset_cache_dir,
+                num_proc=self.data_args.num_proc,
             )
         self.trainer = trainer
 
@@ -163,6 +165,7 @@ class EncodeDataset(Dataset):
             data_files=self.data_args.dataset_path,
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
+            num_proc=self.data_args.num_proc,
         )
         if self.data_args.dataset_number_of_shards > 1:
             self.encode_data = self.encode_data.shard(
@@ -177,13 +180,19 @@ class EncodeDataset(Dataset):
         content = self.encode_data[item]
         if self.data_args.encode_is_query:
             content_id = content['query_id']
-            content_text = content['query_text'] if 'query_text' in content else ''
+            if 'query_text' in content:
+                content_text = content['query_text']
+            elif 'query' in content: # integrate with tevatron-v1 format
+                content_text = content['query']
+            else:
+                content_text = ''
             content_text = self.data_args.query_prefix + content_text
+
             content_image = content['query_image'] if 'query_image' in content else None
         else:
             content_id = content['docid']
-            content_text = content['text'] if 'text' in content else None
-            content_text = '' if content_text is None else content_text
-            content_text = self.data_args.passage_prefix + content_text
+            content_text = content['text'] if 'text' in content else ''
+            content_text = content['title'] + ' ' + content_text if 'title' in content else content_text
+            content_text = self.data_args.passage_prefix + content_text.strip()
             content_image = content['image'] if 'image' in content else None
         return content_id, content_text, content_image

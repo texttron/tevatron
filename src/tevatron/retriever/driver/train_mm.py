@@ -66,7 +66,7 @@ def main():
         trust_remote_code=True,
     )
     if processor.tokenizer.pad_token_id is None:
-        processor.tokenizer.pad_token_id = tokenizer.eos_token_id
+        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
     processor.tokenizer.padding_side = "left"
     
     model = MultiModalDenseModel.build(
@@ -100,7 +100,7 @@ def main():
     trainer.train(resume_from_checkpoint=(last_checkpoint is not None))
     trainer.save_model()
     if trainer.is_world_process_zero():
-        tokenizer.save_pretrained(training_args.output_dir)
+        processor.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":

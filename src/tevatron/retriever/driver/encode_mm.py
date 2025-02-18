@@ -10,7 +10,7 @@ from tqdm import tqdm
 import torch
 
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 from transformers import (
     HfArgumentParser,
 )
@@ -18,8 +18,8 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
-from tevatron.retriever.collator import EncodeCollator
-from tevatron.retriever.modeling import EncoderOutput, DenseModel
+from tevatron.retriever.collator import MultiModalEncodeCollator
+from tevatron.retriever.modeling import EncoderOutput, MultiModalDenseModel
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ def main():
     )
 
 
-    tokenizer = AutoTokenizer.from_pretrained(
+    processor = AutoProcessor.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir
+        cache_dir=model_args.cache_dir,
+        trust_remote_code=True,
     )
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = 'right'
+    if processor.tokenizer.pad_token_id is None:
+        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
+    processor.tokenizer.padding_side = "left"
 
     if training_args.bf16:
         torch_dtype = torch.bfloat16
@@ -60,7 +61,7 @@ def main():
     else:
         torch_dtype = torch.float32
     
-    model = DenseModel.load(
+    model = MultiModalDenseModel.load(
         model_args.model_name_or_path,
         pooling=model_args.pooling,
         normalize=model_args.normalize,
@@ -73,9 +74,9 @@ def main():
         data_args=data_args,
     )
 
-    encode_collator = EncodeCollator(
+    encode_collator = MultiModalEncodeCollator(
         data_args=data_args,
-        tokenizer=tokenizer,
+        processor=processor,
     )
 
     encode_loader = DataLoader(
