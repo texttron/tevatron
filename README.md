@@ -321,7 +321,8 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 </details>
 
 ## Examples
-+ [Unified multi-modal and multilingual retrieval](./examples/multimodal/README.md).
++ [Unified multi-modal and multilingual retrieval](./examples/multimodal/README.md)
++ [vLLM encoding and retrieval](./examples/example_repllama_vllm.md)
 
 ## Citation
 If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).
