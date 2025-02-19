@@ -1,14 +1,14 @@
-# Tevatron V1.5
-Tevatron aims to provide a flexible and efficient toolkit that enables training and inference for neural retrieval models at scale.
+# Tevatron V2.0
+Tevatron: Unified Document Retrieval Toolkit across Scale, Language, and Modality.
 
-> Some of the features in Tevatron v1 is not yet migrated to Tevatron v1.5. We are working on it.
+> Some of the features in Tevatron v1 is not yet migrated to Tevatron v2.0. We are working on it.
 > If you are looking for the Tevatron v1 features, please pull the [v1 branch](https://github.com/texttron/tevatron/tree/tevatron-v1).
 
 ## Features
 - Training billion-scale LLM neural retriever on GPUs and TPUs.
 - Parameter efficient tuning with LoRA.
-- Integration with DeepSpeed, flash attention, gradient accumulation, and other efficient training techniques.
-- Self-contained datasets for neural retrieval and open-domain QA tasks.
+- Integration with vLLM, DeepSpeed, FlashAttention, gradient accumulation, and other efficient training and inference techniques.
+- Self-contained datasets for multi-modal and multilingual neural retrieval and open-domain QA tasks.
 - Direct loading and finetuning SoTA pre-trained models (BGE-Embbedding, Instruct-E5) from HuggingFace.
 
 ## Installation
@@ -90,15 +90,10 @@ Tevatron takes training or inference data in `jsonl` format with each line organ
 ```json
 {
    "query_id": "<query id>",
-   "query": "<query text>",
-   "positive_passages": [
-     {"docid": "<passage id>", "title": "<passage title>", "text": "<passage body>"},
-     ...
-   ],
-   "negative_passages": [
-     {"docid": "<passage id>", "title": "<passage title>", "text": "<passage body>"},
-     ...
-   ]
+   "query_text": "<query text>",
+   "query_image": "<query image>",
+   "positive_document_ids": ["<passage id>", ...],
+   "negative_document_ids": ["<passage id>", ...],
 }
 ```
 where the passages in `positive_passages` are the annotated relevant passages of the `query` 
@@ -107,12 +102,14 @@ and passages in `negative_passages` are usually non-relevant (hard negative) pas
 #### 2. Corpus Data
 ```json
 {
-   "docid": "<passage id>",
-   "title": "<passage title>",
-   "text": "<passage body>"
+   "docid": "<document id>",
+   "document_text": "<document text>",
+   "document_image": "<document image>",
 }
 ```
-where each line represents a passage in the corpus.
+where each line represents a document in the corpus. 
+
+Note that the image field for both training and corpus data are optional and can be omitted (i.e., pure textual modality retrieval).
 
 ### Self-Contained Dataset
 Tevatron self-contained several commonlly used datasets for neural retrieval. 
@@ -323,6 +320,8 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 
 </details>
 
+## Examples
++ [Unified multi-modal and multilingual retrieval](./examples/multimodal/README.md).
 
 ## Citation
 If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).

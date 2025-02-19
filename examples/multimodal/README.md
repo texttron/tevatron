@@ -1,4 +1,4 @@
-# Multimodal Retrieval
+# Unified Multi-modal and Multilingual Retrieval
 
 ## Train
 ```bash
@@ -94,7 +94,7 @@ wait
 
 #### Search
 ```bash
-mkdir -p beir_results/retriever-qwen25vl-bge-pixmo-colpali-wiki/scifact
+mkdir -p beir_results/${CKPT}/scifact
 python -m tevatron.retriever.driver.search \
     --query_reps beir_embedding/${CKPT}/${DATASET}/queries.pkl \
     --passage_reps beir_embedding/${CKPT}/${DATASET}/'corpus.*.pkl' \
@@ -186,11 +186,12 @@ python -m tevatron.retriever.driver.search \
 #### Evaluate
 ```bash
 python -m tevatron.utils.format.convert_result_to_trec \
---input beir_results/${CKPT}/${DATASET}/rank.${DATASET}.txt \
---output beir_results/${CKPT}/${DATASET}/rank.${DATASET}.trec 
+--input miracl_results/${CKPT}/${DATASET}/rank.${DATASET}.txt \
+--output miracl_results/${CKPT}/${DATASET}/rank.${DATASET}.trec 
 
 python -m pyserini.eval.trec_eval -c -mrecall.100 -mndcg_cut.10 miracl-v1.0-${DATASET}-dev \
 miracl_results/${CKPT}/${DATASET}/rank.${DATASET}.trec
+```
 
 ### VIDORE Document screenshot retrieval (Cross modality)
 ```bash
