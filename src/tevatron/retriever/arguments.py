@@ -43,7 +43,7 @@ class ModelArguments:
     )
 
     lora_r: int = field(
-        default=8,
+        default=16,
         metadata={"help": "lora r"}
     )
 
@@ -92,6 +92,26 @@ class DataArguments:
 
     dataset_cache_dir: Optional[str] = field(
         default=None, metadata={"help": "Where do you want to store the data downloaded from huggingface"}
+    )
+
+    corpus_name: str = field(
+        default=None, metadata={"help": "huggingface dataset name for corpus"}
+    )
+
+    corpus_config: str = field(
+        default=None, metadata={"help": "huggingface dataset config for corpus, useful for datasets with sub-datasets"}
+    )
+
+    corpus_path: str = field(
+        default=None, metadata={"help": "Path to local corpus files or directory"}
+    )
+
+    corpus_split: str = field(
+        default='train', metadata={"help": "corpus split"}
+    )
+
+    train_yaml: str = field(
+        default=None, metadata={"help": "yaml file for training datasets, if there is more multiple datasets used for training"}
     )
 
     dataset_number_of_shards: int = field(
@@ -148,6 +168,10 @@ class DataArguments:
             "help": "If set will pad the sequence to a multiple of the provided value. This is especially useful to "
                     "enable the use of Tensor Cores on NVIDIA hardware with compute capability >= 7.5 (Volta)."
         },
+    )
+
+    num_proc: int = field(
+        default=1, metadata={"help": "number of processes to use for loading the dataset"}
     )
 
 

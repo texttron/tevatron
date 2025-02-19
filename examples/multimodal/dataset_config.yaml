@@ -1,0 +1,19 @@
+train:
+  - Tevatron/colpali
+  - Tevatron/colpali
+  - Tevatron/colpali
+  - Tevatron/colpali
+  - Tevatron/colpali
+  - Tevatron/bge-ir
+  - Tevatron/pixmo-docs
+  - Tevatron/wiki-ss-nq-new
+
+corpus:
+  - Tevatron/colpali-corpus
+  - Tevatron/colpali-corpus
+  - Tevatron/colpali-corpus
+  - Tevatron/colpali-corpus
+  - Tevatron/colpali-corpus
+  - null
+  - Tevatron/pixmo-docs-corpus
+  - Tevatron/wiki-ss-corpus-new

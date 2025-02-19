@@ -2,15 +2,13 @@ import logging
 import os
 import pickle
 import sys
-from contextlib import nullcontext
 
 import numpy as np
 from tqdm import tqdm
 
 import torch
-
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 from transformers import (
     HfArgumentParser,
 )
@@ -18,8 +16,11 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
-from tevatron.retriever.collator import EncodeCollator
-from tevatron.retriever.modeling import EncoderOutput, DenseModel
+from tevatron.retriever.collator import VllmMultiModalEncodeCollator
+from vllm import LLM
+from vllm.config import PoolerConfig
+from vllm.inputs import token_inputs
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -44,38 +45,44 @@ def main():
         level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
     )
 
-
-    tokenizer = AutoTokenizer.from_pretrained(
+    processor = AutoProcessor.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir
+        cache_dir=model_args.cache_dir,
+        trust_remote_code=True,
     )
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = 'right'
+    if processor.tokenizer.pad_token_id is None:
+        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
+    processor.tokenizer.padding_side = "left"
+
+    min_pixels = 1 * 28 * 28
+    max_pixels = 2560 * 28 * 28
 
     if training_args.bf16:
-        torch_dtype = torch.bfloat16
+        torch_dtype = 'bfloat16'
     elif training_args.fp16:
-        torch_dtype = torch.float16
+        torch_dtype = 'float16'
     else:
-        torch_dtype = torch.float32
-    
-    model = DenseModel.load(
-        model_args.model_name_or_path,
-        pooling=model_args.pooling,
-        normalize=model_args.normalize,
-        lora_name_or_path=model_args.lora_name_or_path,
-        cache_dir=model_args.cache_dir,
-        torch_dtype=torch_dtype
+        torch_dtype = 'float32'
+
+
+    pooler_config = PoolerConfig(pooling_type=model_args.pooling.upper(),
+                                 normalize=model_args.normalize)
+
+    model = LLM(
+        model=model_args.model_name_or_path,
+        task="embed",
+        enforce_eager=True,
+        override_pooler_config=pooler_config,
+        dtype=torch_dtype
     )
 
     encode_dataset = EncodeDataset(
         data_args=data_args,
     )
 
-    encode_collator = EncodeCollator(
+    encode_collator = VllmMultiModalEncodeCollator(
         data_args=data_args,
-        tokenizer=tokenizer,
+        processor=processor,
     )
 
     encode_loader = DataLoader(
@@ -86,25 +93,23 @@ def main():
         drop_last=False,
         num_workers=training_args.dataloader_num_workers,
     )
-    encoded = []
+
     lookup_indices = []
-    model = model.to(training_args.device)
-    model.eval()
-
-    for (batch_ids, batch) in tqdm(encode_loader):
+    vllm_inputs = []
+    for (batch_ids, texts, images) in tqdm(encode_loader, desc="Preprocessing"):
         lookup_indices.extend(batch_ids)
-        with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
-            with torch.no_grad():
-                for k, v in batch.items():
-                    batch[k] = v.to(training_args.device)
-                if data_args.encode_is_query:
-                    model_output: EncoderOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu().detach().numpy())
-                else:
-                    model_output: EncoderOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu().detach().numpy())
+        for prompt, image in zip(texts, images):
+            vllm_inputs.append({
+                "prompt": prompt,
+                "multi_modal_data": {'image': image if image is not None else Image.new('RGB', (28, 28))},
+                "mm_processor_kwargs": {"min_pixels": min_pixels, "max_pixels": max_pixels},
+            })
 
-    encoded = np.concatenate(encoded)
+    outputs = model.embed(vllm_inputs)
+    encoded = []
+    for output in outputs:
+        encoded.append(output.outputs.embedding)
+    encoded = np.stack(encoded, dtype=np.float16)
 
     with open(data_args.encode_output_path, 'wb') as f:
         pickle.dump((encoded, lookup_indices), f)

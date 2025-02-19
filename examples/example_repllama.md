@@ -23,8 +23,8 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode  \
   --dataset_config scifact \
   --dataset_split train \
   --encode_output_path beir_embedding_scifact/corpus_scifact.${s}.pkl \
-  --encode_num_shard 4 \
-  --encode_shard_index ${s}
+  --dataset_number_of_shards 4 \
+  --dataset_shard_index ${s}
 done
 ```
 

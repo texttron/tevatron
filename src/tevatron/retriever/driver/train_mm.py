@@ -1,8 +1,9 @@
 import logging
 import os
 import sys
+import yaml
 
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 from transformers import (
     HfArgumentParser,
     set_seed,
@@ -11,11 +12,10 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
-from tevatron.retriever.dataset import TrainDataset
-from tevatron.retriever.collator import TrainCollator
-from tevatron.retriever.modeling import DenseModel
-from tevatron.retriever.trainer import TevatronTrainer as Trainer
-from tevatron.retriever.gc_trainer import GradCacheTrainer as GCTrainer
+from tevatron.retriever.dataset import TrainDataset, MultiTrainDataset
+from tevatron.retriever.collator import MultiModalTrainCollator
+from tevatron.retriever.modeling import MultiModalDenseModel
+from tevatron.retriever.trainer import TevatronTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -60,31 +60,37 @@ def main():
 
     set_seed(training_args.seed)
 
-    tokenizer = AutoTokenizer.from_pretrained(
+    processor = AutoProcessor.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
+        trust_remote_code=True,
     )
-
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = 'right'
+    if processor.tokenizer.pad_token_id is None:
+        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
+    processor.tokenizer.padding_side = "left"
     
-    model = DenseModel.build(
+    model = MultiModalDenseModel.build(
         model_args,
         training_args,
         cache_dir=model_args.cache_dir,
     )
 
-    train_dataset = TrainDataset(data_args)
-    collator = TrainCollator(data_args, tokenizer)
+    if data_args.train_yaml is not None:
+        with open(data_args.train_yaml, 'r') as f:
+            train_yaml = yaml.safe_load(f)
+        dataset_list = train_yaml['train']
+        corpus_list = train_yaml['corpus']
 
-    trainer_cls = GCTrainer if training_args.grad_cache else Trainer
-    trainer = trainer_cls(
+    train_dataset = MultiTrainDataset(data_args, dataset_list, corpus_list) if data_args.train_yaml is not None else TrainDataset(data_args)
+    collator = MultiModalTrainCollator(data_args, processor)
+
+    trainer = TevatronTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         data_collator=collator
     )
+    
     train_dataset.set_trainer(trainer)
     
     last_checkpoint = None
@@ -94,7 +100,7 @@ def main():
     trainer.train(resume_from_checkpoint=(last_checkpoint is not None))
     trainer.save_model()
     if trainer.is_world_process_zero():
-        tokenizer.save_pretrained(training_args.output_dir)
+        processor.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":
