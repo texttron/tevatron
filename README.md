@@ -1,4 +1,14 @@
 # Tevatron V2.0
+
+<div align="center">
+<a href="https://arxiv.org/abs/2203.05765" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
+<a href="https://huggingface.co/Tevatron" target="_blank"><img src=https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace%20Datasets-27b3b4.svg></a>
+<a href="https://opensource.org/license/apache-2-0"><img src="https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=red"></a>
+<a href="https://pepy.tech/projects/tevatron"><img src="https://static.pepy.tech/badge/tevatron" alt="PyPI Downloads"></a>
+<a href="https://star-history.com/#texttron/tevatron"> <img src="https://img.shields.io/github/stars/texttron/tevatron?style=social" alt="GitHub stars"> </a>
+<!--   -->
+</div>
+
 Tevatron: Unified Document Retrieval Toolkit across Scale, Language, and Modality.
 
 > Some of the features in Tevatron v1 is not yet migrated to Tevatron v2.0. We are working on it.
@@ -8,7 +18,7 @@ Tevatron: Unified Document Retrieval Toolkit across Scale, Language, and Modalit
 - Training billion-scale LLM neural retriever on GPUs and TPUs.
 - Parameter efficient tuning with LoRA.
 - Integration with vLLM, DeepSpeed, FlashAttention, gradient accumulation, and other efficient training and inference techniques.
-- Self-contained datasets for multi-modal and multilingual neural retrieval and open-domain QA tasks.
+- Self-contained [huggingface datasets](https://huggingface.co/Tevatron) for multi-modal and multilingual neural retrieval and open-domain QA tasks.
 - Direct loading and finetuning SoTA pre-trained models (BGE-Embbedding, Instruct-E5) from HuggingFace.
 
 ## Installation
