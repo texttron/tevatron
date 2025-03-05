@@ -32,7 +32,7 @@ deepspeed --include localhost:0,1 --master_port 60000 train.py \
 ```bash
 for shard in 0 1
 do
-CUDA_VISIBLE_DEVICES=$shard python -m tevatron.retriever.driver.encode \
+CUDA_VISIBLE_DEVICES=$shard python encode.py \
   --output_dir=temp \
   --model_name_or_path Tevatron/Phi-3-vision-128k-instruct-clone \
   --lora_name_or_path dse-nq-retriever \
@@ -55,7 +55,7 @@ wait
 ### Query Encode
 ```bash
 
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m encode.py \
   --output_dir=temp \
   --model_name_or_path Tevatron/Phi-3-vision-128k-instruct-clone \
   --lora_name_or_path dse-nq-retriever \
