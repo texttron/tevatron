@@ -1,7 +1,8 @@
-# Inference RepLLaMA with VLLM
+# Inference with VLLM
 
 First install vllm `pip install vllm`
 
+## Repllama example (textual modality)
 Since vllm currently not support lora load for embedding models (see [issue](https://github.com/vllm-project/vllm/issues/12808)), we first run the following python code to merge the lora weights into the model.
 ```python
 from transformers import AutoModel, AutoTokenizer
@@ -99,6 +100,51 @@ python -m pyserini.eval.trec_eval -c -mrecall.100 -mndcg_cut.10 beir-v1.0.0-scif
 ### Efficiency
 Compared to the transformer implementation of encoding in [example_repllama.md](example_repllama.md), 
  which takes 1 minute 50 seconds to encode the entire SciFact corpus on a single H100 GPU, vLLM encoding only takes 45 seconds, making it 2.4 times faster.
+
+## DSE-QWEN2 example (Cross modality)
+
+```bash
+mkdir wiki-ss-embedding-novllm
+CUDA_VISIBLE_DEVICES=2 python -m tevatron.retriever.driver.encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path MrLight/dse-qwen2-2b-mrl-v1 \
+  --bf16 \
+  --tf32 True \
+  --pooling last \
+  --normalize \
+  --query_prefix "Query: " \
+  --per_device_eval_batch_size 16 \
+  --query_max_len 128 \
+  --passage_max_len 512 \
+  --dataset_name Tevatron/wiki-ss-nq-new \
+  --corpus_name Tevatron/wiki-ss-corpus-new \
+  --dataset_split test \
+  --encode_output_path wiki-ss-embedding-novllm/query.nq.pkl \
+  --encode_is_query
+```
+
+```bash
+for shard in 0 1 2 3 4 5 6 7;
+do
+CUDA_VISIBLE_DEVICES=3 python -m tevatron.retriever.driver.vllm_encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path MrLight/dse-qwen2-2b-mrl-v1 \
+  --bf16 \
+  --tf32 True \
+  --pooling last \
+  --normalize \
+  --per_device_eval_batch_size 128 \
+  --query_max_len 128 \
+  --passage_max_len 4096 \
+  --passage_prefix "What is shown in this image?" \
+  --dataset_name Tevatron/wiki-ss-corpus-new \
+  --dataloader_num_workers 4 \
+  --dataset_number_of_shards 8 \
+  --dataset_shard_index $shard \
+  --encode_output_path wiki-ss-embedding/corpus.$shard.pkl
+done
+
+```
 
 ### Citation
 ```bibtex

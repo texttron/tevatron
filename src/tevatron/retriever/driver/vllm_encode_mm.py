@@ -48,6 +48,7 @@ def main():
     processor = AutoProcessor.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
+        use_fast=True,
         trust_remote_code=True,
     )
     if processor.tokenizer.pad_token_id is None:
@@ -73,7 +74,8 @@ def main():
         task="embed",
         enforce_eager=True,
         override_pooler_config=pooler_config,
-        dtype=torch_dtype
+        dtype=torch_dtype,
+        mm_processor_kwargs={"use_fast": True},
     )
 
     encode_dataset = EncodeDataset(
