@@ -33,6 +33,8 @@ deepspeed --include localhost:0,1,2,3,4,5,6,7,8 --master_port 60000 --module tev
   --dataloader_num_workers 4
 ```
 
+We provide our trained lora adapters checkpoint here: [Tevatron/unified-retriever-v0.1](https://huggingface.co/Tevatron/unified-retriever-v0.1)
+
 ## Inference and evaluation
 
 ### BEIR (textual modality)
@@ -113,6 +115,10 @@ python -m tevatron.utils.format.convert_result_to_trec \
 
 python -m pyserini.eval.trec_eval -c -mrecall.100 -mndcg_cut.10 beir-v1.0.0-scifact-test \
 beir_results/${CKPT}/${DATASET}/rank.scifact.trec
+
+# Results of CKPT=Tevatron/unified-retriever-v0.1
+# recall_100              all     0.9767
+# ndcg_cut_10             all     0.7370
 ```
 
 ### MIRACL (Multi-Lingual, Textual Modality)

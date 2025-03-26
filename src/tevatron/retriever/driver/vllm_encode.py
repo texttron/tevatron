@@ -20,6 +20,7 @@ from tevatron.retriever.collator import VllmEncodeCollator
 from vllm import LLM
 from vllm.config import PoolerConfig
 from vllm.inputs import token_inputs
+from vllm.lora.request import LoRARequest
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ def main():
         task="embed",
         enforce_eager=True,
         override_pooler_config=pooler_config,
-        dtype=torch_dtype
+        dtype=torch_dtype,
+        enable_lora=True if model_args.lora_name_or_path else False,
+        max_lora_rank=model_args.lora_r,
     )
 
     encode_dataset = EncodeDataset(
@@ -96,7 +99,11 @@ def main():
         lookup_indices.extend(batch_ids)
         vllm_inputs.extend([token_inputs(prompt_token_ids=token_ids) for token_ids in batch])
 
-    outputs = model.embed(vllm_inputs)
+    outputs = model.embed(vllm_inputs,
+                          lora_request=LoRARequest("emb_adapter",
+                                                   1,
+                                                   model_args.lora_name_or_path) if model_args.lora_name_or_path else None)
+
     encoded = []
     for output in outputs:
         encoded.append(output.outputs.embedding)
