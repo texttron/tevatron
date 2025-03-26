@@ -75,6 +75,13 @@ python -m tevatron.utils.format.convert_result_to_trec --input beir_embedding_sc
 ```
 
 ### Evaluate
+Install Pyserini 
+```bash
+`pip install pyserini`
+```
+> [!NOTE]  
+> The [psyserini](https://github.com/castorini/pyserini/tree/master) library as of v0.44.0 is using features that are no longer supported for python version >3.10; hence, configure your environment to use python3.10
+
 ```bash
 python -m pyserini.eval.trec_eval -c -mrecall.100 -mndcg_cut.10 beir-v1.0.0-scifact-test beir_embedding_scifact/rank.scifact.trec
 
