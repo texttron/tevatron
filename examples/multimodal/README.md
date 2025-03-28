@@ -209,3 +209,74 @@ CUDA_VISIBLE_DEVICES=0 python eval_vidore.py \
 --normalize \
 --query_prefix "Query: "
 ```
+
+### Wiki-SS Document screenshot retrieval (Cross modality)
+
+#### Query Encode
+```bash
+mkdir wiki-ss-embedding/${CKPT}
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
+  --lora_name_or_path ${CKPT} \
+  --bf16 \
+  --normalize \
+  --pooling last  \
+  --query_prefix "Query: " \
+  --passage_prefix "" \
+  --append_eos_token \
+  --per_device_eval_batch_size 16 \
+  --query_max_len 512 \
+  --passage_max_len 512 \
+  --dataset_name Tevatron/wiki-ss-nq-new \
+  --corpus_name Tevatron/wiki-ss-corpus-new \
+  --dataset_split test \
+  --encode_output_path wiki-ss-embedding/${CKPT}/query.wiki-ss.pkl \
+  --encode_is_query
+```
+
+#### Document encode
+```bash
+for s in 0 1 2 3;
+do
+CUDA_VISIBLE_DEVICES=3 python -m tevatron.retriever.driver.encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
+  --lora_name_or_path ${CKPT} \
+  --lora \
+  --bf16 \
+  --per_device_eval_batch_size 16 \
+  --normalize \
+  --pooling last  \
+  --passage_prefix "" \
+  --append_eos_token \
+  --passage_max_len 512 \
+  --dataset_name Tevatron/wiki-ss-corpus-new \
+  --dataset_split train \
+  --encode_output_path wiki-ss-embedding/${CKPT}/corpus.${s}.pkl \
+  --num_proc 20 \
+  --dataset_number_of_shards 4 \
+  --dataset_shard_index ${s} &
+done
+wait
+```
+
+#### Search
+```bash
+mkdir -p wiki-ss-embedding/${CKPT}/
+python -m tevatron.retriever.driver.search \
+    --query_reps wiki-ss-embedding/${CKPT}/query.wiki-ss.pkl \
+    --passage_reps wiki-ss-embedding/${CKPT}/'corpus.*.pkl' \
+    --depth 100 \
+    --batch_size 64 \
+    --save_text \
+    --save_ranking_to wiki-ss-embedding/${CKPT}/rank.txt
+```
+
+#### Evaluate
+```bash
+python eval_wiki.py --run_file wiki-ss-embedding/${CKPT}/rank.txt --k 1
+
+# Results of CKPT=Tevatron/unified-retriever-v0.1
+# Top-k Accuracy: 0.5443213296398892
+```
