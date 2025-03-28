@@ -6,7 +6,6 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
-import torch
 from torch.utils.data import DataLoader
 from transformers import AutoProcessor
 from transformers import (
@@ -19,8 +18,8 @@ from tevatron.retriever.dataset import EncodeDataset
 from tevatron.retriever.collator import VllmMultiModalEncodeCollator
 from vllm import LLM
 from vllm.config import PoolerConfig
-from vllm.inputs import token_inputs
 from PIL import Image
+from vllm.lora.request import LoRARequest
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,9 @@ def main():
         enforce_eager=True,
         override_pooler_config=pooler_config,
         dtype=torch_dtype,
-        mm_processor_kwargs={"use_fast": True},
+        # mm_processor_kwargs={"use_fast": True},
+        enable_lora=True if model_args.lora_name_or_path else False,
+        max_lora_rank=model_args.lora_r,
     )
 
     encode_dataset = EncodeDataset(
@@ -97,20 +98,24 @@ def main():
     )
 
     lookup_indices = []
-    vllm_inputs = []
-    for (batch_ids, texts, images) in tqdm(encode_loader, desc="Preprocessing"):
+    encoded = []
+    for (batch_ids, texts, images) in tqdm(encode_loader, desc="Encoding"):
         lookup_indices.extend(batch_ids)
+        vllm_inputs = []
         for prompt, image in zip(texts, images):
             vllm_inputs.append({
                 "prompt": prompt,
-                "multi_modal_data": {'image': image if image is not None else Image.new('RGB', (28, 28))},
-                "mm_processor_kwargs": {"min_pixels": min_pixels, "max_pixels": max_pixels},
+                "multi_modal_data": {'image': image} if image is not None else None,
             })
+        outputs = model.embed(vllm_inputs,
+                              use_tqdm=False,
+                              lora_request=LoRARequest("emb_adapter",
+                                                       1,
+                                                       model_args.lora_name_or_path) if model_args.lora_name_or_path else None)
 
-    outputs = model.embed(vllm_inputs)
-    encoded = []
-    for output in outputs:
-        encoded.append(output.outputs.embedding)
+        for output in outputs:
+            encoded.append(output.outputs.embedding)
+
     encoded = np.stack(encoded, dtype=np.float16)
 
     with open(data_args.encode_output_path, 'wb') as f:
