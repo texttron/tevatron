@@ -69,10 +69,19 @@ def main():
         tokenizer.pad_token_id = tokenizer.eos_token_id
     tokenizer.padding_side = 'right'
     
+    if training_args.bf16:
+        torch_dtype = torch.bfloat16
+    elif training_args.fp16:
+        torch_dtype = torch.float16
+    else:
+        torch_dtype = torch.float32
+    
     model = DenseModel.build(
         model_args,
         training_args,
         cache_dir=model_args.cache_dir,
+        torch_dtype=torch_dtype,
+        attn_implementation=model_args.attn_implementation,
     )
 
     train_dataset = TrainDataset(data_args)

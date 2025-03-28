@@ -69,10 +69,19 @@ def main():
         processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
     processor.tokenizer.padding_side = "left"
     
+    if training_args.bf16:
+        torch_dtype = torch.bfloat16
+    elif training_args.fp16:
+        torch_dtype = torch.float16
+    else:
+        torch_dtype = torch.float32
+
     model = MultiModalDenseModel.build(
         model_args,
         training_args,
         cache_dir=model_args.cache_dir,
+        torch_dtype=torch_dtype,
+        attn_implementation=model_args.attn_implementation,
     )
 
     if data_args.train_yaml is not None:

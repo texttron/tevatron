@@ -71,6 +71,13 @@ class ModelArguments:
         },
     )
 
+    attn_implementation: Optional[str] = field(
+        default="flash_attention_2",
+        metadata={
+            "help": 'The attention implementation to use in the model (if relevant). Can be any of `"eager"` (manual implementation of the attention), `"sdpa"` (using [`F.scaled_dot_product_attention`](https://pytorch.org/docs/master/generated/torch.nn.functional.scaled_dot_product_attention.html)), or `"flash_attention_2"` (using [Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention)).'
+        },
+    )
+
 
 @dataclass
 class DataArguments:

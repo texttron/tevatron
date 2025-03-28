@@ -66,7 +66,8 @@ def main():
         normalize=model_args.normalize,
         lora_name_or_path=model_args.lora_name_or_path,
         cache_dir=model_args.cache_dir,
-        torch_dtype=torch_dtype
+        torch_dtype=torch_dtype,
+        attn_implementation=model_args.attn_implementation,
     )
 
     encode_dataset = EncodeDataset(
