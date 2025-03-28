@@ -251,7 +251,7 @@ CUDA_VISIBLE_DEVICES=3 python -m tevatron.retriever.driver.encode_mm  \
   --passage_prefix "" \
   --append_eos_token \
   --passage_max_len 512 \
-  --dataset_name Tevatron/wiki-ss-corpus-new \
+  --dataset_name Tevatron/wiki-ss-corpus \
   --dataset_split train \
   --encode_output_path wiki-ss-embedding/${CKPT}/corpus.${s}.pkl \
   --num_proc 20 \
