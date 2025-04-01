@@ -1,33 +1,45 @@
 ## Train SPLADE on MS MARCO
-```bash
+```bash  
 CUDA_VISIBLE_DEVICES=0 python train_splade.py \
   --output_dir model_msmarco_splade \
   --model_name_or_path Luyu/co-condenser-marco \
   --save_steps 20000 \
-  --dataset_name Tevatron/msmarco-passage \
+  --dataset_name Tevatron/msmarco-passage-aug \
   --fp16 \
-  --per_device_train_batch_size 8 \
-  --train_n_passages 8 \
+  --per_device_train_batch_size 32 \
+  --train_group_size 8 \
   --learning_rate 5e-6 \
-  --q_max_len 128 \
-  --p_max_len 128 \
+  --query_max_len 128 \
+  --passage_max_len 128 \
   --q_flops_loss_factor 0.01 \
   --p_flops_loss_factor 0.01 \
   --num_train_epochs 3 \
+  --dataloader_num_workers 8 \
+  --num_proc 8 \
   --logging_steps 500 \
+  --attn_implementation sdpa \
   --overwrite_output_dir
 ```
+----
 
-## Encode SPLADE 
+## Evaluation 
+Install Pyserini 
+```bash
+pip install pyserini
+```
+> [!NOTE]  
+> The [psyserini](https://github.com/castorini/pyserini/tree/master) library as of v0.44.0 is using features that are no longer supported for python version >3.10; hence, configure your environment to use python3.10
 
+### MSMARCO eval
 SPLADE encoding can be done as follows:
 
+#### Encode documents and queries
 ```bash
 mkdir -p encoding_splade/corpus
 mkdir -p encoding_splade/query
-for i in $(seq -f "%02g" 0 9)
+for i in $(seq -f "%02g" 0 4)
 do
-python encode_splade.py \
+CUDA_VISIBLE_DEVICES=0 python encode_splade.py \
   --output_dir encoding_splade \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
@@ -35,12 +47,12 @@ python encode_splade.py \
   --passage_max_len 128 \
   --per_device_eval_batch_size 512 \
   --dataset_name Tevatron/msmarco-passage-corpus \
-  --dataset_number_of_shards 10 \
+  --dataset_number_of_shards 5 \
   --dataset_shard_index ${i} \
   --encode_output_path encoding_splade/corpus/split${i}.jsonl
 done
 
-python encode_splade.py \
+CUDA_VISIBLE_DEVICES=0 python encode_splade.py \
   --output_dir encoding_splade \
   --model_name_or_path model_msmarco_splade \
   --tokenizer_name bert-base-uncased \
@@ -48,70 +60,113 @@ python encode_splade.py \
   --query_max_len 128 \
   --encode_is_query \
   --per_device_eval_batch_size 128 \
-  --dataset_name Tevatron/msmarco-passage/dev \
+  --dataset_name Tevatron/msmarco-passage \
+  --dataset_split dev \
   --encode_output_path encoding_splade/query/dev.tsv
 ```
 
-## Index SPLADE with anserini
-In the following, we consider that [ANSERINI](https://github.com/castorini/anserini) is installed, with all its tools, in $PATH_ANSERINI
-```
-sh $PATH_ANSERINI/target/appassembler/bin/IndexCollection -collection JsonVectorCollection \
- -input encoding_splade/corpus \
- -index splade_anserini_index \
- -generator DefaultLuceneDocumentGenerator -impact -pretokenized \
- -threads 16
-```
 
-## Retrieve SPLADE with anserini
 
-```
-sh $PATH_ANSERINI/target/appassembler/bin/SearchCollection -hits 1000 -parallelism 32 \
- -index splade_anserini_index \
- -topicreader TsvInt -topics encoding_splade/query/dev.tsv \
- -output splade_result.trec -format trec \
- -impact -pretokenized
-```
+#### Index SPLADE with pyserini
 
-## Evaluate SPLADE with anserini
-
-```
-$PATH_ANSERINI/tools/eval/trec_eval.9.0.4/trec_eval -c -M 10 -m recip_rank \
-$PATH_ANSERINI/src/main/resources/topics-and-qrels/qrels.msmarco-passage.dev-subset.txt \
-splade_result.trec
-
-$PATH_ANSERINI/tools/eval/trec_eval.9.0.4/trec_eval -c -mrecall -mmap \
-$PATH_ANSERINI/src/main/resources/topics-and-qrels/qrels.msmarco-passage.dev-subset.txt \
-splade_result.trec
-```
-
-## Index SPLADE with pyserini
-In the following, we consider that [pyserini](https://github.com/castorini/pyserini) is installed (`pip install pyserini`).
-```
+```bash
 python -m pyserini.index.lucene \
   --collection JsonVectorCollection \
   --input encoding_splade/corpus \
-  --index splade_anserini_index \
+  --index splade_pyserini_index \
   --generator DefaultLuceneDocumentGenerator \
   --threads 16 \
   --impact --pretokenized
 ```
 
-## Retrieve SPLADE with pyserini
+#### Retrieve SPLADE with pyserini
 
-```
+```bash
  python -m pyserini.search.lucene \
-  --index splade_anserini_index \
+  --index splade_pyserini_index \
   --topics encoding_splade/query/dev.tsv \
-  --output splade_results.tsv \
-  --output-format msmarco \
+  --output splade_results.txt \
   --batch 36 --threads 32 \
   --hits 1000 \
   --impact
 ```
 
-## Evaluate SPLADE with pyserini
+#### Evaluate SPLADE with pyserini
 
+```bash
+python -m pyserini.eval.trec_eval -c -M 10 -m recip_rank msmarco-passage-dev-subset splade_results.txt
+
+# recip_rank              all     0.3770
 ```
-python -m pyserini.eval.msmarco_passage_eval msmarco-passage-dev-subset splade_results.tsv
+----
+
+### BEIR eval
+#### Encode documents and queries
+```bash
+dataset=scifact
+mkdir -p encoding_splade/${dataset}/corpus
+mkdir -p encoding_splade/${dataset}/query
+
+CUDA_VISIBLE_DEVICES=0 python encode_splade.py \
+  --output_dir encoding_splade \
+  --model_name_or_path model_msmarco_splade \
+  --tokenizer_name bert-base-uncased \
+  --fp16 \
+  --passage_max_len 512 \
+  --per_device_eval_batch_size 128 \
+  --dataset_name Tevatron/beir-corpus \
+  --dataset_config ${dataset} \
+  --dataset_split train \
+  --dataset_number_of_shards 1 \
+  --dataset_shard_index 0 \
+  --encode_output_path encoding_splade/${dataset}/corpus/split00.jsonl
+
+
+CUDA_VISIBLE_DEVICES=0 python encode_splade.py \
+  --output_dir encoding_splade \
+  --model_name_or_path model_msmarco_splade \
+  --tokenizer_name bert-base-uncased \
+  --fp16 \
+  --query_max_len 512 \
+  --encode_is_query \
+  --per_device_eval_batch_size 128 \
+  --dataset_name Tevatron/beir \
+  --dataset_config scifact \
+  --dataset_split test \
+  --encode_output_path encoding_splade/${dataset}/query.tsv
 ```
-By following this doc, we are able to train a SPLADE for MS MARCO passage ranking task with MRR@10: 0.355
+
+
+
+#### Index SPLADE with pyserini
+```bash
+python -m pyserini.index.lucene \
+  --collection JsonVectorCollection \
+  --input encoding_splade/${dataset}/corpus \
+  --index splade_pyserini_index_beir/${dataset} \
+  --generator DefaultLuceneDocumentGenerator \
+  --threads 16 \
+  --impact --pretokenized
+```
+
+#### Retrieve SPLADE with pyserini
+
+```bash
+ python -m pyserini.search.lucene \
+  --index splade_pyserini_index_beir/${dataset} \
+  --topics encoding_splade/${dataset}/query.tsv \
+  --output splade_results_${dataset}.txt \
+  --batch 36 --threads 32 \
+  --hits 1000 \
+  --impact
+```
+
+#### Evaluate SPLADE with pyserini
+
+```bash
+python -m pyserini.eval.trec_eval -c -mrecall.100 -mndcg_cut.10 beir-v1.0.0-scifact-test splade_results_${dataset}.txt
+
+# recall_100              all     0.9153
+# ndcg_cut_10             all     0.6864
+```
+

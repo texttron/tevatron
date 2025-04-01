@@ -9,11 +9,17 @@ from transformers import (
     set_seed,
 )
 from dataclasses import dataclass, field
-from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
-from tevatron.data import TrainDataset, QPCollator
-from tevatron.modeling import SpladeModel
-from tevatron.trainer import TevatronTrainer
-from tevatron.datasets import HFTrainDataset
+from tevatron.retriever.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
+from tevatron.retriever.modeling import SpladeModel
+from tevatron.retriever.trainer import TevatronTrainer
+
+
+from tevatron.retriever.arguments import ModelArguments, DataArguments, \
+    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.dataset import TrainDataset
+from tevatron.retriever.collator import TrainCollator
+
+from tevatron.retriever.trainer import TevatronTrainer as Trainer
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +31,11 @@ class SpladeTrainingArguments(TevatronTrainingArguments):
 
 
 class SpladeTrainer(TevatronTrainer):
-    def __init__(self, *args, **kwargs):
-        super(SpladeTrainer, self).__init__(*args, **kwargs)
-        if self.args.negatives_x_device:    
-            self.world_size = torch.distributed.get_world_size()
-
     @staticmethod
     def _flops(inputs):
         return torch.sum(torch.mean(torch.abs(inputs), dim=0) ** 2)
 
-    def compute_loss(self, model, inputs):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage = inputs
         output = model(query=query, passage=passage)
         q_reps = output.q_reps
@@ -42,9 +43,9 @@ class SpladeTrainer(TevatronTrainer):
         loss = output.loss
         q_flops_loss = self.args.q_flops_loss_factor*self._flops(q_reps)
         p_flops_loss = self.args.p_flops_loss_factor*self._flops(p_reps)
-        if self.args.negatives_x_device:
-            q_flops_loss *= self.world_size
-            p_flops_loss *= self.world_size
+        if self.is_ddp:
+            q_flops_loss *= self._dist_loss_scale_factor
+            p_flops_loss *= self._dist_loss_scale_factor
         return loss + q_flops_loss + p_flops_loss
 
 
@@ -90,37 +91,30 @@ def main():
 
     set_seed(training_args.seed)
 
-    num_labels = 1
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        num_labels=num_labels,
-        cache_dir=model_args.cache_dir,
-    )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
-        use_fast=False,
     )
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.padding_side = 'right'
+
     model = SpladeModel.build(
         model_args,
         training_args,
-        config=config,
         cache_dir=model_args.cache_dir,
+        attn_implementation=model_args.attn_implementation,
     )
 
-    train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
-                                   cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
+    train_dataset = TrainDataset(data_args)
+    collator = TrainCollator(data_args, tokenizer)
 
     trainer = SpladeTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=QPCollator(
-            tokenizer,
-            max_p_len=data_args.p_max_len,
-            max_q_len=data_args.q_max_len
-        ),
+        data_collator=collator
     )
     train_dataset.trainer = trainer
 
