@@ -103,7 +103,7 @@ python -m pyserini.eval.trec_eval -c -M 10 -m recip_rank msmarco-passage-dev-sub
 ### BEIR eval
 #### Encode documents and queries
 ```bash
-dataset=trec-covid
+dataset=nfcorpus
 mkdir -p encoding_splade/${dataset}/corpus
 mkdir -p encoding_splade/${dataset}/query
 
