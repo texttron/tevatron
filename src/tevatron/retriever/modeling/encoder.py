@@ -121,7 +121,7 @@ class EncoderModel(nn.Module):
             base_model.config.pad_token_id = 0
         if model_args.lora or model_args.lora_name_or_path:
             if train_args.gradient_checkpointing:
-                base_model.enable_input_require_grads()
+                base_model.thinker.enable_input_require_grads()
             if model_args.lora_name_or_path:
                 lora_config = LoraConfig.from_pretrained(model_args.lora_name_or_path, **hf_kwargs)
                 lora_model = PeftModel.from_pretrained(base_model, model_args.lora_name_or_path, is_trainable=True)

@@ -8,6 +8,7 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
+import torch
 from transformers.trainer_utils import get_last_checkpoint
 
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \

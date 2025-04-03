@@ -2,7 +2,7 @@ import logging
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
-from qwen_vl_utils import process_vision_info
+from qwen_omni_utils import process_mm_info
 from PIL import Image
 
 from tevatron.retriever.arguments import DataArguments
@@ -141,15 +141,18 @@ class MultiModalTrainCollator:
         ]
         
         if self.data_args.append_eos_token:
-            query_texts = [x + '<|endoftext|>' for x in query_texts]
-            passage_texts = [x + '<|endoftext|>' for x in passage_texts]
+            query_texts = [x[0] + '<|endoftext|>' for x in query_texts]
+            passage_texts = [x[0] + '<|endoftext|>' for x in passage_texts]
         
 
-        query_image_inputs, query_video_inputs = process_vision_info(query_messages)
-        passage_image_inputs, passage_video_inputs = process_vision_info(passage_messages)
+        # audios, images, videos = process_mm_info(conversation, use_audio_in_video=False)
+        query_audio_inputs, query_image_inputs, query_video_inputs = process_mm_info(query_messages, use_audio_in_video=False)
+
+        passage_audio_inputs, passage_image_inputs, passage_video_inputs = process_mm_info(passage_messages, use_audio_in_video=False)
 
         query_inputs = self.processor(
             text=query_texts,
+            audios=query_audio_inputs,
             images=query_image_inputs,
             videos=query_video_inputs,
             return_tensors="pt",
@@ -158,6 +161,7 @@ class MultiModalTrainCollator:
 
         passage_inputs = self.processor(
             text=passage_texts,
+            audios=passage_audio_inputs,
             images=passage_image_inputs,
             videos=passage_video_inputs,
             return_tensors="pt",
@@ -250,10 +254,11 @@ class MultiModalEncodeCollator:
         if self.data_args.append_eos_token:
             texts = [x + '<|endoftext|>' for x in texts]
 
-        image_inputs, video_inputs = process_vision_info(messages)
+        audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
 
         collated_inputs = self.processor(
             text=texts,
+            audios=audio_inputs,
             images=image_inputs,
             videos=video_inputs,
             return_tensors="pt",
@@ -323,7 +328,7 @@ class VllmMultiModalEncodeCollator(MultiModalEncodeCollator):
         if self.data_args.append_eos_token:
             texts = [x + '<|endoftext|>' for x in texts]
 
-        image_inputs, video_inputs = process_vision_info(messages)
+        audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
         
         return content_ids, texts, image_inputs
 

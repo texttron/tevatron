@@ -1,6 +1,6 @@
 import torch
 import logging
-from transformers import Qwen2_5_VLForConditionalGeneration
+from transformers import Qwen2_5OmniModel
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
@@ -40,19 +40,27 @@ class DenseModel(EncoderModel):
 
 
 class MultiModalDenseModel(DenseModel):
-    TRANSFORMER_CLS = Qwen2_5_VLForConditionalGeneration
+    TRANSFORMER_CLS = Qwen2_5OmniModel
 
     def __init__(self, encoder, pooling='eos', normalize=True, temperature=0.02):
         super().__init__(encoder, pooling, normalize, temperature)
         # freeze visual encoder
+        self.encoder = encoder.thinker
         for param in self.encoder.visual.parameters():
             param.requires_grad = False
+        # freeze audio_tower
+        for param in self.encoder.audio_tower.parameters():
+            param.requires_grad = False
+        self.config.hidden_size = 3584
+
+    def gradient_checkpointing_enable(self, **kwargs):
+        self.encoder.model.gradient_checkpointing_enable()
 
     def encode_query(self, qry):
         cache_position = torch.arange(0, qry['input_ids'].shape[1], device=qry['input_ids'].device)
         qry = self.encoder.prepare_inputs_for_generation(**qry, use_cache=True, cache_position=cache_position)
         query_hidden_states = self.encoder(**qry, return_dict=True, output_hidden_states=True)
-        query_hidden_states = query_hidden_states.hidden_states[-1]
+        query_hidden_states = query_hidden_states.hidden_states[1][-1]
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg):
