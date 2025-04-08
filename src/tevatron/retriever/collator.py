@@ -94,6 +94,8 @@ class MultiModalTrainCollator:
         for query in all_queries:
             text = query[0]
             image = query[1]
+            video = query[2]
+            audio = query[3]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -102,6 +104,10 @@ class MultiModalTrainCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+            if video:
+                content.append({'type': 'video', 'video': video, "video_fps": 1, "resized_height": 280, "resized_width": 280})
+            if audio:
+                content.append({'type': 'audio', 'audio': audio, "resized_height": 280, "resized_width": 280})
             message = [
                 {
                     'role': 'user',
@@ -114,6 +120,8 @@ class MultiModalTrainCollator:
         for idx in range(len(all_passages)):
             text = all_passages[idx][0]
             image = all_passages[idx][1]
+            video = all_passages[idx][2]
+            audio = all_passages[idx][3]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -122,6 +130,10 @@ class MultiModalTrainCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+            if video:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
+            if audio:
+                content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
                     'role': 'user',
@@ -224,11 +236,15 @@ class MultiModalEncodeCollator:
         content_ids = [x[0] for x in features]
         texts = [x[1] for x in features]
         images = [x[2] for x in features]
+        videos = [x[3] for x in features]
+        audios = [x[4] for x in features]
         messages = []
         max_length = self.data_args.query_max_len if self.data_args.encode_is_query else self.data_args.passage_max_len
         for idx in range(len(texts)):
             text = texts[idx]
             image = images[idx]
+            video = videos[idx]
+            audio = audios[idx]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -237,7 +253,10 @@ class MultiModalEncodeCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
-                # content.append({'type': 'text', 'text': 'What is shown in this image?'})
+            if video:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
+            if audio:
+                content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
                     'role': 'user',

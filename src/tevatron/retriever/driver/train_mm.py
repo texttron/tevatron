@@ -18,7 +18,10 @@ from tevatron.retriever.collator import MultiModalTrainCollator
 from tevatron.retriever.modeling import MultiModalDenseModel
 from tevatron.retriever.trainer import TevatronTrainer
 
+logging.getLogger().setLevel(logging.ERROR)
+
 logger = logging.getLogger(__name__)
+
 
 
 def main():

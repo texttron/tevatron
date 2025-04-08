@@ -1,0 +1,10 @@
+train:
+  - name: Tevatron/msrvtt
+  - name: Tevatron/audiocaps
+  
+
+corpus:
+  - name: Tevatron/msrvtt-corpus
+    assets_path: ./msrvtt-corpus/video
+  - name: Tevatron/audiocaps-corpus
+    assets_path: null
