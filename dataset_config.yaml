@@ -1,10 +1,39 @@
 train:
   - name: Tevatron/msrvtt
+  - name: Tevatron/msrvtt
+  - name: Tevatron/msrvtt
   - name: Tevatron/audiocaps
-  
+  - name: Tevatron/colpali
+  - name: Tevatron/colpali
+  - name: Tevatron/colpali
+  - name: Tevatron/colpali
+  - name: Tevatron/colpali
+  - name: Tevatron/bge-ir
+  - name: Tevatron/pixmo-docs
+  - name: Tevatron/wiki-ss-nq-new
 
 corpus:
   - name: Tevatron/msrvtt-corpus
     assets_path: ./msrvtt-corpus/video
+  - name: Tevatron/msrvtt-corpus
+    assets_path: ./msrvtt-corpus/video
+  - name: Tevatron/msrvtt-corpus
+    assets_path: ./msrvtt-corpus/video
   - name: Tevatron/audiocaps-corpus
+    assets_path: null
+  - name: Tevatron/colpali-corpus
+    assets_path: null
+  - name: Tevatron/colpali-corpus
+    assets_path: null
+  - name: Tevatron/colpali-corpus
+    assets_path: null
+  - name: Tevatron/colpali-corpus
+    assets_path: null
+  - name: Tevatron/colpali-corpus
+    assets_path: null
+  - name: null
+    assets_path: null
+  - name: Tevatron/pixmo-docs-corpus
+    assets_path: null
+  - name: Tevatron/wiki-ss-corpus-new
     assets_path: null

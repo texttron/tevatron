@@ -1,6 +1,6 @@
-deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retriever.driver.train_mm \
+deepspeed --include localhost:0,1 --master_port 60000 --module tevatron.retriever.driver.train_mm \
   --deepspeed deepspeed/ds_zero0_config.json \
-  --output_dir retriever-qwen25vl-bge-colpali \
+  --output_dir retriever-omni \
   --model_name_or_path Tevatron/Qwen2.5-Omni-7B-Thinker \
   --tokenizer_name Qwen/Qwen2.5-Omni-7B \
   --lora \
@@ -15,9 +15,9 @@ deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retr
   --append_eos_token \
   --normalize \
   --temperature 0.02 \
-  --per_device_train_batch_size 8 \
+  --per_device_train_batch_size 16 \
   --gradient_checkpointing \
-  --train_group_size 1 \
+  --train_group_size 8 \
   --learning_rate 1e-4 \
   --query_max_len 512 \
   --passage_max_len 512 \
@@ -27,4 +27,5 @@ deepspeed --include localhost:0,1,2,3 --master_port 60000 --module tevatron.retr
   --gradient_accumulation_steps 2 \
   --warmup_ratio 0.005 \
   --report_to wandb \
+  --num_proc 10 \
   --dataloader_num_workers 4

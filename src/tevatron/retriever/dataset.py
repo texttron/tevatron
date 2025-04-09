@@ -85,6 +85,7 @@ class TrainDataset(Dataset):
         if video is not None:
             video = os.path.join(self.corpus_assets_path, video)
         audio = document_info.get('audio', None)
+        audio = audio['array'] if audio is not None else None
         text = document_info.get('text', '')
         text = '' if text is None else text
         return prefix + text, image, video, audio

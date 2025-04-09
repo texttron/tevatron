@@ -105,8 +105,8 @@ class MultiModalTrainCollator:
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
-                content.append({'type': 'video', 'video': video, "video_fps": 1, "resized_height": 280, "resized_width": 280})
-            if audio:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
+            if audio is not None:
                 content.append({'type': 'audio', 'audio': audio, "resized_height": 280, "resized_width": 280})
             message = [
                 {
@@ -132,7 +132,7 @@ class MultiModalTrainCollator:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
                 content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
-            if audio:
+            if audio is not None:
                 content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
@@ -255,7 +255,7 @@ class MultiModalEncodeCollator:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
                 content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
-            if audio:
+            if audio is not None:
                 content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
