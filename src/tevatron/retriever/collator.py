@@ -271,7 +271,7 @@ class MultiModalEncodeCollator:
         ]
         
         if self.data_args.append_eos_token:
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x[0] + '<|endoftext|>' for x in texts]
 
         audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
 
@@ -345,7 +345,8 @@ class VllmMultiModalEncodeCollator(MultiModalEncodeCollator):
         ]
 
         if self.data_args.append_eos_token:
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x[0] + '<|endoftext|>' for x in texts]
+
 
         audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
         

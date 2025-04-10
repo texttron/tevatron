@@ -281,4 +281,5 @@ class EncodeDataset(Dataset):
             content_image = content.get('image', None)
             content_video = content.get('video', None)
             content_audio = content.get('audio', None)
+        content_audio = content_audio['array'] if content_audio is not None else None
         return content_id, content_text, content_image, content_video, content_audio
