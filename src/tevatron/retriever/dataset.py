@@ -282,4 +282,7 @@ class EncodeDataset(Dataset):
             content_video = content.get('video', None)
             content_audio = content.get('audio', None)
         content_audio = content_audio['array'] if content_audio is not None else None
+
+        if content_video is not None:
+            content_video = os.path.join(self.data_args.assets_path, content_video)
         return content_id, content_text, content_image, content_video, content_audio
