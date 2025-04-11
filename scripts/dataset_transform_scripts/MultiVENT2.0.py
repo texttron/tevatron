@@ -10,6 +10,10 @@ from io import TextIOWrapper
 import tarfile
 import glob
 import math
+from pydub import AudioSegment
+import numpy as np
+import tempfile
+
 
 TRAIN_QUERY_FN = "multivent_2_train_queries.csv"
 TRAIN_JUDGEMENT_FN = "multivent_2_train_judgments.jsonl"
@@ -66,6 +70,7 @@ class CorpusEntry:
     # image: str = None
     video: str = None
     audio: str = None
+    audio_path: str = None
     audio_caption: str = None
     video_caption: str = None
     video_title: str = None
@@ -77,7 +82,7 @@ class CorpusEntry:
             if isinstance(text, float) and math.isnan(text): return None
             return text.replace("\n", " ").replace("\t", " ").strip()
 
-        all_fields = [self.image, self.video, self.audio, self.audio_caption, self.video_caption, self.video_title, self.video_description]
+        all_fields = [self.video, self.audio, self.audio_caption, self.video_caption, self.video_title, self.video_description]
         if all(x is None for x in all_fields):
             raise ValueError(f"All fields are None for document {self.docid}")
 
@@ -91,16 +96,25 @@ class CorpusEntry:
         self.text = "\t".join(text)
 
     def to_dict(self):
+        # audio = {"audio": None} 
+        # if self.audio:
+        #     assert self.audio_path is not None, f"Audio path is not set for {self.docid}"
+        #     audio = {
+        #         "audio": self.audio,
+        #         "array": load_audio_array(self.audio_path)
+        #     }
+        #     import pdb; pdb.set_trace()
+
         return {
             "docid": self.docid,
             "text": self.text,
             # "image": self.image,
             "video": self.video,
-            "audio": self.audio,
             "audio_caption": self.audio_caption,
             "video_caption": self.video_caption,
             "video_title": self.video_title,
             "video_description": self.video_description,
+            "audio": self.audio,
         }
 
 
@@ -119,6 +133,62 @@ def get_file_obj_from_tar(tar_path, is_member_fn):
     except Exception as e:
         print(f"[ERROR] Could not open {tar_path}: {e}")
     return None
+
+
+def load_audio_array(audio_path, format="m4a"):
+    """
+    this requires ffmpeg to be installed. To install it locally, run:
+        mkdir -p $HOME/bin
+        cd $HOME/bin
+        curl -L -o ffmpeg-release.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+        tar -xf ffmpeg-release.tar.xz
+        mv ffmpeg-*-static ffmpeg-static    
+        export PATH="$HOME/bin/ffmpeg-static:$PATH"
+    """
+    # M4A_EXT = ".m4a"
+    # assert os.path.exists(audio_path), f"Audio file {audio_path} does not exist"
+    # assert os.path.splitext(audio_path)[1] == M4A_EXT, f"Audio file {audio_path} is not an m4a file"
+
+    # Load the m4a file using ffmpeg
+    audio = AudioSegment.from_file(audio_path, format=format)
+
+    # Convert to float32 NumPy array
+    samples = np.array(audio.get_array_of_samples()).astype(np.float32)
+
+    # Handle stereo (2 channels)
+    if audio.channels == 2:
+        samples = samples.reshape((-1, 2)).T  # shape (2, num_samples)
+
+    # Normalize to [-1.0, 1.0] range
+    samples /= np.iinfo(audio.array_type).max
+    return samples.tolist()
+
+
+def load_audio_array_from_tar(tar_path):
+    def is_member_fn(member):
+        return member.isfile() and member.name.endswith(".m4a")
+
+    data = {}
+    for file_name, file_obj in get_file_obj_from_tar(tar_path, is_member_fn):
+        # Create a temporary file with m4a extension
+        # Get the file ID from the filename
+        id = os.path.splitext(os.path.basename(file_name))[0]
+
+        # Create a temporary file with .m4a extension
+        with tempfile.NamedTemporaryFile(suffix='.m4a', delete=False) as temp_file:
+            # Write the binary content from file_obj to the temporary file
+            temp_file.write(file_obj.read())
+            temp_path = temp_file.name
+
+        try:
+            # Load the audio array from the temporary file
+            array = load_audio_array(temp_path)
+            data[id] = {"audio": {"array": array, "audio": f"{id}.m4a"}}
+        finally:
+            # Clean up the temporary file
+            os.unlink(temp_path)
+
+    return data
 
 
 def load_video_text_from_tar(tar_path):
@@ -177,9 +247,11 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir):
         with open(output_fn, "w") as f:
             audio_path = audio_path_pattern.format(tar_id=tar_id)
 
+            id2audio_array = load_audio_array_from_tar(tar_path) # .m4a is stored together with the video
             id2video_text = load_video_text_from_tar(tar_path)
             id2audio_text = load_audio_text_from_tar(audio_path)
-            for id, video_text in id2video_text.items():
+            for id, video_text in tqdm(id2video_text.items(), desc="Saving corpus"):
+                audio_array = id2audio_array.get(id, {})
                 audio_text = id2audio_text.get(id, {})
                 if not audio_text:
                     print(f"[WARN] No audio text found for {id}")
@@ -187,11 +259,14 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir):
                 corpus_entry = CorpusEntry(
                     docid=id,
                     video=f"{id}.mp4",
-                    audio=f"{id}.m4a",
+                    # audio=f"{id}.m4a",
+                    **audio_array,
                     **video_text,
                     **audio_text,
                 )
+                import pdb; pdb.set_trace()
                 f.write(json.dumps(corpus_entry.to_dict(), ensure_ascii=False) + "\n")
+        break
 
 
 
@@ -236,5 +311,5 @@ def test_loading():
 
 
 if __name__ == "__main__":
-    # main()
-    test_loading()
+    main()
+    # test_loading()
