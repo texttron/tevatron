@@ -13,6 +13,7 @@ import math
 from pydub import AudioSegment
 import numpy as np
 import tempfile
+import datasets
 
 
 TRAIN_QUERY_FN = "multivent_2_train_queries.csv"
@@ -96,19 +97,9 @@ class CorpusEntry:
         self.text = "\t".join(text)
 
     def to_dict(self):
-        # audio = {"audio": None} 
-        # if self.audio:
-        #     assert self.audio_path is not None, f"Audio path is not set for {self.docid}"
-        #     audio = {
-        #         "audio": self.audio,
-        #         "array": load_audio_array(self.audio_path)
-        #     }
-        #     import pdb; pdb.set_trace()
-
         return {
             "docid": self.docid,
             "text": self.text,
-            # "image": self.image,
             "video": self.video,
             "audio_caption": self.audio_caption,
             "video_caption": self.video_caption,
@@ -144,6 +135,12 @@ def load_audio_array(audio_path, format="m4a"):
         tar -xf ffmpeg-release.tar.xz
         mv ffmpeg-*-static ffmpeg-static    
         export PATH="$HOME/bin/ffmpeg-static:$PATH"
+    
+    Return:
+        samples: numpy.ndarray: Audio data as a numpy array
+        channels: int: Number of channels
+        frame_rate: int: The samples per second of the returned object (https://audiosegment.readthedocs.io/en/latest/audiosegment.html)
+        (TODO: relation with sampling_rate)
     """
     # M4A_EXT = ".m4a"
     # assert os.path.exists(audio_path), f"Audio file {audio_path} does not exist"
@@ -155,13 +152,11 @@ def load_audio_array(audio_path, format="m4a"):
     # Convert to float32 NumPy array
     samples = np.array(audio.get_array_of_samples()).astype(np.float32)
 
-    # Handle stereo (2 channels)
-    if audio.channels == 2:
-        samples = samples.reshape((-1, 2)).T  # shape (2, num_samples)
-
     # Normalize to [-1.0, 1.0] range
     samples /= np.iinfo(audio.array_type).max
-    return samples.tolist()
+
+    # need number of channels in case in the future we want to use multi-channel audio
+    return samples, audio.channels, audio.frame_rate
 
 
 def load_audio_array_from_tar(tar_path):
@@ -182,8 +177,8 @@ def load_audio_array_from_tar(tar_path):
 
         try:
             # Load the audio array from the temporary file
-            array = load_audio_array(temp_path)
-            data[id] = {"audio": {"array": array, "audio": f"{id}.m4a"}}
+            array, channels, frame_rate = load_audio_array(temp_path)
+            data[id] = {"audio": {"array": array, "audio": f"{id}.m4a", "channels": channels, "frame_rate": frame_rate}}
         finally:
             # Clean up the temporary file
             os.unlink(temp_path)
@@ -243,31 +238,34 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir):
     for tar_path in tqdm(sorted(glob.glob(os.path.join(multivent_path, "*.tar"))), desc="Forming corpus"):
         tar_id = os.path.splitext(os.path.basename(tar_path))[0]
 
-        output_fn = os.path.join(output_dir, f"{tar_id}.jsonl")
-        with open(output_fn, "w") as f:
-            audio_path = audio_path_pattern.format(tar_id=tar_id)
+        data = []
+        output_fn = os.path.join(output_dir, tar_id)
+        if os.path.exists(output_fn) and os.path.isdir(output_fn) and len(os.listdir(output_fn)) > 0:
+            print(f"[WARN] Skipping {tar_id} because it already exists")
+            continue
 
-            id2audio_array = load_audio_array_from_tar(tar_path) # .m4a is stored together with the video
-            id2video_text = load_video_text_from_tar(tar_path)
-            id2audio_text = load_audio_text_from_tar(audio_path)
-            for id, video_text in tqdm(id2video_text.items(), desc="Saving corpus"):
-                audio_array = id2audio_array.get(id, {})
-                audio_text = id2audio_text.get(id, {})
-                if not audio_text:
-                    print(f"[WARN] No audio text found for {id}")
+        audio_path = audio_path_pattern.format(tar_id=tar_id)
 
-                corpus_entry = CorpusEntry(
-                    docid=id,
-                    video=f"{id}.mp4",
-                    # audio=f"{id}.m4a",
-                    **audio_array,
-                    **video_text,
-                    **audio_text,
-                )
-                import pdb; pdb.set_trace()
-                f.write(json.dumps(corpus_entry.to_dict(), ensure_ascii=False) + "\n")
-        break
+        id2audio_array = load_audio_array_from_tar(tar_path) # .m4a is stored together with the video
+        id2video_text = load_video_text_from_tar(tar_path)
+        id2audio_text = load_audio_text_from_tar(audio_path)
+        for id, video_text in id2video_text.items():
+            audio_array = id2audio_array.get(id, {})
+            audio_text = id2audio_text.get(id, {})
+            if not audio_text:
+                print(f"[WARN] No audio text found for {id}")
 
+            corpus_entry = CorpusEntry(
+                docid=id,
+                video=f"{id}.mp4",
+                **audio_array,
+                **video_text,
+                **audio_text,
+            )
+            data.append(corpus_entry.to_dict())
+
+        ds = datasets.Dataset.from_list(data)
+        ds.save_to_disk(output_fn, num_shards=5)
 
 
 def get_args():
@@ -304,7 +302,6 @@ def main():
 
 def test_loading():
     path = "data/MultiVent/corpus/000001.jsonl"
-    import datasets
     ds = datasets.load_dataset("json", data_files=path, split="train")
     import pdb; pdb.set_trace()
 
