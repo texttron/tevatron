@@ -211,6 +211,23 @@ def load_video_text_from_tar(tar_path):
     return data
 
 
+def load_video_text_from_tar_test(tar_path):
+    def is_member_fn(member):
+        return member.isfile() and member.name.endswith(".csv")
+
+    data = {}
+    for file_name, file_obj in get_file_obj_from_tar(tar_path, is_member_fn):
+        text_stream = TextIOWrapper(file_obj, encoding="utf-8")
+        df = pd.read_csv(text_stream, sep=",", header=0)
+        assert df.columns[0] == "video_id"
+        assert df.columns[1] == "text"
+        for _, row in df.iterrows():
+            id = row["video_id"].split("/")[-1].replace(".mp4", "") # remove the tar id (e.g., 000001)
+            data[id] = {"video_caption": row["text"]}
+
+    return data
+
+
 def load_audio_text_from_tar(tar_path):
     def is_member_fn(member):
         return member.isfile() and member.name.endswith(".csv")
@@ -227,7 +244,7 @@ def load_audio_text_from_tar(tar_path):
     return data
 
 
-def form_corpus(multivent_path, audio_path_pattern, output_dir):
+def form_corpus(multivent_path, audio_path_pattern, output_dir, test=False):
     """
     Args:
         multivent_path: path to the multivent data (a list of .tar files)
@@ -247,13 +264,14 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir):
         audio_path = audio_path_pattern.format(tar_id=tar_id)
 
         id2audio_array = load_audio_array_from_tar(tar_path) # .m4a is stored together with the video
-        id2video_text = load_video_text_from_tar(tar_path)
+        id2video_text = load_video_text_from_tar(tar_path) if not test else load_video_text_from_tar_test(tar_path)
         id2audio_text = load_audio_text_from_tar(audio_path)
         for id, video_text in id2video_text.items():
             audio_array = id2audio_array.get(id, {})
             audio_text = id2audio_text.get(id, {})
             if not audio_text:
                 print(f"[WARN] No audio text found for {id}")
+                import pdb; pdb.set_trace()
 
             corpus_entry = CorpusEntry(
                 docid=id,
@@ -275,7 +293,6 @@ def get_args():
     return parser.parse_args()
 
 
-
 def main():
     args = get_args()
     multivent_path = args.multivent_path
@@ -283,7 +300,6 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     train_path = os.path.join(multivent_path, "train")
-    test_path = os.path.join(multivent_path, "test")
     whisper_path = os.path.join(multivent_path, "features/train/whisper_asr/exp/scale24/data/video/baseline/train/speech_to_text")
     whisper_path_pattern = whisper_path + "/train-{tar_id}-whisperv3-large.tar.gz"
 
@@ -299,6 +315,19 @@ def main():
     form_corpus(train_path, whisper_path_pattern, os.path.join(output_dir, "corpus"))
 
 
+def main_test():
+    args = get_args()
+    multivent_path = args.multivent_path
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+
+    test_path = os.path.join(multivent_path, "test")
+    whisper_path = os.path.join(multivent_path, "features/test/whisper_asr/exp/scale24/data/video/baseline/test/speech_to_text")
+    whisper_path_pattern = whisper_path + "/transcription-{tar_id}.tar.gz"
+
+    ####### write corpus #######
+    form_corpus(test_path, whisper_path_pattern, os.path.join(output_dir, "corpus-test"), test=True)
+
 
 def test_loading():
     path = "data/MultiVent/corpus/000001.jsonl"
@@ -308,5 +337,6 @@ def test_loading():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    main_test()
     # test_loading()
