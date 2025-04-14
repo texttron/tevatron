@@ -2,7 +2,7 @@ import random
 import os
 from typing import List, Tuple
 
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -281,8 +281,15 @@ class EncodeDataset(Dataset):
             content_image = content.get('image', None)
             content_video = content.get('video', None)
             content_audio = content.get('audio', None)
-        content_audio = content_audio['array'] if content_audio is not None else None
 
         if content_video is not None:
             content_video = os.path.join(self.data_args.assets_path, content_video)
+
+        if content_audio is not None: # either an dict with 'array' key or a string .mp3 path
+            if isinstance(content_audio, dict) and 'array' in content_audio:
+                content_audio = content_audio['array']
+            else:
+                assert isinstance(content_audio, str) and content_audio.endswith('.mp3')
+                content_audio = os.path.join(self.data_args.assets_path, content_audio)
+
         return content_id, content_text, content_image, content_video, content_audio
