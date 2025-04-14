@@ -1,3 +1,10 @@
+"""
+Prior to this script, audio data from the MultiVENT2.0 dataset need to firstly be converted to .mp3 format by:
+
+for _dir in train/* ; do bash convert_in_batch.sh $_dir ; done
+for _dir in test/* ; do bash convert_in_batch.sh $_dir ; done
+"""
+
 import os
 import pandas as pd
 import json
@@ -10,9 +17,6 @@ from io import TextIOWrapper
 import tarfile
 import glob
 import math
-from pydub import AudioSegment
-import numpy as np
-import tempfile
 import datasets
 
 
@@ -81,6 +85,7 @@ class CorpusEntry:
         def clean_text(text):
             if not text: return None
             if isinstance(text, float) and math.isnan(text): return None
+            if not isinstance(text, str): return None
             return text.replace("\n", " ").replace("\t", " ").strip()
 
         all_fields = [self.video, self.audio, self.audio_caption, self.video_caption, self.video_title, self.video_description]
@@ -124,66 +129,6 @@ def get_file_obj_from_tar(tar_path, is_member_fn):
     except Exception as e:
         print(f"[ERROR] Could not open {tar_path}: {e}")
     return None
-
-
-def load_audio_array(audio_path, format="m4a"):
-    """
-    this requires ffmpeg to be installed. To install it locally, run:
-        mkdir -p $HOME/bin
-        cd $HOME/bin
-        curl -L -o ffmpeg-release.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-        tar -xf ffmpeg-release.tar.xz
-        mv ffmpeg-*-static ffmpeg-static    
-        export PATH="$HOME/bin/ffmpeg-static:$PATH"
-    
-    Return:
-        samples: numpy.ndarray: Audio data as a numpy array
-        channels: int: Number of channels
-        frame_rate: int: The samples per second of the returned object (https://audiosegment.readthedocs.io/en/latest/audiosegment.html)
-        (TODO: relation with sampling_rate)
-    """
-    # M4A_EXT = ".m4a"
-    # assert os.path.exists(audio_path), f"Audio file {audio_path} does not exist"
-    # assert os.path.splitext(audio_path)[1] == M4A_EXT, f"Audio file {audio_path} is not an m4a file"
-
-    # Load the m4a file using ffmpeg
-    audio = AudioSegment.from_file(audio_path, format=format)
-
-    # Convert to float32 NumPy array
-    samples = np.array(audio.get_array_of_samples()).astype(np.float32)
-
-    # Normalize to [-1.0, 1.0] range
-    samples /= np.iinfo(audio.array_type).max
-
-    # need number of channels in case in the future we want to use multi-channel audio
-    return samples, audio.channels, audio.frame_rate
-
-
-def load_audio_array_from_tar(tar_path):
-    def is_member_fn(member):
-        return member.isfile() and member.name.endswith(".m4a")
-
-    data = {}
-    for file_name, file_obj in get_file_obj_from_tar(tar_path, is_member_fn):
-        # Create a temporary file with m4a extension
-        # Get the file ID from the filename
-        id = os.path.splitext(os.path.basename(file_name))[0]
-
-        # Create a temporary file with .m4a extension
-        with tempfile.NamedTemporaryFile(suffix='.m4a', delete=False) as temp_file:
-            # Write the binary content from file_obj to the temporary file
-            temp_file.write(file_obj.read())
-            temp_path = temp_file.name
-
-        try:
-            # Load the audio array from the temporary file
-            array, channels, frame_rate = load_audio_array(temp_path)
-            data[id] = {"audio": {"array": array, "audio": f"{id}.m4a", "channels": channels, "frame_rate": frame_rate}}
-        finally:
-            # Clean up the temporary file
-            os.unlink(temp_path)
-
-    return data
 
 
 def load_video_text_from_tar(tar_path):
@@ -239,6 +184,7 @@ def load_audio_text_from_tar(tar_path):
         assert df.columns[0] == "video_id"
         assert df.columns[1] == "text"
         for _, row in df.iterrows():
+            # if "h-FE2oli4h0" in row["video_id"]: import pdb; pdb.set_trace()
             id = row["video_id"].split("/")[-1].replace(".m4a", "") # remove the tar id (e.g., 000001)
             data[id] = {"audio_caption": row["text"]}
     return data
@@ -249,10 +195,13 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir, test=False):
     Args:
         multivent_path: path to the multivent data (a list of .tar files)
         audio_path: path to the audio data
+        output_dir: directory to save the corpus
+        test: whether this is test data
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    for tar_path in tqdm(sorted(glob.glob(os.path.join(multivent_path, "*.tar"))), desc="Forming corpus"):
+    desc = "Forming corpus (training)" if not test else "Forming corpus (test)"
+    for tar_path in tqdm(sorted(glob.glob(os.path.join(multivent_path, "*.tar"))), desc=desc):
         tar_id = os.path.splitext(os.path.basename(tar_path))[0]
 
         data = []
@@ -261,22 +210,20 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir, test=False):
             print(f"[WARN] Skipping {tar_id} because it already exists")
             continue
 
-        audio_path = audio_path_pattern.format(tar_id=tar_id)
+        audio_path = audio_path_pattern.format(tar_id=tar_id) # path to the audio transcription tar file
 
-        id2audio_array = load_audio_array_from_tar(tar_path) # .m4a is stored together with the video
         id2video_text = load_video_text_from_tar(tar_path) if not test else load_video_text_from_tar_test(tar_path)
         id2audio_text = load_audio_text_from_tar(audio_path)
         for id, video_text in id2video_text.items():
-            audio_array = id2audio_array.get(id, {})
             audio_text = id2audio_text.get(id, {})
             if not audio_text:
                 print(f"[WARN] No audio text found for {id}")
-                import pdb; pdb.set_trace()
 
+            # if id == "h-FE2oli4h0": import pdb; pdb.set_trace()
             corpus_entry = CorpusEntry(
                 docid=id,
-                video=f"{id}.mp4",
-                **audio_array,
+                video=f"{tar_id}/{id}.mp4",
+                audio=f"{tar_id}/{id}.mp3",
                 **video_text,
                 **audio_text,
             )
@@ -333,7 +280,6 @@ def test_loading():
     path = "data/MultiVent/corpus/000001.jsonl"
     ds = datasets.load_dataset("json", data_files=path, split="train")
     import pdb; pdb.set_trace()
-
 
 
 if __name__ == "__main__":
