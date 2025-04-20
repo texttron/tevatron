@@ -83,11 +83,16 @@ class TrainDataset(Dataset):
         image = document_info.get('image', None)
         video = document_info.get('video', None)
         if video is not None:
-            # video = os.path.join(self.corpus_assets_path, video)
-            video = os.path.join(f'{self.corpus_assets_path}/video', video) # TODO: hardcoded for now
+            video = os.path.join(self.corpus_assets_path, video)
         audio = document_info.get('audio', None)
-        # audio = audio['array'] if audio is not None else None
-        audio = os.path.join(f'{self.corpus_assets_path}/audio', audio) if audio is not None else None # TODO: hardcoded for now
+
+        if audio is not None: # either an dict with 'array' key or a string .mp3 path
+            if isinstance(audio, dict) and 'array' in audio:
+                audio = audio['array']
+            else:
+                assert isinstance(audio, str) and audio.endswith('.mp3')
+                audio = os.path.join(self.data_args.assets_path, audio)
+
         text = document_info.get('text', '')
         text = '' if text is None else text
         return prefix + text, image, video, audio
@@ -285,15 +290,13 @@ class EncodeDataset(Dataset):
             content_audio = content.get('audio', None)
 
         if content_video is not None:
-            # content_video = os.path.join(self.data_args.assets_path, content_video)
-            content_video = os.path.join(f'{self.corpus_assets_path}/video', content_video)  # TODO: hardcoded for now
+            content_video = os.path.join(self.data_args.assets_path, content_video)
 
         if content_audio is not None: # either an dict with 'array' key or a string .mp3 path
             if isinstance(content_audio, dict) and 'array' in content_audio:
                 content_audio = content_audio['array']
             else:
                 assert isinstance(content_audio, str) and content_audio.endswith('.mp3')
-                # content_audio = os.path.join(self.data_args.assets_path, content_audio)
-                content_audio = os.path.join(f'{self.corpus_assets_path}/audio', content_audio) # TODO: hardcoded for now
+                content_audio = os.path.join(self.data_args.assets_path, content_audio)
 
         return content_id, content_text, content_image, content_video, content_audio

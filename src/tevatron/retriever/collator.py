@@ -105,8 +105,8 @@ class MultiModalTrainCollator:
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
-                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
-                # content.append({'type': 'video', 'video': video, 'fps': 1, "resized_height": 280, "resized_width": 280}) # TODO: hardcoded for now
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
             if audio is not None:
                 content.append({'type': 'audio', 'audio': audio, "resized_height": 280, "resized_width": 280})
             message = [
@@ -132,8 +132,8 @@ class MultiModalTrainCollator:
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
-                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
-                # content.append({'type': 'video', 'video': video, 'fps': 1, "resized_height": 280, "resized_width": 280}) # TODO: hardcoded for now
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
             if audio is not None:
                 content.append({'type': 'audio', 'audio': audio})
             message = [
@@ -166,7 +166,7 @@ class MultiModalTrainCollator:
 
         query_inputs = self.processor(
             text=query_texts,
-            audios=query_audio_inputs,
+            audio=query_audio_inputs,
             images=query_image_inputs,
             videos=query_video_inputs,
             return_tensors="pt",
@@ -175,7 +175,7 @@ class MultiModalTrainCollator:
 
         passage_inputs = self.processor(
             text=passage_texts,
-            audios=passage_audio_inputs,
+            audio=passage_audio_inputs,
             images=passage_image_inputs,
             videos=passage_video_inputs,
             return_tensors="pt",
@@ -256,8 +256,8 @@ class MultiModalEncodeCollator:
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
             if video:
-                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280, "resized_width": 280})
-                # content.append({'type': 'video', 'video': video, 'fps': 1, "resized_height": 280, "resized_width": 280}) # TODO: hardcoded for now
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
             if audio is not None:
                 content.append({'type': 'audio', 'audio': audio})
             message = [
@@ -280,7 +280,7 @@ class MultiModalEncodeCollator:
 
         collated_inputs = self.processor(
             text=texts,
-            audios=audio_inputs,
+            audio=audio_inputs,
             images=image_inputs,
             videos=video_inputs,
             return_tensors="pt",

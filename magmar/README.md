@@ -41,3 +41,86 @@ deepspeed --include localhost:0,1,2,3,4,5,6,7 --master_port 60000 --module tevat
   --num_proc 10 \
   --dataloader_num_workers 4
 ```
+
+## Step 3: evaluate
+```bash
+CKPT=Tevatron/OmniEmbed-v0.1
+# encode query
+mkdir -p multivent-embedding
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path Tevatron/Qwen2.5-Omni-7B-Thinker \
+  --tokenizer_name Qwen/Qwen2.5-Omni-7B \
+  --lora_name_or_path ${CKPT} \
+  --bf16 \
+  --per_device_eval_batch_size 8 \
+  --normalize \
+  --pooling last  \
+  --query_prefix "Query: " \
+  --append_eos_token \
+  --passage_max_len 512 \
+  --dataset_name Tevatron/multivent-sample-train-test \
+  --dataset_split test \
+  --encode_output_path multivent-embedding/${CKPT}/query-sample-train-test.pkl \
+  --dataloader_num_workers 8 \
+  --encode_is_query
+  
+# dowanload the corpus and decompress
+huggingface-cli download Tevatron/multivent-corpus-sample-test --local-dir multivent-corpus-sample-test --repo-type dataset
+
+encode_num_shard=10
+for i in $(seq 0 $((encode_num_shard-1)))
+do
+SHARD_INDEX=$i
+NUM_SHARED=$encode_num_shard
+if [ ! -f multivent-embedding/${CKPT}/corpus.${i}.pkl ]; then
+    echo "Missing multivent-embedding/${CKPT}/corpus.${i}.pkl"
+#    scancel -n encode-multivent-$i
+    sbatch --job-name "encode-multivent-$i" --output "logs/multivent/print-encode-$i.txt" --error "logs/multivent/error-encode-$i.txt" ./encode_multivent_omni.sh "$CKPT" "$NUM_SHARED" "$SHARD_INDEX"
+fi
+done
+  
+for gpu in 0 1 2 3
+do
+CUDA_VISIBLE_DEVICES=$gpu python -m tevatron.retriever.driver.encode_mm  \
+  --output_dir=temp \
+  --model_name_or_path Tevatron/Qwen2.5-Omni-7B-Thinker \
+  --tokenizer_name Qwen/Qwen2.5-Omni-7B \
+  --lora_name_or_path Tevatron/OmniEmbed-v0.1-multivent \
+  --bf16 \
+  --per_device_eval_batch_size 16 \
+  --normalize \
+  --pooling last  \
+  --passage_prefix "" \
+  --append_eos_token \
+  --passage_max_len 512 \
+  --dataset_name Tevatron/multivent-corpus-sample-test \
+  --assets_path magmar/multivent-corpus-sample-test \
+  --dataset_split train \
+  --encode_output_path multivent-embedding/${CKPT}/corpus.$gpu.pkl \
+  --dataset_number_of_shards 4 \
+  --dataset_shard_index $gpu \
+  --dataloader_num_workers 8 &
+done
+
+wait
+
+```
+
+Eval
+```bash
+mkdir -p multivent-results/${CKPT}
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.search \
+    --query_reps multivent-embedding/${CKPT}/query-sample-train-test.pkl \
+    --passage_reps multivent-embedding/${CKPT}/'corpus.*.pkl' \
+    --depth 100 \
+    --batch_size 64 \
+    --save_text \
+    --save_ranking_to multivent-results/${CKPT}/rank-sample-train-test.txt
+
+python -m tevatron.utils.format.convert_result_to_trec --input multivent-results/${CKPT}/rank-sample-train-test.txt \
+                                                       --output multivent-results/${CKPT}/rank-sample-train-test.trec
+
+python -m pyserini.eval.trec_eval -c -m recall.100 -m ndcg_cut.10 magmar/qrels_multivent-sample-train-test.txt multivent-results/${CKPT}/rank-sample-train-test.trec
+
+```
