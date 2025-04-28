@@ -44,9 +44,9 @@ deepspeed --include localhost:0,1,2,3,4,5,6,7 --master_port 60000 --module tevat
 
 ## Step 3: evaluate
 ```bash
-CKPT=Tevatron/OmniEmbed-v0.1
+CKPT=Tevatron/OmniEmbed-v0.1-multivent
 # encode query
-mkdir -p multivent-embedding
+mkdir -p multivent-embedding/${CKPT}
 CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode_mm  \
   --output_dir=temp \
   --model_name_or_path Tevatron/Qwen2.5-Omni-7B-Thinker \
@@ -66,16 +66,15 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode_mm  \
   --encode_is_query
   
 # dowanload the corpus and decompress
-huggingface-cli download Tevatron/multivent-corpus-sample-test --local-dir multivent-corpus-sample-test --repo-type dataset
+huggingface-cli download Tevatron/multivent-corpus-train --local-dir multivent-corpus-train --repo-type dataset
 
-encode_num_shard=10
+encode_num_shard=40
 for i in $(seq 0 $((encode_num_shard-1)))
 do
 SHARD_INDEX=$i
 NUM_SHARED=$encode_num_shard
 if [ ! -f multivent-embedding/${CKPT}/corpus.${i}.pkl ]; then
     echo "Missing multivent-embedding/${CKPT}/corpus.${i}.pkl"
-#    scancel -n encode-multivent-$i
     sbatch --job-name "encode-multivent-$i" --output "logs/multivent/print-encode-$i.txt" --error "logs/multivent/error-encode-$i.txt" ./encode_multivent_omni.sh "$CKPT" "$NUM_SHARED" "$SHARD_INDEX"
 fi
 done
