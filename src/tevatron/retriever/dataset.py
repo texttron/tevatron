@@ -291,6 +291,10 @@ class EncodeDataset(Dataset):
 
         if content_video is not None:
             content_video = os.path.join(self.data_args.assets_path, content_video)
+            # check if the file exists
+            if not os.path.exists(content_video):
+                logger.warning(f"Video file {content_video} does not exist.")
+                content_video = None
 
         if content_audio is not None: # either an dict with 'array' key or a string .mp3 path
             if isinstance(content_audio, dict) and 'array' in content_audio:
@@ -298,5 +302,9 @@ class EncodeDataset(Dataset):
             else:
                 assert isinstance(content_audio, str) and content_audio.endswith('.mp3')
                 content_audio = os.path.join(self.data_args.assets_path, content_audio)
+                # check if the file exists
+                if not os.path.exists(content_audio):
+                    logger.warning(f"Audio file {content_audio} does not exist.")
+                    content_audio = None
 
         return content_id, content_text, content_image, content_video, content_audio
