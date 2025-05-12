@@ -121,6 +121,10 @@ class DataArguments:
         default=None, metadata={"help": "yaml file for training datasets, if there is more multiple datasets used for training"}
     )
 
+    assets_path: str = field(
+        default=None, metadata={"help": "path to assets for corpus"}
+    )
+
     dataset_number_of_shards: int = field(
         default=1, metadata={"help": "number of shards to split the dataset into"}
     )
@@ -180,6 +184,20 @@ class DataArguments:
     num_proc: int = field(
         default=1, metadata={"help": "number of processes to use for loading the dataset"}
     )
+
+    encode_text: bool = field(
+        default=True, metadata={"help": "whether to encode text or not"}
+    )
+    encode_image: bool = field(
+        default=True, metadata={"help": "whether to encode image or not"}
+    )
+    encode_audio: bool = field(
+        default=True, metadata={"help": "whether to encode audio or not"}
+    )
+    encode_video: bool = field(
+        default=True, metadata={"help": "whether to encode video or not"}
+    )
+
 
 
 @dataclass

@@ -1,0 +1,6 @@
+train:
+  - name: Tevatron/multivent
+
+corpus:
+  - name: Tevatron/multivent-corpus-train-mini
+    assets_path: ./magmar/multivent-corpus-train-mini

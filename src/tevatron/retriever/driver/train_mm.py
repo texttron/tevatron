@@ -8,6 +8,7 @@ from transformers import (
     HfArgumentParser,
     set_seed,
 )
+import torch
 from transformers.trainer_utils import get_last_checkpoint
 
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
@@ -17,7 +18,10 @@ from tevatron.retriever.collator import MultiModalTrainCollator
 from tevatron.retriever.modeling import MultiModalDenseModel
 from tevatron.retriever.trainer import TevatronTrainer
 
+logging.getLogger().setLevel(logging.ERROR)
+
 logger = logging.getLogger(__name__)
+
 
 
 def main():

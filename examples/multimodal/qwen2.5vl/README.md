@@ -179,7 +179,7 @@ wait
 
 #### Search
 ```bash
-mkdir -p miracl_results/retriever-qwen25vl-bge-pixmo-colpali-wiki/$DATASET
+mkdir -p miracl_results/${CKPT}/$DATASET
 python -m tevatron.retriever.driver.search \
     --query_reps miracl_embedding/${CKPT}/${DATASET}/queries.pkl \
     --passage_reps miracl_embedding/${CKPT}/${DATASET}/'corpus.*.pkl' \

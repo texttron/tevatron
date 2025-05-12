@@ -331,18 +331,27 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 </details>
 
 ## Examples
-+ [Unified multi-modal and multilingual retrieval](./examples/multimodal/README.md)
++ [Unified multi-modal and multilingual retrieval](./examples/multimodal)
 + [vLLM encoding and retrieval](./examples/example_repllama_vllm.md)
 
 ## Citation
 If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).
-```
+```bibtex
 @article{Gao2022TevatronAE,
   title={Tevatron: An Efficient and Flexible Toolkit for Dense Retrieval},
   author={Luyu Gao and Xueguang Ma and Jimmy J. Lin and Jamie Callan},
   journal={ArXiv},
   year={2022},
   volume={abs/2203.05765}
+}
+```
+
+```bibtex
+@article{ma2025tevatron,
+  title={Tevatron 2.0: Unified Document Retrieval Toolkit across Scale, Language, and Modality},
+  author={Ma, Xueguang and Gao, Luyu and Zhuang, Shengyao and Zhan, Jiaqi Samantha and Callan, Jamie and Lin, Jimmy},
+  journal={arXiv preprint arXiv:2505.02466},
+  year={2025}
 }
 ```
 
@@ -353,6 +362,7 @@ If you have a toolkit specific question, feel free to open an issue.
 You can also reach out to us for general comments/suggestions/questions through email.
 - Luyu Gao luyug@cs.cmu.edu
 - Xueguang Ma x93ma@uwaterloo.ca
+- Shengyao Zhuang shengyaozhuang@gmail.com
 
 
 ## Acknowledgement

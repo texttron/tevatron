@@ -2,7 +2,7 @@ import logging
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
-from qwen_vl_utils import process_vision_info
+from qwen_omni_utils import process_mm_info
 from PIL import Image
 
 from tevatron.retriever.arguments import DataArguments
@@ -94,6 +94,8 @@ class MultiModalTrainCollator:
         for query in all_queries:
             text = query[0]
             image = query[1]
+            video = query[2]
+            audio = query[3]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -102,6 +104,11 @@ class MultiModalTrainCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+            if video:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
+            if audio is not None:
+                content.append({'type': 'audio', 'audio': audio, "resized_height": 280, "resized_width": 280})
             message = [
                 {
                     'role': 'user',
@@ -114,6 +121,8 @@ class MultiModalTrainCollator:
         for idx in range(len(all_passages)):
             text = all_passages[idx][0]
             image = all_passages[idx][1]
+            video = all_passages[idx][2]
+            audio = all_passages[idx][3]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -122,6 +131,11 @@ class MultiModalTrainCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+            if video:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
+            if audio is not None:
+                content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
                     'role': 'user',
@@ -141,15 +155,18 @@ class MultiModalTrainCollator:
         ]
         
         if self.data_args.append_eos_token:
-            query_texts = [x + '<|endoftext|>' for x in query_texts]
-            passage_texts = [x + '<|endoftext|>' for x in passage_texts]
+            query_texts = [x[0] + '<|endoftext|>' for x in query_texts]
+            passage_texts = [x[0] + '<|endoftext|>' for x in passage_texts]
         
 
-        query_image_inputs, query_video_inputs = process_vision_info(query_messages)
-        passage_image_inputs, passage_video_inputs = process_vision_info(passage_messages)
+        # audios, images, videos = process_mm_info(conversation, use_audio_in_video=False)
+        query_audio_inputs, query_image_inputs, query_video_inputs = process_mm_info(query_messages, use_audio_in_video=False)
+
+        passage_audio_inputs, passage_image_inputs, passage_video_inputs = process_mm_info(passage_messages, use_audio_in_video=False)
 
         query_inputs = self.processor(
             text=query_texts,
+            audio=query_audio_inputs,
             images=query_image_inputs,
             videos=query_video_inputs,
             return_tensors="pt",
@@ -158,6 +175,7 @@ class MultiModalTrainCollator:
 
         passage_inputs = self.processor(
             text=passage_texts,
+            audio=passage_audio_inputs,
             images=passage_image_inputs,
             videos=passage_video_inputs,
             return_tensors="pt",
@@ -220,11 +238,15 @@ class MultiModalEncodeCollator:
         content_ids = [x[0] for x in features]
         texts = [x[1] for x in features]
         images = [x[2] for x in features]
+        videos = [x[3] for x in features]
+        audios = [x[4] for x in features]
         messages = []
         max_length = self.data_args.query_max_len if self.data_args.encode_is_query else self.data_args.passage_max_len
         for idx in range(len(texts)):
             text = texts[idx]
             image = images[idx]
+            video = videos[idx]
+            audio = audios[idx]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(
@@ -233,7 +255,11 @@ class MultiModalEncodeCollator:
                 content.append({'type': 'text', 'text': text})
             if image:
                 content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
-                # content.append({'type': 'text', 'text': 'What is shown in this image?'})
+            if video:
+                content.append({'type': 'video', 'video': video, 'nframes': 24, "resized_height": 280,
+                                "resized_width": 280})
+            if audio is not None:
+                content.append({'type': 'audio', 'audio': audio})
             message = [
                 {
                     'role': 'user',
@@ -248,12 +274,13 @@ class MultiModalEncodeCollator:
         ]
         
         if self.data_args.append_eos_token:
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x[0] + '<|endoftext|>' for x in texts]
 
-        image_inputs, video_inputs = process_vision_info(messages)
+        audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
 
         collated_inputs = self.processor(
             text=texts,
+            audio=audio_inputs,
             images=image_inputs,
             videos=video_inputs,
             return_tensors="pt",
@@ -321,9 +348,10 @@ class VllmMultiModalEncodeCollator(MultiModalEncodeCollator):
         ]
 
         if self.data_args.append_eos_token:
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x[0] + '<|endoftext|>' for x in texts]
 
-        image_inputs, video_inputs = process_vision_info(messages)
+
+        audio_inputs, image_inputs, video_inputs = process_mm_info(messages, use_audio_in_video=False)
         
         return content_ids, texts, image_inputs
 
