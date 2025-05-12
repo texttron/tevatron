@@ -185,6 +185,20 @@ class DataArguments:
         default=1, metadata={"help": "number of processes to use for loading the dataset"}
     )
 
+    encode_text: bool = field(
+        default=True, metadata={"help": "whether to encode text or not"}
+    )
+    encode_image: bool = field(
+        default=True, metadata={"help": "whether to encode image or not"}
+    )
+    encode_audio: bool = field(
+        default=True, metadata={"help": "whether to encode audio or not"}
+    )
+    encode_video: bool = field(
+        default=True, metadata={"help": "whether to encode video or not"}
+    )
+
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):

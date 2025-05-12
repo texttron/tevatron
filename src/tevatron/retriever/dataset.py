@@ -55,7 +55,7 @@ class TrainDataset(Dataset):
             )
         
         # for video we use assets_path to load the video
-        self.corpus_assets_path = corpus_assets_path
+        self.corpus_assets_path = corpus_assets_path if corpus_assets_path is not None else self.data_args.assets_path
 
         # create a map between docid and index
         self.docid_to_index = {}
@@ -81,20 +81,31 @@ class TrainDataset(Dataset):
         document_info = self.corpus[self.docid_to_index[docid]]
         assert document_info['docid'] == docid
         image = document_info.get('image', None)
+
         video = document_info.get('video', None)
         if video is not None:
             video = os.path.join(self.corpus_assets_path, video)
-        audio = document_info.get('audio', None)
 
+        audio = document_info.get('audio', None)
         if audio is not None: # either an dict with 'array' key or a string .mp3 path
             if isinstance(audio, dict) and 'array' in audio:
                 audio = audio['array']
             else:
                 assert isinstance(audio, str) and audio.endswith('.mp3')
-                audio = os.path.join(self.data_args.assets_path, audio)
+                audio = os.path.join(self.corpus_assets_path, audio)
 
         text = document_info.get('text', '')
+
+        if not self.data_args.encode_text:
+            text = None
+        if not self.data_args.encode_image:
+            image = None
+        if not self.data_args.encode_video:
+            video = None
+        if not self.data_args.encode_audio:
+            audio = None
         text = '' if text is None else text
+
         return prefix + text, image, video, audio
 
     def __getitem__(self, item):
@@ -289,7 +300,8 @@ class EncodeDataset(Dataset):
             content_video = content.get('video', None)
             content_audio = content.get('audio', None)
 
-        if content_video is not None:
+
+        if content_video is not None and self.data_args.encode_video:
             content_video = os.path.join(self.data_args.assets_path, content_video)
             # check if the file exists
             if not os.path.exists(content_video):
@@ -306,5 +318,14 @@ class EncodeDataset(Dataset):
                 if not os.path.exists(content_audio):
                     logger.warning(f"Audio file {content_audio} does not exist.")
                     content_audio = None
+
+        if not self.data_args.encode_text:
+            content_text = None
+        if not self.data_args.encode_image:
+            content_image = None
+        if not self.data_args.encode_video:
+            content_video = None
+        if not self.data_args.encode_audio:
+            content_audio = None
 
         return content_id, content_text, content_image, content_video, content_audio
