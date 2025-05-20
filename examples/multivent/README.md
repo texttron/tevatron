@@ -1,10 +1,9 @@
 # MAGMaR workshop fine-tuning
 
+
 ## Step 1: download datasets
-```bash
-huggingface-cli download Tevatron/multivent-corpus-train-mini --local-dir multivent-corpus-train-mini --repo-type dataset
-```
-then decompress all tar.gz files in the `multivent-corpus-train-mini/video` folder and `multivent-corpus-train-mini/audio.tar.gz` folders.
+
+Due to license issue, we are not able to share the processed dataset. Please contact the original author of multi-vent to get the raw data.
 
 ## Step 2: train
 ```bash
