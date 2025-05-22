@@ -35,7 +35,7 @@ deepspeed --include localhost:0,1,2,3,4,5,6,7,8 --master_port 60000 --module tev
   --dataloader_num_workers 4
 ```
 
-We provide our trained lora adapters checkpoint here: [Tevatron/unified-retriever-v0.1](https://huggingface.co/Tevatron/unified-retriever-v0.1)
+We provide our trained lora adapters checkpoint here: [Tevatron/OmniEmbed-v0.1](https://huggingface.co/Tevatron/OmniEmbed-v0.1)
 
 ## Inference and evaluation
 
