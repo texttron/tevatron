@@ -1,6 +1,6 @@
 # Qwen3-Embedding Finetuning Example
 
-The doc provide examples to finetune [Qwen3-Embedding](https://qwenlm.github.io/blog/qwen3-embedding/) and [Qwen3-Reranker](https://qwenlm.github.io/blog/qwen3-embedding/) models.
+The doc provide examples to finetune [Qwen3-Embedding](https://qwenlm.github.io/blog/qwen3-embedding/).
 
 ## Finetune Qwen3-Embedding
 
