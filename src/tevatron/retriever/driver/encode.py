@@ -51,7 +51,11 @@ def main():
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = 'right'
+
+    if data_args.padding_side == 'right':
+        tokenizer.padding_side = 'right'
+    else:
+        tokenizer.padding_side = 'left'
 
     if training_args.bf16:
         torch_dtype = torch.bfloat16

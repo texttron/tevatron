@@ -198,6 +198,11 @@ class DataArguments:
         default=True, metadata={"help": "whether to encode video or not"}
     )
 
+    padding_side: str = field(
+        default='right',
+        metadata={"help": "padding side for the tokenizer, can be 'left' or 'right'"}
+    )
+
 
 
 @dataclass
