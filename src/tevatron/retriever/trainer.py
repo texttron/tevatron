@@ -60,35 +60,32 @@ class DistilTevatronTrainer(TevatronTrainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage, reranker_labels = inputs
-        # print(f"DistilTevatronTrainer: query={query}, passage={passage}, reranker_labels={reranker_labels}")
-        # print the shapes of the inputs for debugging
         scores = model(query=query, passage=passage).scores
-        # print(f"Scores shape: {scores}")
-        # # print(f"Shapes - query: {query.size()}, passage: {passage.size()}, reranker_labels: {}, scores: {scores.size()}")
-        # import pdb; pdb.set_trace()  # Debugging breakpoint
         
         if model.is_ddp:
             # reranker_scores are gathered across all processes
+            scores = model._dist_gather_tensor(scores)
             reranker_labels = model._dist_gather_tensor(reranker_labels)
         
-        # normalize the reranker_labels to probabilities
-        reranker_labels = torch.softmax(reranker_labels.view(scores.size(0), -1), dim=1, dtype=scores.dtype)
-        
-        num_queries, num_hn_passages = scores.size(0), reranker_labels.size(1)
+        # Derive student_scores [batch, num_labels]
+        batch_size, total_passages = scores.size()
+        num_labels = reranker_labels.size(1)
+        start_idxs = torch.arange(0, batch_size * num_labels, num_labels, device=scores.device)
+        idx_matrix = start_idxs.view(-1, 1) + torch.arange(num_labels, device=scores.device)
+        student_scores = scores.gather(1, idx_matrix)
 
-        # Create a tensor of indices to gather the correct scores
-        indices = torch.arange(0, num_queries * num_hn_passages, num_hn_passages, device=scores.device)
-        indices = indices.view(-1, 1) + torch.arange(num_hn_passages, device=scores.device)
-        scores_matrix = torch.gather(scores, 1, indices)
+        # Temperature‐scaled soft distributions (float32 for stability)
+        T = 2.0
+        student_log   = torch.log_softmax(student_scores.float() / T, dim=1)
+        teacher_probs = torch.softmax(reranker_labels.float()    / T, dim=1)
 
-        # Normalize scores_matrix using softmax
-        scores_matrix = torch.softmax(scores_matrix, dim=1, dtype=scores.dtype)
-
+        # KL Divergence loss (shapes now [batch, num_labels])
         loss = torch.nn.functional.kl_div(
-            torch.log(scores_matrix + 1e-8),  # log(Q) - add small epsilon for numerical stability
-            reranker_labels,                  # P (target distribution)
-            reduction='batchmean'             # Average over batch dimension
-        )
+            student_log,
+            teacher_probs,
+            reduction="batchmean"
+        ) * (T * T)
+
         return loss
 
     def training_step(self, *args):
