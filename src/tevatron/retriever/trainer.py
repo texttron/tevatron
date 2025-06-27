@@ -92,4 +92,4 @@ class DistilTevatronTrainer(TevatronTrainer):
         return loss
 
     def training_step(self, *args):
-        return super(DistilTevatronTrainer, self).training_step(*args) / self._dist_loss_scale
+        return super(DistilTevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
