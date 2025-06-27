@@ -64,7 +64,6 @@ class DistilTevatronTrainer(TevatronTrainer):
         
         if model.is_ddp:
             # reranker_scores are gathered across all processes
-            scores = model._dist_gather_tensor(scores)
             reranker_labels = model._dist_gather_tensor(reranker_labels)
         
         # Derive student_scores [batch, num_labels]
@@ -75,7 +74,7 @@ class DistilTevatronTrainer(TevatronTrainer):
         student_scores = scores.gather(1, idx_matrix)
 
         # Temperature‐scaled soft distributions (float32 for stability)
-        T = 2.0
+        T = 0.02
         student_log   = torch.log_softmax(student_scores.float() / T, dim=1)
         teacher_probs = torch.softmax(reranker_labels.float()    / T, dim=1)
 
@@ -84,7 +83,7 @@ class DistilTevatronTrainer(TevatronTrainer):
             student_log,
             teacher_probs,
             reduction="batchmean"
-        ) * (T * T)
+        ) * self._dist_loss_scale_factor
 
         return loss
 
