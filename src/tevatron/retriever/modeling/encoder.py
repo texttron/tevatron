@@ -94,7 +94,7 @@ class EncoderModel(nn.Module):
         return self.cross_entropy(scores, target)
     
     def gradient_checkpointing_enable(self, **kwargs):
-        self.encoder.model.gradient_checkpointing_enable()
+        self.encoder.gradient_checkpointing_enable()
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]):
         if t is None:

@@ -51,3 +51,45 @@ class TevatronTrainer(Trainer):
     def training_step(self, *args):
         return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
 
+
+class DistilTevatronTrainer(TevatronTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.is_ddp = dist.is_initialized()
+        self._dist_loss_scale_factor = dist.get_world_size() if self.is_ddp else 1
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        query, passage, reranker_labels = inputs
+        # print(f"DistilTevatronTrainer: query={query}, passage={passage}, reranker_labels={reranker_labels}")
+        # print the shapes of the inputs for debugging
+        scores = model(query=query, passage=passage).scores
+        # print(f"Scores shape: {scores}")
+        # # print(f"Shapes - query: {query.size()}, passage: {passage.size()}, reranker_labels: {}, scores: {scores.size()}")
+        # import pdb; pdb.set_trace()  # Debugging breakpoint
+        
+        if model.is_ddp:
+            # reranker_scores are gathered across all processes
+            reranker_labels = model._dist_gather_tensor(reranker_labels)
+        
+        # normalize the reranker_labels to probabilities
+        reranker_labels = torch.softmax(reranker_labels.view(scores.size(0), -1), dim=1, dtype=scores.dtype)
+        
+        num_queries, num_hn_passages = scores.size(0), reranker_labels.size(1)
+
+        # Create a tensor of indices to gather the correct scores
+        indices = torch.arange(0, num_queries * num_hn_passages, num_hn_passages, device=scores.device)
+        indices = indices.view(-1, 1) + torch.arange(num_hn_passages, device=scores.device)
+        scores_matrix = torch.gather(scores, 1, indices)
+
+        # Normalize scores_matrix using softmax
+        scores_matrix = torch.softmax(scores_matrix, dim=1, dtype=scores.dtype)
+
+        loss = torch.nn.functional.kl_div(
+            torch.log(scores_matrix + 1e-8),  # log(Q) - add small epsilon for numerical stability
+            reranker_labels,                  # P (target distribution)
+            reduction='batchmean'             # Average over batch dimension
+        )
+        return loss
+
+    def training_step(self, *args):
+        return super(DistilTevatronTrainer, self).training_step(*args) / self._dist_loss_scale
