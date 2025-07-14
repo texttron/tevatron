@@ -33,6 +33,12 @@ class ModelArguments:
         metadata={"help": "temperature for softmax"}
     )
 
+    mrl_dims: str = field(
+        default=None,
+        metadata={"help": "Matryoshka Representation Learning (MRL) dimensions, comma separated list of dimensions."
+                          "None means no MRL training."}
+    )
+
     # for lora
     lora: bool = field(default=False,
         metadata={"help": "do parameter-efficient fine-tuning with lora"}

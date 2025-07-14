@@ -31,6 +31,7 @@ class EncoderModel(nn.Module):
                  pooling: str = 'cls',
                  normalize: bool = False,
                  temperature: float = 1.0,
+                 mrl_dims: Optional[list] = None
                  ):
         super().__init__()
         self.config = encoder.config
@@ -40,6 +41,12 @@ class EncoderModel(nn.Module):
         self.temperature = temperature
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.is_ddp = dist.is_initialized()
+
+        if mrl_dims:
+            self.mrl_dims = [int(dim) for dim in mrl_dims.split(',')]
+        else:
+            self.mrl_dims = [self.config.hidden_size]
+
         if self.is_ddp:
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
@@ -61,15 +68,22 @@ class EncoderModel(nn.Module):
                 q_reps = self._dist_gather_tensor(q_reps)
                 p_reps = self._dist_gather_tensor(p_reps)
 
-            scores = self.compute_similarity(q_reps, p_reps)
-            scores = scores.view(q_reps.size(0), -1)
+            all_scores = self.compute_similarity(q_reps, p_reps)
 
-            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-            target = target * (p_reps.size(0) // q_reps.size(0))
+            loss = 0
+            for dim in self.mrl_dims:
+                scores = all_scores[:, :, :dim].sum(-1)
+                scores = scores.view(q_reps.size(0), -1)
 
-            loss = self.compute_loss(scores / self.temperature, target)
+                target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
+                target = target * (p_reps.size(0) // q_reps.size(0))
+
+                loss += self.compute_loss(scores / self.temperature, target)
+            loss /= len(self.mrl_dims)
+
             if self.is_ddp:
                 loss = loss * self.world_size  # counter average weight reduction
+
         # for eval
         else:
             scores = self.compute_similarity(q_reps, p_reps)
@@ -88,7 +102,8 @@ class EncoderModel(nn.Module):
         raise NotImplementedError('EncoderModel is an abstract class')
 
     def compute_similarity(self, q_reps, p_reps):
-        return torch.matmul(q_reps, p_reps.transpose(0, 1))
+        all_scores = torch.einsum('qh,dh -> qdh', q_reps, p_reps)
+        return all_scores
 
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
@@ -140,14 +155,16 @@ class EncoderModel(nn.Module):
                 encoder=lora_model,
                 pooling=model_args.pooling,
                 normalize=model_args.normalize,
-                temperature=model_args.temperature
+                temperature=model_args.temperature,
+                mrl_dims=model_args.mrl_dims
             )
         else:
             model = cls(
                 encoder=base_model,
                 pooling=model_args.pooling,
                 normalize=model_args.normalize,
-                temperature=model_args.temperature
+                temperature=model_args.temperature,
+                mrl_dims=model_args.mrl_dims
             )
         return model
 
