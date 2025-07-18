@@ -364,6 +364,7 @@ class DistilTrainCollator:
     """
     tokenizer: PreTrainedTokenizer
     data_args: DataArguments
+    torch_dtype: torch.dtype = torch.bfloat16
 
     def __call__(self, features: List[Tuple[str, List[str]]]):
         all_queries = [f[0] for f in features]
@@ -416,7 +417,5 @@ class DistilTrainCollator:
         )
 
         # Convert reranker scores to tensor
-        all_reranker_scores = torch.tensor(all_reranker_scores, dtype=torch.bfloat16)
-        # print("COLLATOR", q_collated["input_ids"].shape, d_collated["input_ids"].shape, all_reranker_scores.shape)
-        # print(q_collated['input_ids'], d_collated['input_ids'], all_reranker_scores)
+        all_reranker_scores = torch.tensor(all_reranker_scores, dtype=self.torch_dtype)
         return q_collated, d_collated, all_reranker_scores

@@ -93,6 +93,7 @@ def main():
     collator = DistilTrainCollator(
         tokenizer=tokenizer,
         data_args=data_args,
+        torch_dtype=torch_dtype,
     )
 
     trainer_cls = DistilTrainer

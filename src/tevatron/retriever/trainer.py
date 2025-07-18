@@ -73,8 +73,8 @@ class DistilTevatronTrainer(TevatronTrainer):
         idx_matrix = start_idxs.view(-1, 1) + torch.arange(num_labels, device=scores.device)
         student_scores = scores.gather(1, idx_matrix)
 
-        # Temperature‐scaled soft distributions (float32 for stability)
-        T = 0.02
+        # Temperature‐scaled soft distributions
+        T = self.args.distil_temperature
         student_log   = torch.log_softmax(student_scores.float() / T, dim=1)
         teacher_probs = torch.softmax(reranker_labels.float()    / T, dim=1)
 
