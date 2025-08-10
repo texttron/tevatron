@@ -26,25 +26,23 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=3 python -m tevatron.retriever.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --model_name_or_path Qwen/Qwen3-Embedding-0.6B \
   --dataset_name Tevatron/browsecomp-plus-corpus \
-  --dataset_number_of_shards 4 \
-  --dataset_shard_index 3 \
-  --encode_output_path embeddings/corpus.3.pkl \
+  --encode_output_path embeddings/corpus.pkl \
   --passage_max_len 4096 \
   --normalize \
   --pooling eos \
   --passage_prefix "" \
   --per_device_eval_batch_size 32 \
-  --fp16 &
+  --fp16
 ```
 
 
 ## Search and eval
 ```bash
 mkdir -p runs
-python -m tevatron.retriever.driver.search --query_reps embeddings/query.pkl --passage_reps embeddings/'corpus.*.pkl' --depth 1000 --batch_size 128 --save_text --save_ranking_to runs/qwen3-0.6b_top1000.txt
+python -m tevatron.retriever.driver.search --query_reps embeddings/query.pkl --passage_reps embeddings/corpus.pkl --depth 1000 --batch_size 128 --save_text --save_ranking_to runs/qwen3-0.6b_top1000.txt
 
 python -m tevatron.utils.format.convert_result_to_trec --input runs/qwen3-0.6b_top1000.txt \
                                                        --output runs/qwen3-0.6b_top1000.trec
