@@ -51,3 +51,41 @@ class TevatronTrainer(Trainer):
     def training_step(self, *args):
         return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
 
+
+class DistilTevatronTrainer(TevatronTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.is_ddp = dist.is_initialized()
+        self._dist_loss_scale_factor = dist.get_world_size() if self.is_ddp else 1
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        query, passage, reranker_labels = inputs
+        scores = model(query=query, passage=passage).scores
+        
+        if model.is_ddp:
+            # reranker_scores are gathered across all processes
+            reranker_labels = model._dist_gather_tensor(reranker_labels)
+        
+        # Derive student_scores [batch, num_labels]
+        batch_size, total_passages = scores.size()
+        num_labels = reranker_labels.size(1)
+        start_idxs = torch.arange(0, batch_size * num_labels, num_labels, device=scores.device)
+        idx_matrix = start_idxs.view(-1, 1) + torch.arange(num_labels, device=scores.device)
+        student_scores = scores.gather(1, idx_matrix)
+
+        # Temperature‐scaled soft distributions
+        T = self.args.distil_temperature
+        student_log   = torch.log_softmax(student_scores.float() / T, dim=1)
+        teacher_probs = torch.softmax(reranker_labels.float()    / T, dim=1)
+
+        # KL Divergence loss (shapes now [batch, num_labels])
+        loss = torch.nn.functional.kl_div(
+            student_log,
+            teacher_probs,
+            reduction="batchmean"
+        ) * self._dist_loss_scale_factor
+
+        return loss
+
+    def training_step(self, *args):
+        return super(DistilTevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor

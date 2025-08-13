@@ -329,3 +329,85 @@ class EncodeDataset(Dataset):
             content_audio = None
 
         return content_id, content_text, content_image, content_video, content_audio
+
+
+class DistilTrainDataset(TrainDataset):
+    def __init__(self, data_args: DataArguments, trainer = None, dataset_name = None, corpus_name = None, dataset_path = None, corpus_path = None):
+        super().__init__(data_args, trainer, dataset_name, corpus_name, dataset_path, corpus_path)
+
+    def _get_score_from_docid(self, docid):
+        document_info = self.corpus[int(docid)]
+        assert int(document_info['docid']) == int(docid)
+        score = None if 'score' not in document_info else document_info['score']
+        return score
+    
+    def __getitem__(self, item):
+        group = self.train_data[item]
+        epoch = int(self.trainer.state.epoch)
+
+        _hashed_seed = hash(item + self.trainer.args.seed)
+
+        if 'positive_passages' in group:
+            # this dataset is in old format text data, for backward compatibility
+            query_text = group['query']
+            query_image = None
+            formated_query = (self.data_args.query_prefix + query_text, query_image)
+            formated_documents, formated_scores = [], []
+            selected_positive_document = group['positive_passages'][(_hashed_seed + epoch) % len(group['positive_passages'])]
+            positive_document_text = selected_positive_document['title'] + ' ' + selected_positive_document['text'] if 'title' in selected_positive_document else selected_positive_document['text']
+            formated_documents.append((self.data_args.passage_prefix + positive_document_text, None))
+            formated_scores.append(selected_positive_document['score'] if 'score' in selected_positive_document else ValueError("score (used for distilation) is not found in positive_passages in the training dataset"))
+            negative_size = self.data_args.train_group_size - 1
+            if len(group['negative_passages']) < negative_size:
+                selected_negative_documents = random.choices(group['negative_passages'], k=negative_size)
+            elif self.data_args.train_group_size == 1:
+                selected_negative_documents = []
+            else:
+                _offset = epoch * negative_size % len(group['negative_passages'])
+                selected_negative_documents = [x for x in group['negative_passages']]
+                random.Random(_hashed_seed).shuffle(selected_negative_documents)
+                selected_negative_documents = selected_negative_documents * 2
+                selected_negative_documents = selected_negative_documents[_offset: _offset + negative_size]
+
+            for negative_document in selected_negative_documents:
+                negative_document_text = negative_document['title'] + ' ' + negative_document['text'] if 'title' in negative_document else negative_document['text']
+                formated_documents.append((self.data_args.passage_prefix + negative_document_text, None))
+                negative_document_score = negative_document['score'] if 'score' in negative_document else ValueError("score (used for distilation) is not found in negative_passages in the training dataset")
+                formated_scores.append(negative_document_score)
+            return formated_query, formated_documents, formated_scores
+
+        query_id = group['query_id']
+        query_text = '' if 'query_text' not in group else group['query_text']
+        query_text = '' if query_text is None else query_text
+        query_image = None if 'query_image' not in group else group['query_image']
+        positive_document_ids = group['positive_document_ids']
+        negative_document_ids = group['negative_document_ids']
+
+        formated_query = (self.data_args.query_prefix + query_text, query_image)
+        formated_documents, formated_scores = [], []
+
+        selected_positive_document_id = positive_document_ids[(_hashed_seed + epoch) % len(positive_document_ids)]
+        positive_text, positive_image = self._get_info_from_docid(selected_positive_document_id, self.data_args.passage_prefix)
+        positive_score = self._get_score_from_docid(selected_positive_document_id)
+        formated_documents.append((positive_text, positive_image))
+        formated_scores.append(positive_score)
+
+        negative_size = self.data_args.train_group_size - 1
+        if len(negative_document_ids) < negative_size:
+            selected_negative_document_ids = random.choices(negative_document_ids, k=negative_size)
+        elif self.data_args.train_group_size == 1:
+            selected_negative_document_ids = []
+        else:
+            _offset = epoch * negative_size % len(negative_document_ids)
+            selected_negative_document_ids = [x for x in negative_document_ids]
+            random.Random(_hashed_seed).shuffle(selected_negative_document_ids)
+            selected_negative_document_ids = selected_negative_document_ids * 2
+            selected_negative_document_ids = selected_negative_document_ids[_offset: _offset + negative_size]
+
+        for negative_document_id in selected_negative_document_ids:
+            negative_document_text, negative_document_image = self._get_info_from_docid(negative_document_id, self.data_args.passage_prefix)
+            formated_documents.append((negative_document_text, negative_document_image))
+            negative_document_score = self._get_score_from_docid(negative_document_id)
+            formated_scores.append(negative_document_score)
+
+        return formated_query, formated_documents, formated_scores
