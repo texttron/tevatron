@@ -9,13 +9,20 @@ from transformers import (
     set_seed,
 )
 from dataclasses import dataclass, field
-from tevatron.retriever.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments,
+)
 from tevatron.retriever.modeling import SpladeModel
 from tevatron.retriever.trainer import TevatronTrainer
 
 
-from tevatron.retriever.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments as TrainingArguments,
+)
 from tevatron.retriever.dataset import TrainDataset
 from tevatron.retriever.collator import TrainCollator
 
@@ -35,14 +42,16 @@ class SpladeTrainer(TevatronTrainer):
     def _flops(inputs):
         return torch.sum(torch.mean(torch.abs(inputs), dim=0) ** 2)
 
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         query, passage = inputs
         output = model(query=query, passage=passage)
         q_reps = output.q_reps
         p_reps = output.p_reps
         loss = output.loss
-        q_flops_loss = self.args.q_flops_loss_factor*self._flops(q_reps)
-        p_flops_loss = self.args.p_flops_loss_factor*self._flops(p_reps)
+        q_flops_loss = self.args.q_flops_loss_factor * self._flops(q_reps)
+        p_flops_loss = self.args.p_flops_loss_factor * self._flops(p_reps)
         if self.is_ddp:
             q_flops_loss *= self._dist_loss_scale_factor
             p_flops_loss *= self._dist_loss_scale_factor
@@ -51,11 +60,14 @@ class SpladeTrainer(TevatronTrainer):
 
 TrainingArguments = SpladeTrainingArguments
 
+
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
@@ -63,10 +75,10 @@ def main():
         training_args: TrainingArguments
 
     if (
-            os.path.exists(training_args.output_dir)
-            and os.listdir(training_args.output_dir)
-            and training_args.do_train
-            and not training_args.overwrite_output_dir
+        os.path.exists(training_args.output_dir)
+        and os.listdir(training_args.output_dir)
+        and training_args.do_train
+        and not training_args.overwrite_output_dir
     ):
         raise ValueError(
             f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
@@ -92,13 +104,17 @@ def main():
     set_seed(training_args.seed)
 
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
     )
 
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = 'right'
+    tokenizer.padding_side = "right"
 
     model = SpladeModel.build(
         model_args,
@@ -114,7 +130,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=collator
+        data_collator=collator,
     )
     train_dataset.trainer = trainer
 

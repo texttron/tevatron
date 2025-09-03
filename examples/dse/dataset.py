@@ -8,17 +8,20 @@ from PIL import Image
 from arguments import DataArguments
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
-def format_query(query: str, prefix: str = '') -> str:
-    return f'{prefix} {query.strip()}'.strip()
+def format_query(query: str, prefix: str = "") -> str:
+    return f"{prefix} {query.strip()}".strip()
 
-def format_passage(text: str, title: str = '', prefix: str = '') -> str:
-    return f'{prefix} {title.strip()} {text.strip()}'.strip()
+
+def format_passage(text: str, title: str = "", prefix: str = "") -> str:
+    return f"{prefix} {title.strip()} {text.strip()}".strip()
+
 
 class TrainDataset(Dataset):
-    def __init__(self, data_args: DataArguments, trainer = None):
+    def __init__(self, data_args: DataArguments, trainer=None):
         self.data_args = data_args
         self.train_data = load_dataset(
             self.data_args.dataset_name,
@@ -35,8 +38,8 @@ class TrainDataset(Dataset):
             cache_dir=self.data_args.dataset_cache_dir,
         )
         self.docid2idx = {}
-        if 'docid' in self.corpus.features:
-            for idx, docid in enumerate(self.corpus['docid']):
+        if "docid" in self.corpus.features:
+            for idx, docid in enumerate(self.corpus["docid"]):
                 self.docid2idx[str(docid)] = idx
         else:
             for idx in range(len(self.corpus)):
@@ -52,14 +55,13 @@ class TrainDataset(Dataset):
         return len(self.train_data)
 
     def _get_image(self, docid):
-        if 'image' in self.corpus.features:
-            image = self.corpus[self.docid2idx[docid]]['image']
-        elif 'images' in self.corpus.features:
-            example_id, image_id = docid.split('_')
-            image = self.corpus[self.docid2idx[example_id]]['images'][int(image_id)]
+        if "image" in self.corpus.features:
+            image = self.corpus[self.docid2idx[docid]]["image"]
+        elif "images" in self.corpus.features:
+            example_id, image_id = docid.split("_")
+            image = self.corpus[self.docid2idx[example_id]]["images"][int(image_id)]
         image = image.resize((1344, 1344))
         return image
-        
 
     def __getitem__(self, item) -> Tuple[str, List[str]]:
         group = self.train_data[item]
@@ -67,9 +69,9 @@ class TrainDataset(Dataset):
 
         _hashed_seed = hash(item + self.trainer.args.seed)
 
-        query = group['query']
-        group_positives = group['positive_passages']
-        group_negatives = group['negative_passages']
+        query = group["query"]
+        group_positives = group["positive_passages"]
+        group_negatives = group["negative_passages"]
 
         formated_query = format_query(query, self.data_args.query_prefix)
         formated_passages = []
@@ -78,8 +80,8 @@ class TrainDataset(Dataset):
             pos_psg = group_positives[0]
         else:
             pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
-        
-        formated_passages.append(self._get_image(pos_psg['docid']))
+
+        formated_passages.append(self._get_image(pos_psg["docid"]))
 
         negative_size = self.data_args.train_group_size - 1
         if len(group_negatives) < negative_size:
@@ -93,10 +95,10 @@ class TrainDataset(Dataset):
             negs = [x for x in group_negatives]
             random.Random(_hashed_seed).shuffle(negs)
             negs = negs * 2
-            negs = negs[_offset: _offset + negative_size]
+            negs = negs[_offset : _offset + negative_size]
 
         for neg_psg in negs:
-            formated_passages.append(self._get_image(neg_psg['docid']))
+            formated_passages.append(self._get_image(neg_psg["docid"]))
         return formated_query, formated_passages
 
 
@@ -119,8 +121,8 @@ class EncodeDataset(Dataset):
             cache_dir=self.data_args.dataset_cache_dir,
         )
         self.docid2idx = {}
-        if 'docid' in self.corpus.features:
-            for idx, docid in enumerate(self.corpus['docid']):
+        if "docid" in self.corpus.features:
+            for idx, docid in enumerate(self.corpus["docid"]):
                 self.docid2idx[str(docid)] = idx
         else:
             for idx in range(len(self.corpus)):
@@ -135,21 +137,21 @@ class EncodeDataset(Dataset):
         return len(self.encode_data)
 
     def _get_image(self, docid):
-        if 'image' in self.corpus.features:
-            image = self.corpus[self.docid2idx[docid]]['image']
-        elif 'images' in self.corpus.features:
-            example_id, image_id = docid.split('_')
-            image = self.corpus[self.docid2idx[example_id]]['images'][int(image_id)]
+        if "image" in self.corpus.features:
+            image = self.corpus[self.docid2idx[docid]]["image"]
+        elif "images" in self.corpus.features:
+            example_id, image_id = docid.split("_")
+            image = self.corpus[self.docid2idx[example_id]]["images"][int(image_id)]
         image = image.resize((1344, 1344))
         return image
 
     def __getitem__(self, item) -> Tuple[str, str]:
         text = self.encode_data[item]
         if self.data_args.encode_is_query:
-            text_id = text['query_id']
-            formated_query = format_query(text['query'], self.data_args.query_prefix)
+            text_id = text["query_id"]
+            formated_query = format_query(text["query"], self.data_args.query_prefix)
             return text_id, formated_query
         else:
-            text_id = text['docid']
-            formated_passage = self._get_image(text['docid'])
+            text_id = text["docid"]
+            formated_passage = self._get_image(text["docid"])
             return text_id, formated_passage

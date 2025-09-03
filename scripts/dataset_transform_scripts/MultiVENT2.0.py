@@ -55,7 +55,7 @@ def form_training_pairs(qid2query, query2positive_doc, output_fn):
             "query_text": query,
             "source": "MultiVENT2.0",
         }
-    
+
     output_dir = os.path.dirname(output_fn)
     os.makedirs(output_dir, exist_ok=True)
     with open(output_fn, "w") as f:
@@ -83,12 +83,22 @@ class CorpusEntry:
 
     def __post_init__(self):
         def clean_text(text):
-            if not text: return None
-            if isinstance(text, float) and math.isnan(text): return None
-            if not isinstance(text, str): return None
+            if not text:
+                return None
+            if isinstance(text, float) and math.isnan(text):
+                return None
+            if not isinstance(text, str):
+                return None
             return text.replace("\n", " ").replace("\t", " ").strip()
 
-        all_fields = [self.video, self.audio, self.audio_caption, self.video_caption, self.video_title, self.video_description]
+        all_fields = [
+            self.video,
+            self.audio,
+            self.audio_caption,
+            self.video_caption,
+            self.video_title,
+            self.video_description,
+        ]
         if all(x is None for x in all_fields):
             raise ValueError(f"All fields are None for document {self.docid}")
 
@@ -97,7 +107,12 @@ class CorpusEntry:
         self.video_description = clean_text(self.video_description)
         self.audio_caption = clean_text(self.audio_caption)
 
-        text = [self.video_caption, self.video_title, self.video_description, self.audio_caption]
+        text = [
+            self.video_caption,
+            self.video_title,
+            self.video_description,
+            self.audio_caption,
+        ]
         text = [x for x in text if x]
         self.text = "\t".join(text)
 
@@ -125,7 +140,9 @@ def get_file_obj_from_tar(tar_path, is_member_fn):
                         if file_obj:
                             yield member.name, file_obj
                     except Exception as e:
-                        print(f"[WARN] Skipping {member.name} in {os.path.basename(tar_path)}: {e}")
+                        print(
+                            f"[WARN] Skipping {member.name} in {os.path.basename(tar_path)}: {e}"
+                        )
     except Exception as e:
         print(f"[ERROR] Could not open {tar_path}: {e}")
     return None
@@ -152,7 +169,7 @@ def load_video_text_from_tar(tar_path):
             "video_caption": caption,
             "video_title": title,
             "video_description": description,
-        } 
+        }
     return data
 
 
@@ -167,7 +184,9 @@ def load_video_text_from_tar_test(tar_path):
         assert df.columns[0] == "video_id"
         assert df.columns[1] == "text"
         for _, row in df.iterrows():
-            id = row["video_id"].split("/")[-1].replace(".mp4", "") # remove the tar id (e.g., 000001)
+            id = (
+                row["video_id"].split("/")[-1].replace(".mp4", "")
+            )  # remove the tar id (e.g., 000001)
             data[id] = {"video_caption": row["text"]}
 
     return data
@@ -185,7 +204,9 @@ def load_audio_text_from_tar(tar_path):
         assert df.columns[1] == "text"
         for _, row in df.iterrows():
             # if "h-FE2oli4h0" in row["video_id"]: import pdb; pdb.set_trace()
-            id = row["video_id"].split("/")[-1].replace(".m4a", "") # remove the tar id (e.g., 000001)
+            id = (
+                row["video_id"].split("/")[-1].replace(".m4a", "")
+            )  # remove the tar id (e.g., 000001)
             data[id] = {"audio_caption": row["text"]}
     return data
 
@@ -201,18 +222,30 @@ def form_corpus(multivent_path, audio_path_pattern, output_dir, test=False):
     os.makedirs(output_dir, exist_ok=True)
 
     desc = "Forming corpus (training)" if not test else "Forming corpus (test)"
-    for tar_path in tqdm(sorted(glob.glob(os.path.join(multivent_path, "*.tar"))), desc=desc):
+    for tar_path in tqdm(
+        sorted(glob.glob(os.path.join(multivent_path, "*.tar"))), desc=desc
+    ):
         tar_id = os.path.splitext(os.path.basename(tar_path))[0]
 
         data = []
         output_fn = os.path.join(output_dir, tar_id)
-        if os.path.exists(output_fn) and os.path.isdir(output_fn) and len(os.listdir(output_fn)) > 0:
+        if (
+            os.path.exists(output_fn)
+            and os.path.isdir(output_fn)
+            and len(os.listdir(output_fn)) > 0
+        ):
             print(f"[WARN] Skipping {tar_id} because it already exists")
             continue
 
-        audio_path = audio_path_pattern.format(tar_id=tar_id) # path to the audio transcription tar file
+        audio_path = audio_path_pattern.format(
+            tar_id=tar_id
+        )  # path to the audio transcription tar file
 
-        id2video_text = load_video_text_from_tar(tar_path) if not test else load_video_text_from_tar_test(tar_path)
+        id2video_text = (
+            load_video_text_from_tar(tar_path)
+            if not test
+            else load_video_text_from_tar_test(tar_path)
+        )
         id2audio_text = load_audio_text_from_tar(audio_path)
         for id, video_text in id2video_text.items():
             audio_text = id2audio_text.get(id, {})
@@ -247,16 +280,25 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     train_path = os.path.join(multivent_path, "train")
-    whisper_path = os.path.join(multivent_path, "features/train/whisper_asr/exp/scale24/data/video/baseline/train/speech_to_text")
+    whisper_path = os.path.join(
+        multivent_path,
+        "features/train/whisper_asr/exp/scale24/data/video/baseline/train/speech_to_text",
+    )
     whisper_path_pattern = whisper_path + "/train-{tar_id}-whisperv3-large.tar.gz"
 
     ####### write judgement file #######
     train_qid2query = load_query(os.path.join(multivent_path, TRAIN_QUERY_FN))
-    train_query2positive_doc = load_judgement(os.path.join(multivent_path, TRAIN_JUDGEMENT_FN))
+    train_query2positive_doc = load_judgement(
+        os.path.join(multivent_path, TRAIN_JUDGEMENT_FN)
+    )
     write_qrels(train_query2positive_doc, os.path.join(output_dir, "train.qrels"))
 
     ####### write training pairs #######
-    form_training_pairs(train_qid2query, train_query2positive_doc, os.path.join(output_dir, "training_pairs.jsonl"))
+    form_training_pairs(
+        train_qid2query,
+        train_query2positive_doc,
+        os.path.join(output_dir, "training_pairs.jsonl"),
+    )
 
     ####### write corpus #######
     form_corpus(train_path, whisper_path_pattern, os.path.join(output_dir, "corpus"))
@@ -269,17 +311,27 @@ def main_test():
     os.makedirs(output_dir, exist_ok=True)
 
     test_path = os.path.join(multivent_path, "test")
-    whisper_path = os.path.join(multivent_path, "features/test/whisper_asr/exp/scale24/data/video/baseline/test/speech_to_text")
+    whisper_path = os.path.join(
+        multivent_path,
+        "features/test/whisper_asr/exp/scale24/data/video/baseline/test/speech_to_text",
+    )
     whisper_path_pattern = whisper_path + "/transcription-{tar_id}.tar.gz"
 
     ####### write corpus #######
-    form_corpus(test_path, whisper_path_pattern, os.path.join(output_dir, "corpus-test"), test=True)
+    form_corpus(
+        test_path,
+        whisper_path_pattern,
+        os.path.join(output_dir, "corpus-test"),
+        test=True,
+    )
 
 
 def test_loading():
     path = "data/MultiVent/corpus/000001.jsonl"
     ds = datasets.load_dataset("json", data_files=path, split="train")
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
 
 
 if __name__ == "__main__":

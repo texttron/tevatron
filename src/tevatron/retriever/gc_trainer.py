@@ -1,4 +1,3 @@
-
 from itertools import repeat
 import torch
 from torch import Tensor
@@ -8,22 +7,33 @@ from torch import distributed as dist
 from tevatron.retriever.trainer import TevatronTrainer
 
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 class SimpleContrastiveLoss:
 
-    def __call__(self, x: Tensor, y: Tensor, target: Tensor = None, reduction: str = 'mean'):
+    def __call__(
+        self, x: Tensor, y: Tensor, target: Tensor = None, reduction: str = "mean"
+    ):
         if target is None:
             target_per_qry = y.size(0) // x.size(0)
             target = torch.arange(
-                0, x.size(0) * target_per_qry, target_per_qry, device=x.device, dtype=torch.long)
+                0,
+                x.size(0) * target_per_qry,
+                target_per_qry,
+                device=x.device,
+                dtype=torch.long,
+            )
         logits = torch.matmul(x, y.transpose(0, 1))
         return F.cross_entropy(logits, target, reduction=reduction)
 
 
 class DistributedContrastiveLoss(SimpleContrastiveLoss):
     def __init__(self, n_target: int = 0, scale_loss: bool = True):
-        assert dist.is_initialized(), "Distributed training has not been properly initialized."
+        assert (
+            dist.is_initialized()
+        ), "Distributed training has not been properly initialized."
         super().__init__()
         self.word_size = dist.get_world_size()
         self.rank = dist.get_rank()
@@ -43,6 +53,7 @@ class DistributedContrastiveLoss(SimpleContrastiveLoss):
         gathered[self.rank] = t
         return torch.cat(gathered, dim=0)
 
+
 def split_dense_inputs(model_input: dict, chunk_size: int):
     assert len(model_input) == 1
     arg_key = list(model_input.keys())[0]
@@ -50,7 +61,9 @@ def split_dense_inputs(model_input: dict, chunk_size: int):
 
     keys = list(arg_val.keys())
     chunked_tensors = [arg_val[k].split(chunk_size, dim=0) for k in keys]
-    chunked_arg_val = [dict(zip(kk, tt)) for kk, tt in zip(repeat(keys), zip(*chunked_tensors))]
+    chunked_arg_val = [
+        dict(zip(kk, tt)) for kk, tt in zip(repeat(keys), zip(*chunked_tensors))
+    ]
 
     return [{arg_key: c} for c in chunked_arg_val]
 
@@ -64,18 +77,22 @@ def get_dense_rep(x):
 
 class GradCacheTrainer(TevatronTrainer):
     def __init__(self, *args, **kwargs):
-        logger.info('Initializing Gradient Cache Trainer')
+        logger.info("Initializing Gradient Cache Trainer")
         try:
             from grad_cache import GradCache
+
             _grad_cache_available = True
         except ModuleNotFoundError:
             _grad_cache_available = False
         if not _grad_cache_available:
             raise ValueError(
-                'Grad Cache package not available. You can obtain it from https://github.com/luyug/GradCache.')
+                "Grad Cache package not available. You can obtain it from https://github.com/luyug/GradCache."
+            )
         super(GradCacheTrainer, self).__init__(*args, **kwargs)
 
-        loss_fn_cls = DistributedContrastiveLoss if self.is_ddp else SimpleContrastiveLoss
+        loss_fn_cls = (
+            DistributedContrastiveLoss if self.is_ddp else SimpleContrastiveLoss
+        )
         loss_fn = loss_fn_cls()
 
         self.gc = GradCache(
@@ -85,13 +102,15 @@ class GradCacheTrainer(TevatronTrainer):
             split_input_fn=split_dense_inputs,
             get_rep_fn=get_dense_rep,
             fp16=self.args.fp16,
-            scaler=self.scaler if self.args.fp16 else None
+            scaler=self.scaler if self.args.fp16 else None,
         )
 
-    def training_step(self, model, inputs, num_items_in_batch: int=None) -> torch.Tensor:
+    def training_step(
+        self, model, inputs, num_items_in_batch: int = None
+    ) -> torch.Tensor:
         model.train()
         queries, passages = self._prepare_inputs(inputs)
-        queries, passages = {'query': queries}, {'passage': passages}
+        queries, passages = {"query": queries}, {"passage": passages}
 
         _distributed = self.args.local_rank > -1
         self.gc.models = [model, model]

@@ -16,8 +16,11 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.retriever.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments as TrainingArguments,
+)
 from tevatron.retriever.dataset import EncodeDataset
 from tevatron.retriever.collator import EncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, SpladeModel
@@ -28,7 +31,9 @@ logger = logging.getLogger(__name__)
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
@@ -36,7 +41,7 @@ def main():
         training_args: TrainingArguments
 
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
-        raise NotImplementedError('Multi-GPU encoding is not supported.')
+        raise NotImplementedError("Multi-GPU encoding is not supported.")
 
     # Setup logging
     logging.basicConfig(
@@ -47,12 +52,20 @@ def main():
 
     num_labels = 1
     config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+        (
+            model_args.config_name
+            if model_args.config_name
+            else model_args.model_name_or_path
+        ),
         num_labels=num_labels,
         cache_dir=model_args.cache_dir,
     )
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
         use_fast=False,
     )
@@ -87,7 +100,7 @@ def main():
     vocab_dict = {v: k for k, v in vocab_dict.items()}
     collection_file = open(data_args.encode_output_path, "w")
 
-    for (batch_ids, batch) in tqdm(encode_loader):
+    for batch_ids, batch in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
         with torch.cuda.amp.autocast() if training_args.fp16 else nullcontext():
             with torch.no_grad():
@@ -105,25 +118,29 @@ def main():
                     data = rep[idx]
                     data = np.rint(data * 100).astype(int)
                     dict_splade = dict()
-                    for id_token, value_token in zip(idx[0],data):
+                    for id_token, value_token in zip(idx[0], data):
                         if value_token > 0:
                             real_token = vocab_dict[id_token]
                             dict_splade[real_token] = int(value_token)
                     if len(dict_splade.keys()) == 0:
                         print("empty input =>", id_)
-                        dict_splade[vocab_dict[998]] = 1  # in case of empty doc we fill with "[unused993]" token (just to fill
+                        dict_splade[vocab_dict[998]] = (
+                            1  # in case of empty doc we fill with "[unused993]" token (just to fill
+                        )
                         # and avoid issues with anserini), in practice happens just a few times ...
                     if not data_args.encode_is_query:
                         dict_ = dict(id=id_, content="", vector=dict_splade)
-                        json_dict = json.dumps(dict_)  
+                        json_dict = json.dumps(dict_)
                         collection_file.write(json_dict + "\n")
                     else:
                         string_splade = " ".join(
-                            [" ".join([str(real_token)] * freq) for real_token, freq in dict_splade.items()])
+                            [
+                                " ".join([str(real_token)] * freq)
+                                for real_token, freq in dict_splade.items()
+                            ]
+                        )
                         collection_file.write(str(id_) + "\t" + string_splade + "\n")
     collection_file.close()
-
-
 
 
 if __name__ == "__main__":

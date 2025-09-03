@@ -29,11 +29,12 @@ from magix.lora import Lora
 
 # logger with date and time
 logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    datefmt='%m/%d/%Y %H:%M:%S',
-    level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
 
 def pad_to_bsz(x, bsz, pad_str=""):
     if len(x) > bsz:
@@ -43,7 +44,8 @@ def pad_to_bsz(x, bsz, pad_str=""):
 
 @dataclass
 class EncoderArguments:
-    """ Arguments for the encoder """
+    """Arguments for the encoder"""
+
     model_type: str
     model_name_or_path: str
     model_config_name_or_path: str
@@ -61,13 +63,14 @@ class EncoderArguments:
     lora_alpha: float = 30
     scale_by_dim: bool = False
     hf_format: bool = False
-    
+
+
 def main():
     parser = ArgumentParser()
     parser.add_arguments(EncoderArguments, dest="args")
     args = parser.parse_args().args
     logger.info(f"Arguments: {args}")
-    
+
     # Create mesh
     mesh = magix.create_device_mesh((args.mesh_shape[0], args.mesh_shape[1]))
 
@@ -79,38 +82,47 @@ def main():
             args.model_name_or_path,
             sharding_config=_model_cls.partition_rules,
             mesh=mesh,
-            model_config=_model_cls.config_class.from_pretrained(args.model_config_name_or_path),
+            model_config=_model_cls.config_class.from_pretrained(
+                args.model_config_name_or_path
+            ),
         )
     else:
         model, model_params = magix.load_model_hub(
-            _model_cls, args.model_name_or_path,
+            _model_cls,
+            args.model_name_or_path,
             sharding_config=_model_cls.partition_rules,
             mesh=mesh,
             half=True,
         )
-        
+
     if args.lora is not None:
         lora = Lora(
             args.lora_alpha,
             rules={
-                'layers/.*/kernel': 16,
-            }
+                "layers/.*/kernel": 16,
+            },
         )
-        ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+        ckptr = orbax.checkpoint.Checkpointer(
+            orbax.checkpoint.PyTreeCheckpointHandler()
+        )
         lora_params = ckptr.restore(args.lora, item=None)
         lora_params = jax.device_put(
-            lora_params,
-            NamedSharding(mesh, PartitionSpec(None, None)))
+            lora_params, NamedSharding(mesh, PartitionSpec(None, None))
+        )
         model_params = jax.jit(
-            lora.apply, 
-            in_shardings=(magix.item_sharding(model_params),magix.item_sharding(lora_params)),
-            out_shardings=magix.item_sharding(model_params)
-            ) (model_params, lora_params)
+            lora.apply,
+            in_shardings=(
+                magix.item_sharding(model_params),
+                magix.item_sharding(lora_params),
+            ),
+            out_shardings=magix.item_sharding(model_params),
+        )(model_params, lora_params)
         del lora_params
-    
 
     # Load the dataset
-    if os.path.exists(args.dataset_name_or_path) and args.dataset_name_or_path.endswith(".jsonl"):
+    if os.path.exists(args.dataset_name_or_path) and args.dataset_name_or_path.endswith(
+        ".jsonl"
+    ):
         dataset = datasets.load_dataset(
             "json",
             data_files=args.dataset_name_or_path,
@@ -121,51 +133,56 @@ def main():
             args.dataset_name_or_path,
             split=args.split,
         )
-        
+
     if args.num_shards is not None:
         dataset = dataset.shard(args.num_shards, args.shard_id)
-        
+
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer_name_or_path,
-        add_eos_token=True, use_fast=True, padding_side='left', legacy=False
+        add_eos_token=True,
+        use_fast=True,
+        padding_side="left",
+        legacy=False,
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     @jax.jit
     def encode(params, batch):
         reps = model(**batch, params=params, train=False)[0][:, -1, :]
         if args.scale_by_dim:
             reps = reps / math.sqrt(reps.shape[-1])
         return reps
-    
-    
+
     all_representations = []
-    
+
     assert args.input_type in ["passage", "question", "query"]
-    
+
     def format_batch(xx, input_type):
         if input_type == "passage":
-            return [title + " " + passage for title, passage in zip(xx['title'], xx['text'])], xx['docid']
+            return [
+                title + " " + passage for title, passage in zip(xx["title"], xx["text"])
+            ], xx["docid"]
         elif input_type == "query":
-            return xx['query'], xx['query_id']
+            return xx["query"], xx["query_id"]
         elif input_type == "question":
-            return xx['question'], xx['question_id']
-        
+            return xx["question"], xx["question_id"]
+
         raise ValueError(f"Unknown input type: {input_type}")
-    
+
     all_ids = []
-    
+
     with mesh:
         for idx in trange(0, len(dataset), args.batch_size):
             batch, batch_ids = format_batch(
-                dataset[idx:idx+args.batch_size],
-                args.input_type
+                dataset[idx : idx + args.batch_size], args.input_type
             )
             batch = jax.tree_map(
                 lambda xx: pad_to_bsz(xx, args.batch_size),
-                batch, is_leaf=lambda xx: isinstance(xx, list))
-            
+                batch,
+                is_leaf=lambda xx: isinstance(xx, list),
+            )
+
             batch = tokenizer(
                 batch,
                 padding="max_length",
@@ -177,22 +194,22 @@ def main():
             encodings = encode(model_params, dict(batch))
 
             representations = jax.device_put(encodings, jax.devices("cpu")[0])
-            all_representations.append(representations[:len(batch_ids)])
+            all_representations.append(representations[: len(batch_ids)])
             all_ids.extend(batch_ids)
-            
-        
+
     all_representations = jnp.concatenate(all_representations, axis=0)
     logger.info(f"Shape of all representations: {all_representations.shape}")
     logger.info(f"Saving representations to {args.output_dir}")
     os.makedirs(args.output_dir, exist_ok=True)
-    
+
     if args.shard_id is None:
         output_path = os.path.join(args.output_dir, "emb.pkl")
     else:
         output_path = os.path.join(args.output_dir, f"emb_{args.shard_id}.pkl")
-    
+
     with open(output_path, "wb") as f:
         pickle.dump((all_representations, all_ids), f)
-    
+
+
 if __name__ == "__main__":
     main()
