@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 class RepLLaMA(EncoderModel):
-    def __init__(self,
-                 lm_q: PreTrainedModel,
-                 lm_p: PreTrainedModel,
-                 pooler: nn.Module = None,
-                 untie_encoder: bool = False,
-                 negatives_x_device: bool = False
-                 ):
+    def __init__(
+        self,
+        lm_q: PreTrainedModel,
+        lm_p: PreTrainedModel,
+        pooler: nn.Module = None,
+        untie_encoder: bool = False,
+        negatives_x_device: bool = False,
+    ):
         super().__init__(lm_q, lm_p, pooler, untie_encoder, negatives_x_device)
         self.config = lm_q.config
 
@@ -25,7 +26,7 @@ class RepLLaMA(EncoderModel):
             return None
         psg_out = self.lm_p(**psg, output_hidden_states=True)
         p_hidden = psg_out.hidden_states[-1]
-        attention_mask = psg['attention_mask']
+        attention_mask = psg["attention_mask"]
         # p_reps is the last token representation that is not padding
         sequence_lengths = attention_mask.sum(dim=1)
         last_token_indices = sequence_lengths - 1
@@ -38,7 +39,7 @@ class RepLLaMA(EncoderModel):
             return None
         qry_out = self.lm_q(**qry, output_hidden_states=True)
         q_hidden = qry_out.hidden_states[-1]
-        attention_mask = qry['attention_mask']
+        attention_mask = qry["attention_mask"]
         # q_reps is the last token representation that is not padding
         sequence_lengths = attention_mask.sum(dim=1)
         last_token_indices = sequence_lengths - 1
@@ -46,14 +47,12 @@ class RepLLaMA(EncoderModel):
         q_reps = nn.functional.normalize(q_reps, p=2, dim=-1)
         return q_reps
 
-
     def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1)) / 0.01
-    
+
     def gradient_checkpointing_enable(self):
         self.lm_q.base_model.gradient_checkpointing_enable()
 
-    
     @staticmethod
     def build_peft_model(peft_model_name):
         config = LoraConfig.from_pretrained(peft_model_name)
@@ -62,19 +61,20 @@ class RepLLaMA(EncoderModel):
         model = get_peft_model(base_model, config)
         model.print_trainable_parameters()
         return model
-    
 
     @classmethod
     def build(
-            cls,
-            model_args,
-            train_args,
-            **hf_kwargs,
+        cls,
+        model_args,
+        train_args,
+        **hf_kwargs,
     ):
-        base_model = LlamaModel.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+        base_model = LlamaModel.from_pretrained(
+            model_args.model_name_or_path, **hf_kwargs
+        )
         if train_args.gradient_checkpointing:
             base_model.enable_input_require_grads()
-        
+
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
 
@@ -84,37 +84,36 @@ class RepLLaMA(EncoderModel):
             r=32,
             lora_alpha=64,
             lora_dropout=0.1,
-            target_modules=["q_proj", "v_proj", "o_proj", "down_proj", "up_proj", "gate_proj"],
-            inference_mode=False
+            target_modules=[
+                "q_proj",
+                "v_proj",
+                "o_proj",
+                "down_proj",
+                "up_proj",
+                "gate_proj",
+            ],
+            inference_mode=False,
         )
 
         hf_model = get_peft_model(base_model, peft_config)
-        model = cls(
-            lm_q=hf_model,
-            lm_p=hf_model,
-            pooler=None,
-            untie_encoder=False
-        )
+        model = cls(lm_q=hf_model, lm_p=hf_model, pooler=None, untie_encoder=False)
         return model
-    
+
     @classmethod
     def load(
-            cls,
-            model_name_or_path,
-            **hf_kwargs,
+        cls,
+        model_name_or_path,
+        **hf_kwargs,
     ):
         config = LoraConfig.from_pretrained(model_name_or_path)
         base_model = LlamaModel.from_pretrained(config.base_model_name_or_path)
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
-        hf_model = PeftModel.from_pretrained(base_model, model_name_or_path, config=config, is_trainable=True)
-        hf_model = hf_model.merge_and_unload()
-        model = cls(
-            lm_q=hf_model,
-            lm_p=hf_model,
-            pooler=None,
-            untie_encoder=False
+        hf_model = PeftModel.from_pretrained(
+            base_model, model_name_or_path, config=config, is_trainable=True
         )
+        hf_model = hf_model.merge_and_unload()
+        model = cls(lm_q=hf_model, lm_p=hf_model, pooler=None, untie_encoder=False)
         return model
 
     def save(self, output_dir: str):

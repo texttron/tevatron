@@ -8,6 +8,7 @@ import torch.distributed as dist
 from .modeling import EncoderModel
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,11 +32,15 @@ class TevatronTrainer(Trainer):
         else:
             if state_dict is None:
                 state_dict = self.model.state_dict()
-            prefix = 'encoder.'
-            assert all(k.startswith(prefix) for k in state_dict.keys()), list(state_dict.keys())
-            state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
+            prefix = "encoder."
+            assert all(k.startswith(prefix) for k in state_dict.keys()), list(
+                state_dict.keys()
+            )
+            state_dict = {k[len(prefix) :]: v for k, v in state_dict.items()}
             self.model.encoder.save_pretrained(
-                output_dir, state_dict=state_dict, safe_serialization=self.args.save_safetensors
+                output_dir,
+                state_dict=state_dict,
+                safe_serialization=self.args.save_safetensors,
             )
 
         if self.tokenizer is not None:
@@ -44,10 +49,14 @@ class TevatronTrainer(Trainer):
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         query, passage = inputs
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):
-        return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor
-
+        return (
+            super(TevatronTrainer, self).training_step(*args)
+            / self._dist_loss_scale_factor
+        )

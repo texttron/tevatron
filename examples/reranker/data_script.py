@@ -43,19 +43,22 @@ class MsMarcoPassageRerank(datasets.GeneratorBasedBuilder):
     VERSION = datasets.Version("0.0.1")
 
     BUILDER_CONFIGS = [
-        datasets.BuilderConfig(version=VERSION,
-                               description="MS MARCO passage rerank datasets"),
+        datasets.BuilderConfig(
+            version=VERSION, description="MS MARCO passage rerank datasets"
+        ),
     ]
 
     def _info(self):
-        features = datasets.Features({
-            'query_id': datasets.Value('string'),
-            'query': datasets.Value('string'),
-            'docid': datasets.Value('string'), 
-            'title': datasets.Value('string'), 
-            'text': datasets.Value('string'),
-            'score': datasets.Value('float32'),
-        })
+        features = datasets.Features(
+            {
+                "query_id": datasets.Value("string"),
+                "query": datasets.Value("string"),
+                "docid": datasets.Value("string"),
+                "title": datasets.Value("string"),
+                "text": datasets.Value("string"),
+                "score": datasets.Value("float32"),
+            }
+        )
         return datasets.DatasetInfo(
             # This is the description that will appear on the datasets page.
             description=_DESCRIPTION,
@@ -79,16 +82,21 @@ class MsMarcoPassageRerank(datasets.GeneratorBasedBuilder):
             datasets.SplitGenerator(
                 name=split,
                 gen_kwargs={
-                    "files": [downloaded_files[split]] if isinstance(downloaded_files[split], str) else downloaded_files[split],
+                    "files": (
+                        [downloaded_files[split]]
+                        if isinstance(downloaded_files[split], str)
+                        else downloaded_files[split]
+                    ),
                 },
-            ) for split in downloaded_files
+            )
+            for split in downloaded_files
         ]
         return splits
-        
+
     def _generate_examples(self, files):
         """Yields examples."""
         for filepath in files:
             with open(filepath, encoding="utf-8") as f:
                 for line in f:
                     data = json.loads(line)
-                    yield data['query_id']+data['docid'], data
+                    yield data["query_id"] + data["docid"], data

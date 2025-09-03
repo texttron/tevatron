@@ -39,7 +39,7 @@ class TevatronVisionRetriever(BaseVisionRetriever):
         **kwargs,
     ) -> torch.Tensor:
         qs = []
-        queries = [f'{self.query_prefix}{q}' for q in queries]
+        queries = [f"{self.query_prefix}{q}" for q in queries]
         for batch_query in tqdm(
             batched(queries, batch_size),
             desc="Forwarding query batches",
@@ -52,22 +52,21 @@ class TevatronVisionRetriever(BaseVisionRetriever):
                 content = []
                 if text:
                     text = self.processor.tokenizer.decode(
-                        self.processor.tokenizer.encode(text, max_length=512, truncation=True)
+                        self.processor.tokenizer.encode(
+                            text, max_length=512, truncation=True
+                        )
                     )
-                    content.append({'type': 'text', 'text': text})
-                message = [
-                    {
-                        'role': 'user',
-                        'content': content
-                    }
-                ]
+                    content.append({"type": "text", "text": text})
+                message = [{"role": "user", "content": content}]
                 messages.append(message)
 
             texts = [
-                self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=False)
+                self.processor.apply_chat_template(
+                    msg, tokenize=False, add_generation_prompt=False
+                )
                 for msg in messages
             ]
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x + "<|endoftext|>" for x in texts]
 
             image_inputs, video_inputs = process_vision_info(messages)
 
@@ -79,10 +78,9 @@ class TevatronVisionRetriever(BaseVisionRetriever):
                 padding="longest",
             )
             with torch.no_grad():
-                query_embeddings = self.model.encode_query(collated_inputs.to('cuda'))
+                query_embeddings = self.model.encode_query(collated_inputs.to("cuda"))
             qs.extend(list(torch.unbind(query_embeddings.to("cpu"))))
         return qs
-
 
     def forward_passages(
         self,
@@ -94,32 +92,36 @@ class TevatronVisionRetriever(BaseVisionRetriever):
         ps = []
 
         for batch_passage in tqdm(
-                batched(passages, batch_size),
-                desc="Forwarding passage batches",
-                total=math.ceil(len(passages) / batch_size),
-                leave=False,
+            batched(passages, batch_size),
+            desc="Forwarding passage batches",
+            total=math.ceil(len(passages) / batch_size),
+            leave=False,
         ):
             messages = []
             for idx in range(len(batch_passage)):
                 image = batch_passage[idx]
                 content = []
                 if image:
-                    content.append({'type': 'image', 'image': image, 'resized_height': 784, 'resized_width': 784})
+                    content.append(
+                        {
+                            "type": "image",
+                            "image": image,
+                            "resized_height": 784,
+                            "resized_width": 784,
+                        }
+                    )
                     # content.append({'type': 'text', 'text': 'What is shown in this image?'})
-                message = [
-                    {
-                        'role': 'user',
-                        'content': content
-                    }
-                ]
+                message = [{"role": "user", "content": content}]
                 messages.append(message)
 
             texts = [
-                self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=False)
+                self.processor.apply_chat_template(
+                    msg, tokenize=False, add_generation_prompt=False
+                )
                 for msg in messages
             ]
 
-            texts = [x + '<|endoftext|>' for x in texts]
+            texts = [x + "<|endoftext|>" for x in texts]
 
             image_inputs, video_inputs = process_vision_info(messages)
 
@@ -131,10 +133,11 @@ class TevatronVisionRetriever(BaseVisionRetriever):
                 padding="longest",
             )
             with torch.no_grad():
-                passage_embeddings = self.model.encode_passage(collated_inputs.to('cuda'))
+                passage_embeddings = self.model.encode_passage(
+                    collated_inputs.to("cuda")
+                )
             ps.extend(list(torch.unbind(passage_embeddings.to("cpu"))))
         return ps
-
 
     def get_scores(
         self,
@@ -154,26 +157,31 @@ class TevatronVisionRetriever(BaseVisionRetriever):
 
         return scores
 
+
 def main():
     parser = ArgumentParser()
-    parser.add_argument('--model_name_or_path', required=True)
-    parser.add_argument('--cache_dir', default=None)
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--lora_name_or_path', default=None)
-    parser.add_argument('--pooling', default='last')
-    parser.add_argument('--normalize', action='store_true')
-    parser.add_argument('--query_prefix', default='')
+    parser.add_argument("--model_name_or_path", required=True)
+    parser.add_argument("--cache_dir", default=None)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--lora_name_or_path", default=None)
+    parser.add_argument("--pooling", default="last")
+    parser.add_argument("--normalize", action="store_true")
+    parser.add_argument("--query_prefix", default="")
     args = parser.parse_args()
 
     # Load model and processor
-    model = MultiModalDenseModel.load(
-        args.model_name_or_path,
-        pooling=args.pooling,
-        normalize=args.normalize,
-        lora_name_or_path=args.lora_name_or_path,
-        cache_dir=args.cache_dir,
-        torch_dtype=torch.bfloat16,
-    ).eval().to('cuda')
+    model = (
+        MultiModalDenseModel.load(
+            args.model_name_or_path,
+            pooling=args.pooling,
+            normalize=args.normalize,
+            lora_name_or_path=args.lora_name_or_path,
+            cache_dir=args.cache_dir,
+            torch_dtype=torch.bfloat16,
+        )
+        .eval()
+        .to("cuda")
+    )
 
     processor = AutoProcessor.from_pretrained(
         args.model_name_or_path,
@@ -193,7 +201,6 @@ def main():
 
     vidore_evaluator = ViDoReEvaluatorQA(vision_retriever)
 
-
     # dataset_names = [
     #     'vidore/arxivqa_test_subsampled',
     #     'vidore/docvqa_test_subsampled',
@@ -207,12 +214,14 @@ def main():
     #     'vidore/syntheticDocQA_healthcare_industry_test'
     # ]
 
-    collection_name = "vidore/vidore-benchmark-667173f98e70a1c0fa4db00d"  # ViDoRe Benchmark
+    collection_name = (
+        "vidore/vidore-benchmark-667173f98e70a1c0fa4db00d"  # ViDoRe Benchmark
+    )
     dataset_names = get_datasets_from_collection(collection_name)
 
     res = []
     for dataset_name in dataset_names:
-        print('Evaluating', dataset_name)
+        print("Evaluating", dataset_name)
         ds = load_dataset(dataset_name, split="test")
         metrics_dataset = vidore_evaluator.evaluate_dataset(
             ds=ds,
@@ -225,9 +234,8 @@ def main():
 
     print(res)
     # average
-    print(sum([float(x[1].split(': ')[1]) for x in res]) / len(res)
-    )
+    print(sum([float(x[1].split(": ")[1]) for x in res]) / len(res))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
-

@@ -8,6 +8,7 @@ from transformers.deepspeed import is_deepspeed_zero3_enabled
 from peft import get_peft_model_state_dict
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,17 +25,17 @@ class RerankerTrainer(Trainer):
         if is_deepspeed_zero3_enabled():
             if state_dict is None:
                 state_dict = self.model.state_dict()
-            prefix = 'hf_model.'
+            prefix = "hf_model."
             assert all(
-                k.startswith(prefix) or k == "target_label"
-                for k in state_dict.keys()
+                k.startswith(prefix) or k == "target_label" for k in state_dict.keys()
             ), list(state_dict.keys())
-            state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
+            state_dict = {k[len(prefix) :]: v for k, v in state_dict.items()}
             lora_state_dict = get_peft_model_state_dict(self.model.hf_model, state_dict)
             if self.args.process_index <= 0:
-                torch.save(lora_state_dict, os.path.join(output_dir, "adapter_model.bin"))
+                torch.save(
+                    lora_state_dict, os.path.join(output_dir, "adapter_model.bin")
+                )
                 print(f"Save adapter model at {output_dir}")
-
 
     def compute_loss(self, model, inputs):
         return model(inputs).loss

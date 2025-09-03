@@ -15,8 +15,11 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.retriever.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments as TrainingArguments,
+)
 from tevatron.retriever.dataset import EncodeDataset
 from tevatron.retriever.collator import MultiModalEncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, MultiModalDenseModel
@@ -27,7 +30,9 @@ logger = logging.getLogger(__name__)
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
@@ -35,7 +40,7 @@ def main():
         training_args: TrainingArguments
 
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
-        raise NotImplementedError('Multi-GPU encoding is not supported.')
+        raise NotImplementedError("Multi-GPU encoding is not supported.")
 
     # Setup logging
     logging.basicConfig(
@@ -44,9 +49,12 @@ def main():
         level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
     )
 
-
     processor = AutoProcessor.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
         trust_remote_code=True,
     )
@@ -60,7 +68,7 @@ def main():
         torch_dtype = torch.float16
     else:
         torch_dtype = torch.float32
-    
+
     model = MultiModalDenseModel.load(
         model_args.model_name_or_path,
         pooling=model_args.pooling,
@@ -68,7 +76,7 @@ def main():
         lora_name_or_path=model_args.lora_name_or_path,
         cache_dir=model_args.cache_dir,
         torch_dtype=torch_dtype,
-        attn_implementation=model_args.attn_implementation
+        attn_implementation=model_args.attn_implementation,
     )
 
     encode_dataset = EncodeDataset(
@@ -93,9 +101,13 @@ def main():
     model = model.to(training_args.device)
     model.eval()
 
-    for (batch_ids, batch) in tqdm(encode_loader):
+    for batch_ids, batch in tqdm(encode_loader):
         lookup_indices.extend(batch_ids)
-        with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
+        with (
+            torch.amp.autocast("cuda")
+            if training_args.fp16 or training_args.bf16
+            else nullcontext()
+        ):
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
@@ -108,7 +120,7 @@ def main():
 
     encoded = np.concatenate(encoded)
 
-    with open(data_args.encode_output_path, 'wb') as f:
+    with open(data_args.encode_output_path, "wb") as f:
         pickle.dump((encoded, lookup_indices), f)
 
 

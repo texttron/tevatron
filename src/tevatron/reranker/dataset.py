@@ -7,16 +7,19 @@ from torch.utils.data import Dataset
 from tevatron.reranker.arguments import DataArguments
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
-def format_pair(query: str, passage: str, title: str, query_prefix: str, passage_prefix: str):
-    title = title.replace('-', ' ').strip()
-    return f'{query_prefix} {query} {passage_prefix} {title} {passage}'.strip()
+def format_pair(
+    query: str, passage: str, title: str, query_prefix: str, passage_prefix: str
+):
+    title = title.replace("-", " ").strip()
+    return f"{query_prefix} {query} {passage_prefix} {title} {passage}".strip()
 
 
 class RerankerTrainDataset(Dataset):
-    def __init__(self, data_args: DataArguments, trainer = None):
+    def __init__(self, data_args: DataArguments, trainer=None):
         self.data_args = data_args
         self.train_data = load_dataset(
             self.data_args.dataset_name,
@@ -41,9 +44,9 @@ class RerankerTrainDataset(Dataset):
 
         _hashed_seed = hash(item + self.trainer.args.seed)
 
-        query = group['query']
-        group_positives = group['positive_passages']
-        group_negatives = group['negative_passages']
+        query = group["query"]
+        group_positives = group["positive_passages"]
+        group_negatives = group["negative_passages"]
 
         formated_pair = []
 
@@ -51,8 +54,16 @@ class RerankerTrainDataset(Dataset):
             pos_psg = group_positives[0]
         else:
             pos_psg = group_positives[(_hashed_seed + epoch) % len(group_positives)]
-        
-        formated_pair.append(format_pair(query, pos_psg['text'], pos_psg['title'], self.data_args.query_prefix, self.data_args.passage_prefix))
+
+        formated_pair.append(
+            format_pair(
+                query,
+                pos_psg["text"],
+                pos_psg["title"],
+                self.data_args.query_prefix,
+                self.data_args.passage_prefix,
+            )
+        )
 
         negative_size = self.data_args.train_group_size - 1
         if len(group_negatives) < negative_size:
@@ -66,10 +77,18 @@ class RerankerTrainDataset(Dataset):
             negs = [x for x in group_negatives]
             random.Random(_hashed_seed).shuffle(negs)
             negs = negs * 2
-            negs = negs[_offset: _offset + negative_size]
+            negs = negs[_offset : _offset + negative_size]
 
         for neg_psg in negs:
-            formated_pair.append(format_pair(query, neg_psg['text'], neg_psg['title'], self.data_args.query_prefix, self.data_args.passage_prefix))
+            formated_pair.append(
+                format_pair(
+                    query,
+                    neg_psg["text"],
+                    neg_psg["title"],
+                    self.data_args.query_prefix,
+                    self.data_args.passage_prefix,
+                )
+            )
 
         return formated_pair
 
@@ -96,9 +115,19 @@ class RerankerInferenceDataset(Dataset):
 
     def __getitem__(self, item) -> Tuple[str, str]:
         example = self.inference_data[item]
-        query_id = example['query_id']
-        query = example['query']
-        text_id = example['docid']
-        text = example['text']
-        title = example['title']
-        return query_id, text_id, format_pair(query, text, title, self.data_args.query_prefix, self.data_args.passage_prefix) 
+        query_id = example["query_id"]
+        query = example["query"]
+        text_id = example["docid"]
+        text = example["text"]
+        title = example["title"]
+        return (
+            query_id,
+            text_id,
+            format_pair(
+                query,
+                text,
+                title,
+                self.data_args.query_prefix,
+                self.data_args.passage_prefix,
+            ),
+        )

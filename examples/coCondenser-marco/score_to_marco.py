@@ -2,7 +2,7 @@ import argparse
 from collections import defaultdict
 
 parser = argparse.ArgumentParser()
-parser.add_argument('score_file')
+parser.add_argument("score_file")
 args = parser.parse_args()
 
 with open(args.score_file) as f:
@@ -19,9 +19,8 @@ for line in lines:
 
 qq = list(all_scores.keys())
 
-with open(args.score_file + '.marco', 'w') as f:
+with open(args.score_file + ".marco", "w") as f:
     for qid in qq:
         score_list = sorted(all_scores[qid], key=lambda x: x[1], reverse=True)
         for rank, (did, score) in enumerate(score_list):
-            f.write(f'{qid}\t{did}\t{rank+1}\n')
-
+            f.write(f"{qid}\t{did}\t{rank+1}\n")

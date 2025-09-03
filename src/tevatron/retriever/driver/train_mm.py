@@ -11,8 +11,11 @@ from transformers import (
 import torch
 from transformers.trainer_utils import get_last_checkpoint
 
-from tevatron.retriever.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments as TrainingArguments,
+)
 from tevatron.retriever.dataset import TrainDataset, MultiTrainDataset
 from tevatron.retriever.collator import MultiModalTrainCollator
 from tevatron.retriever.modeling import MultiModalDenseModel
@@ -23,12 +26,13 @@ logging.getLogger().setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
-
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
 
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
@@ -36,10 +40,10 @@ def main():
         training_args: TrainingArguments
 
     if (
-            os.path.exists(training_args.output_dir)
-            and os.listdir(training_args.output_dir)
-            and training_args.do_train
-            and not training_args.overwrite_output_dir
+        os.path.exists(training_args.output_dir)
+        and os.listdir(training_args.output_dir)
+        and training_args.do_train
+        and not training_args.overwrite_output_dir
     ):
         raise ValueError(
             f"Output directory ({training_args.output_dir}) already exists and is not empty. Use --overwrite_output_dir to overcome."
@@ -65,14 +69,18 @@ def main():
     set_seed(training_args.seed)
 
     processor = AutoProcessor.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
         trust_remote_code=True,
     )
     if processor.tokenizer.pad_token_id is None:
         processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
     processor.tokenizer.padding_side = "left"
-    
+
     if training_args.bf16:
         torch_dtype = torch.bfloat16
     elif training_args.fp16:
@@ -89,23 +97,27 @@ def main():
     )
 
     if data_args.train_yaml is not None:
-        with open(data_args.train_yaml, 'r') as f:
+        with open(data_args.train_yaml, "r") as f:
             train_yaml = yaml.safe_load(f)
-        dataset_list = train_yaml['train']
-        corpus_list = train_yaml['corpus']
+        dataset_list = train_yaml["train"]
+        corpus_list = train_yaml["corpus"]
 
-    train_dataset = MultiTrainDataset(data_args, dataset_list, corpus_list) if data_args.train_yaml is not None else TrainDataset(data_args)
+    train_dataset = (
+        MultiTrainDataset(data_args, dataset_list, corpus_list)
+        if data_args.train_yaml is not None
+        else TrainDataset(data_args)
+    )
     collator = MultiModalTrainCollator(data_args, processor)
 
     trainer = TevatronTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=collator
+        data_collator=collator,
     )
-    
+
     train_dataset.set_trainer(trainer)
-    
+
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)

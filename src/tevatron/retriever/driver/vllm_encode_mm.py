@@ -12,8 +12,11 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.retriever.arguments import ModelArguments, DataArguments, \
-    TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import (
+    ModelArguments,
+    DataArguments,
+    TevatronTrainingArguments as TrainingArguments,
+)
 from tevatron.retriever.dataset import EncodeDataset
 from tevatron.retriever.collator import VllmMultiModalEncodeCollator
 from vllm import LLM
@@ -27,7 +30,9 @@ logger = logging.getLogger(__name__)
 def main():
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        model_args, data_args, training_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
         model_args: ModelArguments
@@ -35,7 +40,7 @@ def main():
         training_args: TrainingArguments
 
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
-        raise NotImplementedError('Multi-GPU encoding is not supported.')
+        raise NotImplementedError("Multi-GPU encoding is not supported.")
 
     # Setup logging
     logging.basicConfig(
@@ -45,7 +50,11 @@ def main():
     )
 
     processor = AutoProcessor.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+        (
+            model_args.tokenizer_name
+            if model_args.tokenizer_name
+            else model_args.model_name_or_path
+        ),
         cache_dir=model_args.cache_dir,
         use_fast=True,
         trust_remote_code=True,
@@ -58,15 +67,15 @@ def main():
     max_pixels = 2560 * 28 * 28
 
     if training_args.bf16:
-        torch_dtype = 'bfloat16'
+        torch_dtype = "bfloat16"
     elif training_args.fp16:
-        torch_dtype = 'float16'
+        torch_dtype = "float16"
     else:
-        torch_dtype = 'float32'
+        torch_dtype = "float32"
 
-
-    pooler_config = PoolerConfig(pooling_type=model_args.pooling.upper(),
-                                 normalize=model_args.normalize)
+    pooler_config = PoolerConfig(
+        pooling_type=model_args.pooling.upper(), normalize=model_args.normalize
+    )
 
     model = LLM(
         model=model_args.model_name_or_path,
@@ -99,26 +108,32 @@ def main():
 
     lookup_indices = []
     encoded = []
-    for (batch_ids, texts, images) in tqdm(encode_loader, desc="Encoding"):
+    for batch_ids, texts, images in tqdm(encode_loader, desc="Encoding"):
         lookup_indices.extend(batch_ids)
         vllm_inputs = []
         for prompt, image in zip(texts, images):
-            vllm_inputs.append({
-                "prompt": prompt,
-                "multi_modal_data": {'image': image} if image is not None else None,
-            })
-        outputs = model.embed(vllm_inputs,
-                              use_tqdm=False,
-                              lora_request=LoRARequest("emb_adapter",
-                                                       1,
-                                                       model_args.lora_name_or_path) if model_args.lora_name_or_path else None)
+            vllm_inputs.append(
+                {
+                    "prompt": prompt,
+                    "multi_modal_data": {"image": image} if image is not None else None,
+                }
+            )
+        outputs = model.embed(
+            vllm_inputs,
+            use_tqdm=False,
+            lora_request=(
+                LoRARequest("emb_adapter", 1, model_args.lora_name_or_path)
+                if model_args.lora_name_or_path
+                else None
+            ),
+        )
 
         for output in outputs:
             encoded.append(output.outputs.embedding)
 
     encoded = np.stack(encoded, dtype=np.float16)
 
-    with open(data_args.encode_output_path, 'wb') as f:
+    with open(data_args.encode_output_path, "wb") as f:
         pickle.dump((encoded, lookup_indices), f)
 
 
