@@ -228,7 +228,10 @@ class DataArguments:
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):
-    warmup_ratio: float = field(default=0.1)
+    lr_scheduler_type: str = field(
+        default="linear", metadata={"help": "The scheduler type to use."}
+    )
+    warmup_ratio: float = field(default=0.0)
 
     grad_cache: bool = field(
         default=False, metadata={"help": "Use gradient cache update"}

@@ -122,6 +122,8 @@ class EncoderModel(nn.Module):
         train_args: TrainingArguments,
         **hf_kwargs,
     ):
+        hf_kwargs.pop("attn_implementation", None)
+
         base_model = cls.TRANSFORMER_CLS.from_pretrained(
             model_args.model_name_or_path, **hf_kwargs
         )
@@ -172,6 +174,8 @@ class EncoderModel(nn.Module):
         lora_name_or_path: str = None,
         **hf_kwargs,
     ):
+        hf_kwargs.pop("attn_implementation", None)
+
         base_model = cls.TRANSFORMER_CLS.from_pretrained(
             model_name_or_path, **hf_kwargs
         )
