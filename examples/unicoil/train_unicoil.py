@@ -28,6 +28,7 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+    training_args.data_args = data_args
 
     if (
             os.path.exists(training_args.output_dir)

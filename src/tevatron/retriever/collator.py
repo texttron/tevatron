@@ -1,6 +1,6 @@
 import logging
 import torch
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
 from qwen_omni_utils import process_mm_info
@@ -31,7 +31,13 @@ class TrainCollator:
         for f in features:
             all_passages.extend(f[1])
         all_queries = [q[0] for q in all_queries]
-        all_passages = [p[0] for p in all_passages]
+
+        def _get_passage_text(passage):
+            if isinstance(passage, dict):
+                return passage.get("passage", "")
+            return passage[0]
+
+        all_passages = [_get_passage_text(p) for p in all_passages]
         q_collated = self.tokenizer(
             all_queries,
             padding=False, 
@@ -70,6 +76,145 @@ class TrainCollator:
             return_tensors='pt',
         )
         return q_collated, d_collated
+
+
+@dataclass
+class ChunkMaxSimTrainCollator:
+    """
+    Collator that expands passages into chunks and tracks chunk-to-passage mapping
+    for MaxSim pooling during training.
+    """
+    data_args: DataArguments
+    tokenizer: PreTrainedTokenizer
+    extra_keys: Optional[List[str]] = None
+
+    def _extract_query_text(self, query_entry):
+        if isinstance(query_entry, (tuple, list)):
+            return query_entry[0]
+        if isinstance(query_entry, dict):
+            return query_entry.get("text", "")
+        return query_entry
+
+    def _extract_passages(self, feature):
+        if isinstance(feature, dict):
+            passages = feature.get("passages")
+            if passages is not None:
+                return passages
+            # fallback to already flattened passage with chunks
+            passage_chunks = feature.get("passage_chunks")
+            passage_text = feature.get("passage", "")
+            if passage_chunks is None and passage_text is not None:
+                return [{"passage": passage_text, "passage_chunks": [passage_text]}]
+            return [{"passage": passage_text, "passage_chunks": passage_chunks or []}]
+        # legacy tuple format: (query_tuple, [passage_dict, ...])
+        return feature[1]
+
+    def _extract_query(self, feature):
+        if isinstance(feature, dict):
+            return feature.get("query")
+        return feature[0]
+
+    def _get_chunk_list(self, passage):
+        if isinstance(passage, dict):
+            chunks = passage.get("passage_chunks")
+            if chunks and len(chunks) > 0:
+                return chunks
+            text = passage.get("passage", "")
+            return [text]
+        if isinstance(passage, (tuple, list)):
+            return [passage[0]]
+        return [passage]
+
+    def __call__(self, features):
+        queries = [self._extract_query_text(self._extract_query(f)) or '' for f in features]
+
+        flat_chunks: List[str] = []
+        chunk_to_passage: List[int] = []
+        passage_idx = 0
+
+        for feature in features:
+            passages = self._extract_passages(feature) or []
+            for passage in passages:
+                chunk_list = self._get_chunk_list(passage)
+                if not chunk_list:
+                    chunk_list = ['']
+                for chunk in chunk_list:
+                    flat_chunks.append(chunk)
+                    chunk_to_passage.append(passage_idx)
+                passage_idx += 1
+
+        if not flat_chunks:
+            raise ValueError("No passage chunks found in batch; ensure dataset provides passage_chunks.")
+
+        q_inputs = self.tokenizer(
+            queries,
+            padding=False,
+            truncation=True,
+            max_length=self.data_args.query_max_len - 1 if self.data_args.append_eos_token else self.data_args.query_max_len,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            add_special_tokens=True,
+        )
+
+        d_inputs = self.tokenizer(
+            flat_chunks,
+            padding=False,
+            truncation=True,
+            max_length=self.data_args.passage_max_len - 1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            add_special_tokens=True,
+        )
+
+        if self.data_args.append_eos_token:
+            q_inputs['input_ids'] = [ids + [self.tokenizer.eos_token_id] for ids in q_inputs['input_ids']]
+            d_inputs['input_ids'] = [ids + [self.tokenizer.eos_token_id] for ids in d_inputs['input_ids']]
+
+        q_inputs = self.tokenizer.pad(
+            q_inputs,
+            padding=True,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+
+        d_inputs = self.tokenizer.pad(
+            d_inputs,
+            padding=True,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+
+        batch = {
+            "query_input_ids": q_inputs["input_ids"],
+            "query_attention_mask": q_inputs["attention_mask"],
+            "passage_input_ids": d_inputs["input_ids"],
+            "passage_attention_mask": d_inputs["attention_mask"],
+            "chunk_to_passage": torch.tensor(chunk_to_passage, dtype=torch.long),
+        }
+
+        if "token_type_ids" in q_inputs:
+            batch["query_token_type_ids"] = q_inputs["token_type_ids"]
+        if "token_type_ids" in d_inputs:
+            batch["passage_token_type_ids"] = d_inputs["token_type_ids"]
+
+        if self.extra_keys:
+            for key in self.extra_keys:
+                values = []
+                for feature in features:
+                    if isinstance(feature, dict) and key in feature:
+                        values.append(feature[key])
+                if values:
+                    if isinstance(values[0], torch.Tensor):
+                        batch[key] = torch.stack(values)
+                    elif isinstance(values[0], (int, float)):
+                        dtype = torch.long if isinstance(values[0], int) else torch.float
+                        batch[key] = torch.tensor(values, dtype=dtype)
+                    else:
+                        batch[key] = values
+
+        return batch
 
 
 @dataclass
@@ -120,10 +265,17 @@ class MultiModalTrainCollator:
 
         passage_messages = []
         for idx in range(len(all_passages)):
-            text = all_passages[idx][0]
-            image = all_passages[idx][1]
-            video = all_passages[idx][2]
-            audio = all_passages[idx][3]
+            passage = all_passages[idx]
+            if isinstance(passage, dict):
+                text = passage.get("passage")
+                image = passage.get("image")
+                video = passage.get("video")
+                audio = passage.get("audio")
+            else:
+                text = passage[0]
+                image = passage[1]
+                video = passage[2]
+                audio = passage[3]
             content = []
             if text:
                 text = self.processor.tokenizer.decode(

@@ -30,6 +30,8 @@ def main():
         data_args: DataArguments
         training_args: TrainingArguments
 
+    training_args.data_args = data_args
+
     if (
             os.path.exists(training_args.output_dir)
             and os.listdir(training_args.output_dir)

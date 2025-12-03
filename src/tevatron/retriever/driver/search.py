@@ -24,9 +24,29 @@ def search_queries(retriever, q_reps, p_lookup, args):
     else:
         all_scores, all_indices = retriever.search(q_reps, args.depth)
 
-    psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
-    psg_indices = np.array(psg_indices)
-    return all_scores, psg_indices
+    if not getattr(args, "use_chunk_maxsim", False):
+        psg_indices = [[str(p_lookup[x]) for x in q_dd] for q_dd in all_indices]
+        psg_indices = np.array(psg_indices)
+        return all_scores, psg_indices
+
+    return aggregate_chunks(all_scores, all_indices, p_lookup, args.depth)
+
+
+def aggregate_chunks(chunk_scores, chunk_indices, lookup, depth):
+    passage_scores = []
+    passage_indices = []
+    for qs, qi in zip(chunk_scores, chunk_indices):
+        agg = {}
+        for score, idx in zip(qs, qi):
+            passage_id = str(lookup[idx])
+            prev = agg.get(passage_id)
+            if prev is None or score > prev:
+                agg[passage_id] = score
+
+        ranked = sorted(agg.items(), key=lambda x: x[1], reverse=True)[:depth]
+        passage_indices.append([pid for pid, _ in ranked])
+        passage_scores.append([score for _, score in ranked])
+    return passage_scores, passage_indices
 
 
 def write_ranking(corpus_indices, corpus_scores, q_lookup, ranking_save_file):
@@ -58,6 +78,7 @@ def main():
     parser.add_argument('--save_ranking_to', required=True)
     parser.add_argument('--save_text', action='store_true')
     parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--use_chunk_maxsim', action='store_true')
 
     args = parser.parse_args()
 

@@ -161,6 +161,21 @@ class DataArguments:
         },
     )
 
+    use_chunk_maxsim: bool = field(
+        default=False,
+        metadata={"help": "If true, passages are split into chunks and scored with MaxSim over chunk embeddings."}
+    )
+
+    chunk_max_length: int = field(
+        default=128,
+        metadata={"help": "Max token length per chunk when using chunk+MaxSim."}
+    )
+
+    chunk_overlap: int = field(
+        default=32,
+        metadata={"help": "Token overlap between consecutive chunks when using chunk+MaxSim."}
+    )
+
     query_prefix: str = field(
         default='', metadata={"help": "prefix or instruction for query"}
     )

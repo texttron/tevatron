@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 
 from tevatron.retriever.arguments import DataArguments
+from tevatron.retriever.chunk_utils import chunk_passage_text
 
 import logging
 from tqdm import tqdm
@@ -27,8 +28,10 @@ class TrainDataset(Dataset):
                  corpus_name=None,
                  dataset_path=None,
                  corpus_path=None,
-                 corpus_assets_path=None):
+                 corpus_assets_path=None,
+                 tokenizer=None):
         self.data_args = data_args
+        self.tokenizer = tokenizer
         self.trainer = trainer
 
         # Load training data
@@ -108,6 +111,20 @@ class TrainDataset(Dataset):
 
         return prefix + text, image, video, audio
 
+    def _build_passage_feature(self, passage_text, image=None, video=None, audio=None):
+        passage_text = passage_text or ''
+        passage_chunks = self._chunk_passage(passage_text)
+        return {
+            "passage": passage_text,
+            "passage_chunks": passage_chunks,
+            "image": image,
+            "video": video,
+            "audio": audio,
+        }
+
+    def _chunk_passage(self, text: str) -> list[str]:
+        return chunk_passage_text(text, self.tokenizer, self.data_args)
+
     def __getitem__(self, item):
         group = self.train_data[item]
         epoch = int(self.trainer.state.epoch)
@@ -125,7 +142,8 @@ class TrainDataset(Dataset):
             selected_positive = group['positive_passages'][(_hashed_seed + epoch) % len(group['positive_passages'])]
             positive_text = (selected_positive['title'] + ' ' + selected_positive['text']
                              if 'title' in selected_positive else selected_positive['text'])
-            formatted_documents.append((self.data_args.passage_prefix + positive_text, None, None, None))
+            passage_text = self.data_args.passage_prefix + positive_text
+            formatted_documents.append(self._build_passage_feature(passage_text))
 
             # Select negative documents
             negative_size = self.data_args.train_group_size - 1
@@ -143,7 +161,8 @@ class TrainDataset(Dataset):
             for negative in selected_negatives:
                 negative_text = (negative['title'] + ' ' + negative['text']
                                  if 'title' in negative else negative['text'])
-                formatted_documents.append((self.data_args.passage_prefix + negative_text, None, None, None))
+                passage_text = self.data_args.passage_prefix + negative_text
+                formatted_documents.append(self._build_passage_feature(passage_text))
 
             return formatted_query, formatted_documents
 
@@ -162,8 +181,11 @@ class TrainDataset(Dataset):
 
         # Select positive document id
         selected_positive_docid = positive_document_ids[(_hashed_seed + epoch) % len(positive_document_ids)]
+        pos_text, pos_image, pos_video, pos_audio = self._get_info_from_docid(
+            selected_positive_docid, self.data_args.passage_prefix
+        )
         formatted_documents.append(
-            self._get_info_from_docid(selected_positive_docid, self.data_args.passage_prefix)
+            self._build_passage_feature(pos_text, pos_image, pos_video, pos_audio)
         )
 
         # Select negative document ids
@@ -180,8 +202,11 @@ class TrainDataset(Dataset):
             selected_negative_docids = selected_negative_docids[offset: offset + negative_size]
 
         for neg_docid in selected_negative_docids:
+            neg_text, neg_image, neg_video, neg_audio = self._get_info_from_docid(
+                neg_docid, self.data_args.passage_prefix
+            )
             formatted_documents.append(
-                self._get_info_from_docid(neg_docid, self.data_args.passage_prefix)
+                self._build_passage_feature(neg_text, neg_image, neg_video, neg_audio)
             )
 
         return formatted_query, formatted_documents

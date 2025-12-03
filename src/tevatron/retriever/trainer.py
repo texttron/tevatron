@@ -2,6 +2,7 @@ import os
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 
 from transformers.trainer import Trainer, TRAINING_ARGS_NAME
 import torch.distributed as dist
@@ -45,8 +46,93 @@ class TevatronTrainer(Trainer):
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        data_args = getattr(self.args, "data_args", None)
+        if data_args is not None and getattr(data_args, "use_chunk_maxsim", False):
+            loss = self.compute_loss_chunk_maxsim(model, inputs)
+            return (loss, None) if return_outputs else loss
+
         query, passage = inputs
         return model(query=query, passage=passage).loss
+
+    def compute_loss_chunk_maxsim(self, model, inputs):
+        query_inputs = {
+            "input_ids": inputs["query_input_ids"],
+            "attention_mask": inputs["query_attention_mask"],
+        }
+        if "query_token_type_ids" in inputs:
+            query_inputs["token_type_ids"] = inputs["query_token_type_ids"]
+
+        passage_inputs = {
+            "input_ids": inputs["passage_input_ids"],
+            "attention_mask": inputs["passage_attention_mask"],
+        }
+        if "passage_token_type_ids" in inputs:
+            passage_inputs["token_type_ids"] = inputs["passage_token_type_ids"]
+
+        chunk_to_passage = inputs["chunk_to_passage"]
+
+        query_reps = model.encode_query(query_inputs)
+        chunk_reps = model.encode_passage(passage_inputs)
+
+        if model.is_ddp:
+            query_reps = model._dist_gather_tensor(query_reps)
+            chunk_reps = model._dist_gather_tensor(chunk_reps)
+
+            local_passages = chunk_to_passage.max().item() + 1 if chunk_to_passage.numel() else 0
+            counts_tensor = chunk_to_passage.new_tensor([local_passages])
+            gathered_counts = [torch.zeros_like(counts_tensor) for _ in range(model.world_size)]
+            dist.all_gather(gathered_counts, counts_tensor)
+            counts = torch.cat(gathered_counts).tolist()
+            passage_offset = int(sum(counts[:model.process_rank]))
+            chunk_to_passage = chunk_to_passage + passage_offset
+            chunk_to_passage = model._dist_gather_tensor(chunk_to_passage.unsqueeze(1)).squeeze(1)
+
+        num_passages = chunk_to_passage.max().item() + 1 if chunk_to_passage.numel() else 0
+        if num_passages == 0:
+            raise ValueError("chunk_to_passage is empty; cannot compute MaxSim loss.")
+
+        sim_q_chunk = model.compute_similarity(query_reps, chunk_reps)
+
+        B = query_reps.size(0)
+        device = query_reps.device
+        scores = torch.full(
+            (B, num_passages),
+            fill_value=-1e9,
+            dtype=sim_q_chunk.dtype,
+            device=device,
+        )
+
+        passage_idx = chunk_to_passage.unsqueeze(0).expand(B, -1)
+        if hasattr(scores, "scatter_reduce_"):
+            scores.scatter_reduce_(
+                dim=1,
+                index=passage_idx,
+                src=sim_q_chunk,
+                reduce="amax",
+                include_self=True,
+            )
+        else:
+            scores = scores.scatter_reduce(
+                dim=1,
+                index=passage_idx,
+                src=sim_q_chunk,
+                reduce="amax",
+                include_self=True,
+            )
+
+        passages_per_query = getattr(getattr(self.args, "data_args", None), "train_group_size", None)
+        if not passages_per_query:
+            if num_passages % B != 0:
+                raise ValueError("Number of passages is not divisible by number of queries.")
+            passages_per_query = num_passages // B
+
+        labels = torch.arange(B, device=device) * passages_per_query
+
+        loss = F.cross_entropy(scores / model.temperature, labels)
+        if model.is_ddp:
+            loss = loss * model.world_size
+
+        return loss
 
     def training_step(self, *args):
         return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor

@@ -17,7 +17,7 @@ from tevatron.retriever.trainer import TevatronTrainer
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import TrainDataset
-from tevatron.retriever.collator import TrainCollator
+from tevatron.retriever.collator import TrainCollator, ChunkMaxSimTrainCollator
 
 from tevatron.retriever.trainer import TevatronTrainer as Trainer
 
@@ -61,6 +61,8 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+
+    training_args.data_args = data_args
 
     if (
             os.path.exists(training_args.output_dir)
@@ -108,7 +110,10 @@ def main():
     )
 
     train_dataset = TrainDataset(data_args)
-    collator = TrainCollator(data_args, tokenizer)
+    if data_args.use_chunk_maxsim:
+        collator = ChunkMaxSimTrainCollator(data_args, tokenizer)
+    else:
+        collator = TrainCollator(data_args, tokenizer)
 
     trainer = SpladeTrainer(
         model=model,
