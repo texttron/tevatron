@@ -24,7 +24,7 @@ class TrainCollator:
         """
         Collate function for training.
         :param features: list of (query, passages) tuples
-        :return: tokenized query_ids, passage_ids
+        :return: tokenized query_ids, passage_ids, [eos_positions if chunked]
         """
         all_queries = [f[0] for f in features]
         all_passages = []
@@ -32,6 +32,8 @@ class TrainCollator:
             all_passages.extend(f[1])
         all_queries = [q[0] for q in all_queries]
         all_passages = [p[0] for p in all_passages]
+        
+        # Query tokenization
         q_collated = self.tokenizer(
             all_queries,
             padding=False, 
@@ -41,20 +43,8 @@ class TrainCollator:
             return_token_type_ids=False,
             add_special_tokens=True,
         )
-        d_collated = self.tokenizer(
-            all_passages,
-            padding=False, 
-            truncation=True,
-            max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            add_special_tokens=True,
-        )
-
         if self.data_args.append_eos_token:
             q_collated['input_ids'] = [q + [self.tokenizer.eos_token_id] for q in q_collated['input_ids']]
-            d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
-        
         q_collated = self.tokenizer.pad(
             q_collated,
             padding=True, 
@@ -62,14 +52,79 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
-        d_collated = self.tokenizer.pad(
-            d_collated,
-            padding=True, 
-            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
-            return_attention_mask=True,
-            return_tensors='pt',
-        )
-        return q_collated, d_collated
+        
+        # Passage tokenization
+        if self.data_args.passage_chunk_size > 0:
+            d_collated, eos_positions = self._tokenize_chunked_passages(all_passages)
+            return q_collated, d_collated, eos_positions
+        else:
+            d_collated = self.tokenizer(
+                all_passages,
+                padding=False, 
+                truncation=True,
+                max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
+                return_attention_mask=False,
+                return_token_type_ids=False,
+                add_special_tokens=True,
+            )
+            if self.data_args.append_eos_token:
+                d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
+            d_collated = self.tokenizer.pad(
+                d_collated,
+                padding=True, 
+                pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+                return_attention_mask=True,
+                return_tensors='pt',
+            )
+            return q_collated, d_collated
+
+    def _tokenize_chunked_passages(self, passages: List[str]):
+        """
+        Tokenize passages with EOS separators between chunks.
+        Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
+        """
+        chunk_size = self.data_args.passage_chunk_size
+        eos_id = self.tokenizer.eos_token_id
+        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        
+        all_input_ids = []
+        all_eos_positions = []
+        
+        for passage in passages:
+            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
+            
+            new_tokens = []
+            eos_positions = []
+            for i in range(0, max(len(tokens), 1), chunk_size):
+                chunk = tokens[i:i + chunk_size]
+                new_tokens.extend(chunk)
+                new_tokens.append(eos_id)
+                eos_positions.append(len(new_tokens) - 1)
+            
+            all_input_ids.append(new_tokens)
+            all_eos_positions.append(eos_positions)
+        
+        # Padding
+        max_len = min(max(len(ids) for ids in all_input_ids), self.data_args.passage_max_len)
+        if self.data_args.pad_to_multiple_of:
+            max_len = ((max_len + self.data_args.pad_to_multiple_of - 1) 
+                       // self.data_args.pad_to_multiple_of * self.data_args.pad_to_multiple_of)
+        
+        padded_ids, padded_mask, final_eos_positions = [], [], []
+        for input_ids, eos_pos in zip(all_input_ids, all_eos_positions):
+            if len(input_ids) > max_len:
+                input_ids = input_ids[:max_len]
+                eos_pos = [p for p in eos_pos if p < max_len]
+            pad_len = max_len - len(input_ids)
+            padded_ids.append(input_ids + [pad_id] * pad_len)
+            padded_mask.append([1] * len(input_ids) + [0] * pad_len)
+            final_eos_positions.append(eos_pos)
+        
+        d_collated = {
+            'input_ids': torch.tensor(padded_ids, dtype=torch.long),
+            'attention_mask': torch.tensor(padded_mask, dtype=torch.long),
+        }
+        return d_collated, final_eos_positions
 
 
 @dataclass

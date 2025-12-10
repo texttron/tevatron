@@ -87,6 +87,7 @@ def main():
         torch_dtype=torch_dtype,
         attn_implementation=model_args.attn_implementation,
     )
+    model.passage_chunk_size = data_args.passage_chunk_size
 
     train_dataset = TrainDataset(data_args)
     collator = TrainCollator(data_args, tokenizer)

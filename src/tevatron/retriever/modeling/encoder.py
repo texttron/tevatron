@@ -38,6 +38,7 @@ class EncoderModel(nn.Module):
         self.pooling = pooling
         self.normalize = normalize
         self.temperature = temperature
+        self.passage_chunk_size = 0
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.is_ddp = dist.is_initialized()
         if self.is_ddp:
@@ -46,40 +47,50 @@ class EncoderModel(nn.Module):
 
     def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
         q_reps = self.encode_query(query) if query else None
-        p_reps = self.encode_passage(passage) if passage else None
+        
+        # Handle chunked vs normal passage encoding
+        if passage is not None:
+            p_result = self.encode_passage(passage)
+            if self.passage_chunk_size > 0 and isinstance(p_result, tuple):
+                p_reps, chunk_mask = p_result
+            else:
+                p_reps, chunk_mask = p_result, None
+        else:
+            p_reps, chunk_mask = None, None
 
         # for inference
         if q_reps is None or p_reps is None:
-            return EncoderOutput(
-                q_reps=q_reps,
-                p_reps=p_reps
-            )
+            return EncoderOutput(q_reps=q_reps, p_reps=p_reps)
 
         # for training
         if self.training:
             if self.is_ddp:
                 q_reps = self._dist_gather_tensor(q_reps)
                 p_reps = self._dist_gather_tensor(p_reps)
+                if chunk_mask is not None:
+                    chunk_mask = self._dist_gather_tensor(chunk_mask)
 
-            scores = self.compute_similarity(q_reps, p_reps)
+            if self.passage_chunk_size > 0 and chunk_mask is not None:
+                scores = self.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+            else:
+                scores = self.compute_similarity(q_reps, p_reps)
             scores = scores.view(q_reps.size(0), -1)
 
-            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-            target = target * (p_reps.size(0) // q_reps.size(0))
+            num_psg_per_query = scores.size(1) // q_reps.size(0)
+            target = torch.arange(q_reps.size(0), device=scores.device, dtype=torch.long)
+            target = target * num_psg_per_query
 
             loss = self.compute_loss(scores / self.temperature, target)
             if self.is_ddp:
-                loss = loss * self.world_size  # counter average weight reduction
+                loss = loss * self.world_size
         # for eval
         else:
-            scores = self.compute_similarity(q_reps, p_reps)
+            if self.passage_chunk_size > 0 and chunk_mask is not None:
+                scores = self.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+            else:
+                scores = self.compute_similarity(q_reps, p_reps)
             loss = None
-        return EncoderOutput(
-            loss=loss,
-            scores=scores,
-            q_reps=q_reps,
-            p_reps=p_reps,
-        )
+        return EncoderOutput(loss=loss, scores=scores, q_reps=q_reps, p_reps=p_reps)
 
     def encode_passage(self, psg):
         raise NotImplementedError('EncoderModel is an abstract class')
@@ -89,6 +100,18 @@ class EncoderModel(nn.Module):
 
     def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
+
+    def compute_maxsim_similarity(self, q_reps, p_reps, chunk_mask):
+        """
+        MaxSim: max similarity between query and passage chunks.
+        q_reps: [Q, H], p_reps: [P, C, H], chunk_mask: [P, C]
+        Returns: [Q, P]
+        """
+        chunk_scores = torch.einsum('qh,pch->qpc', q_reps, p_reps)
+        if chunk_mask is not None:
+            padding_mask = ~chunk_mask.unsqueeze(0).bool()
+            chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
+        return chunk_scores.max(dim=-1).values
 
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)

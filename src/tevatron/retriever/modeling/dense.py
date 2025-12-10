@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import logging
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
@@ -8,14 +9,44 @@ logger = logging.getLogger(__name__)
 
 class DenseModel(EncoderModel):
 
+    def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
+        super().__init__(encoder, pooling, normalize, temperature)
+        self.passage_chunk_size = 0
+        self._eos_positions = None
+
+    def set_eos_positions(self, eos_positions):
+        self._eos_positions = eos_positions
+
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg):
-        # encode passage is the same as encode query
-        return self.encode_query(psg)
+        hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+        
+        if self.passage_chunk_size > 0 and self._eos_positions is not None:
+            return self._encode_chunked_passage(hidden_states)
+        return self._pooling(hidden_states, psg['attention_mask'])
+
+    def _encode_chunked_passage(self, hidden_states):
+        """Extract EOS position embeddings as chunk representations."""
+        batch_size, seq_len, hidden_size = hidden_states.shape
+        max_chunks = max(len(pos) for pos in self._eos_positions)
+        
+        chunk_embs = torch.zeros(batch_size, max_chunks, hidden_size,
+                                 device=hidden_states.device, dtype=hidden_states.dtype)
+        chunk_mask = torch.zeros(batch_size, max_chunks, device=hidden_states.device)
+        
+        for i, positions in enumerate(self._eos_positions):
+            for j, pos in enumerate(positions):
+                if pos < seq_len:
+                    chunk_embs[i, j] = hidden_states[i, pos]
+                    chunk_mask[i, j] = 1.0
+        
+        if self.normalize:
+            chunk_embs = F.normalize(chunk_embs, p=2, dim=-1)
+        return chunk_embs, chunk_mask
         
 
     def _pooling(self, last_hidden_state, attention_mask):
