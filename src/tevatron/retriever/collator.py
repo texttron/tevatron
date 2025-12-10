@@ -82,10 +82,12 @@ class TrainCollator:
         """
         Tokenize passages with EOS separators between chunks.
         Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
+        Respects tokenizer.padding_side for consistent padding direction.
         """
         chunk_size = self.data_args.passage_chunk_size
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        use_left_padding = self.tokenizer.padding_side == 'left'
         
         all_input_ids = []
         all_eos_positions = []
@@ -115,10 +117,20 @@ class TrainCollator:
             if len(input_ids) > max_len:
                 input_ids = input_ids[:max_len]
                 eos_pos = [p for p in eos_pos if p < max_len]
+            
             pad_len = max_len - len(input_ids)
-            padded_ids.append(input_ids + [pad_id] * pad_len)
-            padded_mask.append([1] * len(input_ids) + [0] * pad_len)
-            final_eos_positions.append(eos_pos)
+            
+            if use_left_padding:
+                # Left padding: [PAD, PAD, ..., content]
+                padded_ids.append([pad_id] * pad_len + input_ids)
+                padded_mask.append([0] * pad_len + [1] * len(input_ids))
+                # Adjust EOS positions: shift right by pad_len
+                final_eos_positions.append([p + pad_len for p in eos_pos])
+            else:
+                # Right padding: [content, ..., PAD, PAD]
+                padded_ids.append(input_ids + [pad_id] * pad_len)
+                padded_mask.append([1] * len(input_ids) + [0] * pad_len)
+                final_eos_positions.append(eos_pos)
         
         d_collated = {
             'input_ids': torch.tensor(padded_ids, dtype=torch.long),
