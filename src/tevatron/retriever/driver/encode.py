@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
+import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
@@ -18,7 +19,7 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
-from tevatron.retriever.collator import EncodeCollator
+from tevatron.retriever.collator import EncodeCollator, ChunkedEncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, DenseModel
 
 logger = logging.getLogger(__name__)
@@ -78,10 +79,23 @@ def main():
         data_args=data_args,
     )
 
-    encode_collator = EncodeCollator(
-        data_args=data_args,
-        tokenizer=tokenizer,
+    # Check if using chunked passage encoding
+    use_chunked = (
+        not data_args.encode_is_query and 
+        data_args.passage_chunk_size > 0
     )
+    
+    if use_chunked:
+        logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
+        encode_collator = ChunkedEncodeCollator(
+            data_args=data_args,
+            tokenizer=tokenizer,
+        )
+    else:
+        encode_collator = EncodeCollator(
+            data_args=data_args,
+            tokenizer=tokenizer,
+        )
 
     encode_loader = DataLoader(
         encode_dataset,
@@ -96,23 +110,58 @@ def main():
     model = model.to(training_args.device)
     model.eval()
 
-    for (batch_ids, batch) in tqdm(encode_loader):
-        lookup_indices.extend(batch_ids)
+    for batch in tqdm(encode_loader):
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
-                for k, v in batch.items():
-                    batch[k] = v.to(training_args.device)
-                if data_args.encode_is_query:
-                    model_output: EncoderOutput = model(query=batch)
-                    encoded.append(model_output.q_reps.cpu().detach().numpy())
+                if use_chunked:
+                    # Chunked passage encoding
+                    doc_ids, batch_inputs, eos_positions, chunk_counts = batch
+                    
+                    for k, v in batch_inputs.items():
+                        batch_inputs[k] = v.to(training_args.device)
+                    
+                    # Get hidden states from encoder
+                    hidden_states = model.encoder(**batch_inputs, return_dict=True).last_hidden_state
+                    # hidden_states: [batch_size, seq_len, hidden_size]
+                    
+                    # Extract embeddings at EOS positions
+                    for i, (doc_id, positions) in enumerate(zip(doc_ids, eos_positions)):
+                        for chunk_idx, pos in enumerate(positions):
+                            if pos < hidden_states.shape[1]:
+                                chunk_emb = hidden_states[i, pos]
+                                
+                                # Normalize if needed
+                                if model.normalize:
+                                    chunk_emb = F.normalize(chunk_emb, p=2, dim=-1)
+                                
+                                encoded.append(chunk_emb.cpu().numpy())
+                                lookup_indices.append((doc_id, chunk_idx))
                 else:
-                    model_output: EncoderOutput = model(passage=batch)
-                    encoded.append(model_output.p_reps.cpu().detach().numpy())
+                    # Standard query or passage encoding
+                    batch_ids, batch_inputs = batch
+                    lookup_indices.extend(batch_ids)
+                    
+                    for k, v in batch_inputs.items():
+                        batch_inputs[k] = v.to(training_args.device)
+                    
+                    if data_args.encode_is_query:
+                        model_output: EncoderOutput = model(query=batch_inputs)
+                        encoded.append(model_output.q_reps.cpu().detach().numpy())
+                    else:
+                        model_output: EncoderOutput = model(passage=batch_inputs)
+                        encoded.append(model_output.p_reps.cpu().detach().numpy())
 
-    encoded = np.concatenate(encoded)
+    # Combine encoded embeddings
+    if use_chunked:
+        encoded = np.stack(encoded)
+        logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} chunks")
+    else:
+        encoded = np.concatenate(encoded)
 
     with open(data_args.encode_output_path, 'wb') as f:
         pickle.dump((encoded, lookup_indices), f)
+    
+    logger.info(f"Saved embeddings to {data_args.encode_output_path}, shape: {encoded.shape}")
 
 
 if __name__ == "__main__":
