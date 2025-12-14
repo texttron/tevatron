@@ -104,30 +104,21 @@ def main():
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
                 if use_chunked:
-                    # Chunked passage encoding
-                    doc_ids, batch_inputs, eos_positions, chunk_counts = batch
-                    
+                    doc_ids, batch_inputs, sep_positions, chunk_counts = batch
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
                     
-                    # Get hidden states from encoder
-                    hidden_states = model.encoder(**batch_inputs, return_dict=True).last_hidden_state
-                    # hidden_states: [batch_size, seq_len, hidden_size]
+                    # Use DenseModel's encode_passage to extract chunk embeddings
+                    chunk_embs, chunk_mask = model.encode_passage(batch_inputs, sep_positions=sep_positions)
                     
-                    # Extract embeddings at EOS positions
-                    for i, (doc_id, positions) in enumerate(zip(doc_ids, eos_positions)):
-                        for chunk_idx, pos in enumerate(positions):
-                            if pos < hidden_states.shape[1]:
-                                chunk_emb = hidden_states[i, pos]
-                                
-                                # Normalize if needed
-                                if model.normalize:
-                                    chunk_emb = F.normalize(chunk_emb, p=2, dim=-1)
-                                
-                                encoded.append(chunk_emb.cpu().numpy())
+                    # Flatten chunk embeddings and create lookup indices
+                    batch_size, max_chunks, hidden_size = chunk_embs.shape
+                    for i, doc_id in enumerate(doc_ids):
+                        for chunk_idx in range(max_chunks):
+                            if chunk_mask[i, chunk_idx] > 0:  # Valid chunk
+                                encoded.append(chunk_embs[i, chunk_idx].cpu().detach().numpy())
                                 lookup_indices.append((doc_id, chunk_idx))
                 else:
-                    # Standard query or passage encoding
                     batch_ids, batch_inputs = batch
                     lookup_indices.extend(batch_ids)
                     

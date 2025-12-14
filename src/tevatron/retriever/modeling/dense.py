@@ -12,40 +12,45 @@ class DenseModel(EncoderModel):
     def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
         super().__init__(encoder, pooling, normalize, temperature)
         self.passage_chunk_size = 0
-        self._eos_positions = None
-
-    def set_eos_positions(self, eos_positions):
-        self._eos_positions = eos_positions
+        self.sep_positions = None
 
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
-    def encode_passage(self, psg):
+    def encode_passage(self, psg, sep_positions=None):
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
-        
-        if self.passage_chunk_size > 0 and self._eos_positions is not None:
-            return self._encode_chunked_passage(hidden_states)
+        if self.passage_chunk_size > 0:
+            return self._pooling_chunked(hidden_states, self.sep_positions)
         return self._pooling(hidden_states, psg['attention_mask'])
 
-    def _encode_chunked_passage(self, hidden_states):
-        """Extract EOS position embeddings as chunk representations."""
-        batch_size, seq_len, hidden_size = hidden_states.shape
-        max_chunks = max(len(pos) for pos in self._eos_positions)
+    def _pooling_chunked(self, last_hidden_state, sep_positions):
+        batch_size, seq_len, hidden_size = last_hidden_state.shape
         
-        chunk_embs = torch.zeros(batch_size, max_chunks, hidden_size,
-                                 device=hidden_states.device, dtype=hidden_states.dtype)
-        chunk_mask = torch.zeros(batch_size, max_chunks, device=hidden_states.device)
+        if not sep_positions:
+            # No chunks, return empty
+            return torch.zeros(batch_size, 0, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype), \
+                   torch.zeros(batch_size, 0, device=last_hidden_state.device)
         
-        for i, positions in enumerate(self._eos_positions):
+        # Find max number of chunks across all passages
+        max_chunks = max(len(pos_list) for pos_list in sep_positions)
+        
+        chunk_embs = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)
+        chunk_mask = torch.zeros(batch_size, max_chunks, device=last_hidden_state.device, dtype=torch.float)
+        
+        # Extract embeddings at sep_positions (this is the pooling operation for chunked passages)
+        for i, positions in enumerate(sep_positions):
             for j, pos in enumerate(positions):
-                if pos < seq_len:
-                    chunk_embs[i, j] = hidden_states[i, pos]
+                if 0 <= pos < seq_len:
+                    chunk_embs[i, j] = last_hidden_state[i, pos]
                     chunk_mask[i, j] = 1.0
+                else:
+                    logger.warning(f"Position {pos} out of bounds for sequence length {seq_len} in batch {i}, chunk {j}")
         
         if self.normalize:
             chunk_embs = F.normalize(chunk_embs, p=2, dim=-1)
+        
         return chunk_embs, chunk_mask
         
 
