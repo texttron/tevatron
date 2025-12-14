@@ -86,61 +86,39 @@ class TrainCollator:
         Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
         so that query and passage use the same pooling token automatically.
         """
-        chunk_size = self.data_args.passage_chunk_size
-        # Get the token that tokenizer adds with add_special_tokens=True
-        # This ensures query and passage use the same token for pooling
-        sample = self.tokenizer.encode("x", add_special_tokens=True)
-        eos_id = sample[-1]  # Last token added by tokenizer
-        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-        use_left_padding = self.tokenizer.padding_side == 'left'
+        chunk_length = self.data_args.passage_chunk_size
+        sep_id = 151645 # <|separator|>
+        eos_id = 151643 # <|endoftext|>
         
         all_input_ids = []
-        all_eos_positions = []
+        all_sep_positions = []
         
         for passage in passages:
-            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
-            
+            tokens = self.tokenizer.encode(passage, add_special_tokens=False) # There maybe some differences between models, this is for qwen3-embedding-0.6b, it only adds <|separator|> and endoftext
             new_tokens = []
-            eos_positions = []
-            for i in range(0, max(len(tokens), 1), chunk_size):
-                chunk = tokens[i:i + chunk_size]
-                new_tokens.extend(chunk)
-                new_tokens.append(eos_id)
-                eos_positions.append(len(new_tokens) - 1)
-            
+            sep_positions = []
+            i = 1
+            while i < len(tokens):
+                if i % chunk_length == 0:
+                    new_tokens.append(sep_id)
+                    sep_positions.append(i-1)
+                else:
+                    new_tokens.append(tokens[i-1])
+                i += 1
+            new_tokens.append(eos_id) # edge case, what if the new_tokens[-1] is sep_id?
+            new_tokens.append(sep_id)
+            sep_positions.append(len(new_tokens)-1)
             all_input_ids.append(new_tokens)
-            all_eos_positions.append(eos_positions)
+            all_sep_positions.append(sep_positions)
         
         # Padding
-        max_len = min(max(len(ids) for ids in all_input_ids), self.data_args.passage_max_len)
-        if self.data_args.pad_to_multiple_of:
-            max_len = ((max_len + self.data_args.pad_to_multiple_of - 1) 
-                       // self.data_args.pad_to_multiple_of * self.data_args.pad_to_multiple_of)
-        
-        padded_ids, padded_mask, final_eos_positions = [], [], []
-        for input_ids, eos_pos in zip(all_input_ids, all_eos_positions):
-            if len(input_ids) > max_len:
-                input_ids = input_ids[:max_len]
-                eos_pos = [p for p in eos_pos if p < max_len]
-            
-            pad_len = max_len - len(input_ids)
-            
-            if use_left_padding:
-                # Left padding: [PAD, PAD, ..., content]
-                padded_ids.append([pad_id] * pad_len + input_ids)
-                padded_mask.append([0] * pad_len + [1] * len(input_ids))
-                # Adjust EOS positions: shift right by pad_len
-                final_eos_positions.append([p + pad_len for p in eos_pos])
-            else:
-                # Right padding: [content, ..., PAD, PAD]
-                padded_ids.append(input_ids + [pad_id] * pad_len)
-                padded_mask.append([1] * len(input_ids) + [0] * pad_len)
-                final_eos_positions.append(eos_pos)
-        
-        d_collated = {
-            'input_ids': torch.tensor(padded_ids, dtype=torch.long),
-            'attention_mask': torch.tensor(padded_mask, dtype=torch.long),
-        }
+        d_collated = self.tokenizer.pad(
+            d_collated,
+            padding=True, 
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
         return d_collated, final_eos_positions
 
 
