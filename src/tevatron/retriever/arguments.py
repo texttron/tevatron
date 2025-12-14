@@ -199,8 +199,8 @@ class DataArguments:
     )
 
     padding_side: str = field(
-        default='left',
-        metadata={"help": "padding side for the tokenizer, can be 'left' or 'right'. Use 'left' for last-token pooling (decoder models like Qwen/LLaMA), 'right' for cls pooling (encoder models like BERT)"}
+        default='right',
+        metadata={"help": "padding side for the tokenizer, can be 'left' or 'right'"}
     )
 
     passage_chunk_size: int = field(

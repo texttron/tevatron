@@ -10,6 +10,8 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 
+from rich import print
+
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from transformers import (
@@ -105,11 +107,10 @@ def main():
             with torch.no_grad():
                 if use_chunked:
                     doc_ids, batch_inputs, sep_positions, chunk_counts = batch
+                    print(batch_inputs)
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
-                    
-                    # Use DenseModel's encode_passage to extract chunk embeddings
-                    chunk_embs, chunk_mask = model.encode_passage(batch_inputs, sep_positions=sep_positions)
+                    chunk_embs, chunk_mask = model.encode_passage(batch_inputs, sep_positions)
                     
                     # Flatten chunk embeddings and create lookup indices
                     batch_size, max_chunks, hidden_size = chunk_embs.shape
