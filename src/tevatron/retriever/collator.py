@@ -275,6 +275,7 @@ class ChunkedEncodeCollator:
     """
     Collator for chunked passage encoding (inference/search).
     Splits passages into chunks with EOS separators, similar to training.
+    Uses the same chunking logic as TrainCollator._tokenize_and_pad_chunked_passages.
     """
     data_args: DataArguments
     tokenizer: PreTrainedTokenizer
@@ -283,69 +284,48 @@ class ChunkedEncodeCollator:
         """
         Collate function for chunked passage encoding.
         :param features: list of (doc_id, text, image, video, audio) tuples
-        :return: (doc_ids, collated_inputs, eos_positions, chunk_counts)
-        
-        Uses the same token that tokenizer.add_special_tokens adds for consistency with query.
+        :return: (doc_ids, collated_inputs, sep_positions, chunk_counts)
         """
         doc_ids = [x[0] for x in features]
         texts = [x[1] for x in features]
         
-        chunk_size = self.data_args.passage_chunk_size
-        # Get the token that tokenizer adds with add_special_tokens=True
-        sample = self.tokenizer.encode("x", add_special_tokens=True)
-        eos_id = sample[-1]  # Last token added by tokenizer
-        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
-        use_left_padding = self.tokenizer.padding_side == 'left'
+        chunk_len = self.data_args.passage_chunk_size - 1
+        sep_id = 151645  # <|separator|>
+        eos_id = 151643  # <|endoftext|>
         
         all_input_ids = []
-        all_eos_positions = []
+        all_sep_positions = []
         chunk_counts = []
         
         for text in texts:
             if text is None:
                 text = ""
             tokens = self.tokenizer.encode(text, add_special_tokens=False)
+            tokens.append(eos_id)
             
-            new_tokens = []
-            eos_positions = []
-            for i in range(0, max(len(tokens), 1), chunk_size):
-                chunk = tokens[i:i + chunk_size]
-                new_tokens.extend(chunk)
-                new_tokens.append(eos_id)
-                eos_positions.append(len(new_tokens) - 1)
+            ids = []
+            sep_pos = []
+            for i in range(0, len(tokens), chunk_len):
+                chunk = tokens[i:i + chunk_len]  # up to passage_chunk_size - 1 tokens
+                ids.extend(chunk)
+                ids.append(sep_id)  # SEP at end of this chunk
+                sep_pos.append(len(ids) - 1)  # position of SEP
             
-            all_input_ids.append(new_tokens)
-            all_eos_positions.append(eos_positions)
-            chunk_counts.append(len(eos_positions))
+            all_input_ids.append(ids)
+            all_sep_positions.append(sep_pos)
+            chunk_counts.append(len(sep_pos))
         
-        # Padding
-        max_len = min(max(len(ids) for ids in all_input_ids), self.data_args.passage_max_len)
-        if self.data_args.pad_to_multiple_of:
-            max_len = ((max_len + self.data_args.pad_to_multiple_of - 1) // self.data_args.pad_to_multiple_of * self.data_args.pad_to_multiple_of)
+        # Use tokenizer.pad() for consistent padding
+        d_collated = {'input_ids': all_input_ids}
+        d_collated = self.tokenizer.pad(
+            d_collated,
+            padding=True,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
         
-        padded_ids, padded_mask, final_eos_positions = [], [], []
-        for input_ids, eos_pos in zip(all_input_ids, all_eos_positions):
-            if len(input_ids) > max_len:
-                input_ids = input_ids[:max_len]
-                eos_pos = [p for p in eos_pos if p < max_len]
-            
-            pad_len = max_len - len(input_ids)
-            
-            if use_left_padding:
-                padded_ids.append([pad_id] * pad_len + input_ids)
-                padded_mask.append([0] * pad_len + [1] * len(input_ids))
-                final_eos_positions.append([p + pad_len for p in eos_pos])
-            else:
-                padded_ids.append(input_ids + [pad_id] * pad_len)
-                padded_mask.append([1] * len(input_ids) + [0] * pad_len)
-                final_eos_positions.append(eos_pos)
-        
-        collated_inputs = {
-            'input_ids': torch.tensor(padded_ids, dtype=torch.long),
-            'attention_mask': torch.tensor(padded_mask, dtype=torch.long),
-        }
-        
-        return doc_ids, collated_inputs, final_eos_positions, chunk_counts
+        return doc_ids, d_collated, all_sep_positions, chunk_counts
 
 
 @dataclass

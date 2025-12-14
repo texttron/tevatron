@@ -79,23 +79,13 @@ def main():
         data_args=data_args,
     )
 
-    # Check if using chunked passage encoding
-    use_chunked = (
-        not data_args.encode_is_query and 
-        data_args.passage_chunk_size > 0
-    )
+    use_chunked = not data_args.encode_is_query and data_args.passage_chunk_size > 0
     
     if use_chunked:
         logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
-        encode_collator = ChunkedEncodeCollator(
-            data_args=data_args,
-            tokenizer=tokenizer,
-        )
+        encode_collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
     else:
-        encode_collator = EncodeCollator(
-            data_args=data_args,
-            tokenizer=tokenizer,
-        )
+        encode_collator = EncodeCollator(data_args=data_args, tokenizer=tokenizer)
 
     encode_loader = DataLoader(
         encode_dataset,
