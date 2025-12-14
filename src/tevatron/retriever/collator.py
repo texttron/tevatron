@@ -86,7 +86,7 @@ class TrainCollator:
         Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
         so that query and passage use the same pooling token automatically.
         """
-        chunk_length = self.data_args.passage_chunk_size
+        chunk_len = self.data_args.passage_chunk_size -1
         sep_id = 151645 # <|separator|>
         eos_id = 151643 # <|endoftext|>
         
@@ -94,23 +94,20 @@ class TrainCollator:
         all_sep_positions = []
         
         for passage in passages:
-            tokens = self.tokenizer.encode(passage, add_special_tokens=False) # There maybe some differences between models, this is for qwen3-embedding-0.6b, it only adds <|separator|> and endoftext
-            new_tokens = []
-            sep_positions = []
-            i = 1
-            while i < len(tokens):
-                if i % chunk_length == 0:
-                    new_tokens.append(sep_id)
-                    sep_positions.append(i-1)
-                else:
-                    new_tokens.append(tokens[i-1])
-                i += 1
-            new_tokens.append(eos_id) # edge case, what if the new_tokens[-1] is sep_id?
-            new_tokens.append(sep_id)
-            sep_positions.append(len(new_tokens)-1)
-            all_input_ids.append(new_tokens)
-            all_sep_positions.append(sep_positions)
+            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
+            tokens.append(eos_id)
+            ids = []
+            sep_pos = []
+            for i in range(0, len(tokens), chunk_len):
+                chunk = tokens[i:i + chunk_len]     # up to 128 tokens
+                ids.extend(chunk)
+                ids.append(sep_id)                  # SEP at end of this chunk
+                sep_pos.append(len(ids) - 1)        # position of SEP
+
+            all_input_ids.append(ids)
+            all_sep_positions.append(sep_pos)
         
+        d_collated = {'input_ids': all_input_ids}
         # Padding
         d_collated = self.tokenizer.pad(
             d_collated,
@@ -119,7 +116,9 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
-        return d_collated, final_eos_positions
+        print(d_collated['input_ids'][0])
+        print(all_sep_positions[0])
+        return d_collated, all_sep_positions
 
 
 @dataclass
