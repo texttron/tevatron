@@ -55,7 +55,7 @@ class TrainCollator:
         
         # Passage tokenization
         if self.data_args.passage_chunk_size > 0:
-            d_collated, eos_positions = self._tokenize_chunked_passages(all_passages)
+            d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
             return q_collated, d_collated, eos_positions
         else:
             d_collated = self.tokenizer(
@@ -78,7 +78,7 @@ class TrainCollator:
             )
             return q_collated, d_collated
 
-    def _tokenize_chunked_passages(self, passages: List[str]):
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str]):
         """
         Tokenize passages with EOS separators between chunks.
         Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
@@ -99,7 +99,7 @@ class TrainCollator:
             ids = []
             sep_pos = []
             for i in range(0, len(tokens), chunk_len):
-                chunk = tokens[i:i + chunk_len]     # up to 128 tokens
+                chunk = tokens[i:i + chunk_len]     # up to self.data_args.passage_chunk_size -1 tokens
                 ids.extend(chunk)
                 ids.append(sep_id)                  # SEP at end of this chunk
                 sep_pos.append(len(ids) - 1)        # position of SEP
