@@ -116,8 +116,6 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
-        print(d_collated['input_ids'][0])
-        print(all_sep_positions[0])
         return d_collated, all_sep_positions
 
 
