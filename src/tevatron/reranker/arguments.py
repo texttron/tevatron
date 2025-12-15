@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
-
+from transformers import TrainingArguments
 
 @dataclass
 class ModelArguments:
@@ -116,3 +116,10 @@ class DataArguments:
                     "enable the use of Tensor Cores on NVIDIA hardware with compute capability >= 7.5 (Volta)."
         },
     )
+
+@dataclass
+class TevatronTrainingArguments(TrainingArguments):
+    warmup_ratio: float = field(default=0.1)
+
+    grad_cache: bool = field(default=False, metadata={"help": "Use gradient cache"})
+    gc_chunk_size: Optional[int] = field(default=2, metadata={"help": "Chunk size for gradient cache"})
