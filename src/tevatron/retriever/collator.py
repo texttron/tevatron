@@ -55,8 +55,8 @@ class TrainCollator:
         
         # Passage tokenization
         if self.data_args.passage_chunk_size > 0:
-            d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
-            return q_collated, d_collated, eos_positions
+            d_collated, sep_positions = self._tokenize_and_pad_chunked_passages(all_passages)
+            return q_collated, d_collated, sep_positions
         else:
             d_collated = self.tokenizer(
                 all_passages,

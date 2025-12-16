@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+import os
 import torch
 import torch.distributed as dist
 from torch import nn, Tensor
@@ -49,7 +50,21 @@ class EncoderModel(nn.Module):
         q_reps = self.encode_query(query) if query else None
         p_reps, chunk_mask = None, None
         if passage:
-            p_reps = self.encode_passage(passage)
+            # If training with chunked passages, sep_positions is produced by the collator and
+            # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
+            # into encode_passage() to actually get chunk reps/masks.
+            sep_positions = getattr(self, "sep_positions", None)
+            if self.passage_chunk_size > 0 and sep_positions is not None:
+                print(f"sep_positions: {sep_positions}")
+                try:
+                    p_reps = self.encode_passage(passage, sep_positions=sep_positions)
+                except TypeError:
+                    # Some models (e.g., multimodal) don't accept sep_positions.
+                    p_reps = self.encode_passage(passage)
+            else:
+                p_reps = self.encode_passage(passage)
+            print(f"p_reps: {p_reps}")
+            print(f"type(p_reps): {type(p_reps)}")
             if self.passage_chunk_size > 0 and isinstance(p_reps, tuple):
                 p_reps, chunk_mask = p_reps
 
@@ -65,10 +80,14 @@ class EncoderModel(nn.Module):
             if self.is_ddp:
                 q_reps = self._dist_gather_tensor(q_reps)
                 p_reps = self._dist_gather_tensor(p_reps)
-
+            print(f"passage_chunk_size: {self.passage_chunk_size}")
+            print(f"chunk_mask: {chunk_mask}")
             if self.passage_chunk_size > 0 and chunk_mask is not None:
+                print(f"start compute maxsim similarity==========================")
                 scores = self.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+                print(f"end compute maxsim similarity==========================")
             else:
+                print(f"start compute similarity==========================")
                 scores = self.compute_similarity(q_reps, p_reps)
             scores = scores.view(q_reps.size(0), -1)
 
@@ -116,7 +135,44 @@ class EncoderModel(nn.Module):
         if chunk_mask is not None:
             padding_mask = ~chunk_mask.unsqueeze(0).bool()
             chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
-        return chunk_scores.max(dim=-1).values
+        max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
+
+        # Print argmax chunk index + (optional) original token position from sep_positions
+        if True:
+            # only log from rank-0 if DDP
+            if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
+                sep_positions = getattr(self, "sep_positions", None)
+                # If DDP gathered passages, sep_positions may not align; only use when sizes match.
+                sep_ok = (
+                    isinstance(sep_positions, (list, tuple))
+                    and len(sep_positions) == p_reps.size(0)
+                )
+                qn, pn = max_idx.size(0), max_idx.size(1)
+                for qi in range(qn):
+                    for pi in range(pn):
+                        ci = int(max_idx[qi, pi].item())
+                        # last valid chunk index for this passage (by mask)
+                        if chunk_mask is not None:
+                            valid = int(chunk_mask[pi].sum().item())
+                            last_ci = max(valid - 1, 0)
+                        else:
+                            last_ci = p_reps.size(1) - 1
+
+                        if sep_ok and sep_positions[pi]:
+                            pos_list = sep_positions[pi]
+                            best_pos = pos_list[ci] if 0 <= ci < len(pos_list) else None
+                            last_pos = pos_list[-1]
+                            logger.info(
+                                f"[maxsim] q={qi} p={pi} best_chunk={ci} best_pos={best_pos} "
+                                f"last_chunk={last_ci} last_pos={last_pos} best_score={float(max_vals[qi, pi].item()):.6f}"
+                            )
+                        else:
+                            logger.info(
+                                f"[maxsim] q={qi} p={pi} best_chunk={ci} last_chunk={last_ci} "
+                                f"best_score={float(max_vals[qi, pi].item()):.6f}"
+                            )
+
+        return max_vals
 
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
