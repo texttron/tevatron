@@ -24,7 +24,7 @@ class TrainCollator:
         """
         Collate function for training.
         :param features: list of (query, passages) tuples
-        :return: tokenized query_ids, passage_ids
+        :return: tokenized query_ids, passage_ids, [eos_positions if chunked]
         """
         all_queries = [f[0] for f in features]
         all_passages = []
@@ -32,6 +32,8 @@ class TrainCollator:
             all_passages.extend(f[1])
         all_queries = [q[0] for q in all_queries]
         all_passages = [p[0] for p in all_passages]
+        
+        # Query tokenization
         q_collated = self.tokenizer(
             all_queries,
             padding=False, 
@@ -41,20 +43,8 @@ class TrainCollator:
             return_token_type_ids=False,
             add_special_tokens=True,
         )
-        d_collated = self.tokenizer(
-            all_passages,
-            padding=False, 
-            truncation=True,
-            max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            add_special_tokens=True,
-        )
-
         if self.data_args.append_eos_token:
             q_collated['input_ids'] = [q + [self.tokenizer.eos_token_id] for q in q_collated['input_ids']]
-            d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
-        
         q_collated = self.tokenizer.pad(
             q_collated,
             padding=True, 
@@ -62,6 +52,63 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
+        
+        # Passage tokenization
+        if self.data_args.passage_chunk_size > 0:
+            d_collated, sep_positions = self._tokenize_and_pad_chunked_passages(all_passages)
+            return q_collated, d_collated, sep_positions
+        else:
+            d_collated = self.tokenizer(
+                all_passages,
+                padding=False, 
+                truncation=True,
+                max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
+                return_attention_mask=False,
+                return_token_type_ids=False,
+                add_special_tokens=True,
+            )
+            if self.data_args.append_eos_token:
+                d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
+            d_collated = self.tokenizer.pad(
+                d_collated,
+                padding=True, 
+                pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+                return_attention_mask=True,
+                return_tensors='pt',
+            )
+            return q_collated, d_collated
+
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str]):
+        """
+        Tokenize passages with EOS separators between chunks.
+        Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
+        
+        Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
+        so that query and passage use the same pooling token automatically.
+        """
+        chunk_len = self.data_args.passage_chunk_size -1
+        sep_id = 151645 # <|separator|>
+        eos_id = 151643 # <|endoftext|>
+        
+        all_input_ids = []
+        all_sep_positions = []
+        
+        for passage in passages:
+            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
+            tokens.append(eos_id)
+            ids = []
+            sep_pos = []
+            for i in range(0, len(tokens), chunk_len):
+                chunk = tokens[i:i + chunk_len]     # up to self.data_args.passage_chunk_size -1 tokens
+                ids.extend(chunk)
+                ids.append(sep_id)                  # SEP at end of this chunk
+                sep_pos.append(len(ids) - 1)        # position of SEP
+
+            all_input_ids.append(ids)
+            all_sep_positions.append(sep_pos)
+        
+        d_collated = {'input_ids': all_input_ids}
+        # Padding
         d_collated = self.tokenizer.pad(
             d_collated,
             padding=True, 
@@ -69,7 +116,7 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
-        return q_collated, d_collated
+        return d_collated, all_sep_positions
 
 
 @dataclass
@@ -221,6 +268,65 @@ class EncodeCollator:
             return_tensors='pt',
         )
         return content_ids, collated_inputs
+
+
+@dataclass
+class ChunkedEncodeCollator:
+    """
+    Collator for chunked passage encoding (inference/search).
+    Splits passages into chunks with EOS separators, similar to training.
+    Uses the same chunking logic as TrainCollator._tokenize_and_pad_chunked_passages.
+    """
+    data_args: DataArguments
+    tokenizer: PreTrainedTokenizer
+
+    def __call__(self, features):
+        """
+        Collate function for chunked passage encoding.
+        :param features: list of (doc_id, text, image, video, audio) tuples
+        :return: (doc_ids, collated_inputs, sep_positions, chunk_counts)
+        """
+        doc_ids = [x[0] for x in features]
+        texts = [x[1] for x in features]
+        
+        chunk_len = self.data_args.passage_chunk_size - 1
+        sep_id = 151645  # <|separator|>
+        eos_id = 151643  # <|endoftext|>
+        
+        all_input_ids = []
+        all_sep_positions = []
+        chunk_counts = []
+        
+        for text in texts:
+            if text is None:
+                text = ""
+            tokens = self.tokenizer.encode(text, add_special_tokens=False)
+            tokens.append(eos_id)
+            
+            ids = []
+            sep_pos = []
+            for i in range(0, len(tokens), chunk_len):
+                chunk = tokens[i:i + chunk_len]  # up to passage_chunk_size - 1 tokens
+                ids.extend(chunk)
+                ids.append(sep_id)  # SEP at end of this chunk
+                sep_pos.append(len(ids) - 1)  # position of SEP
+            
+            all_input_ids.append(ids)
+            all_sep_positions.append(sep_pos)
+            chunk_counts.append(len(sep_pos))
+        
+        # Use tokenizer.pad() for consistent padding
+        d_collated = {'input_ids': all_input_ids}
+        d_collated = self.tokenizer.pad(
+            d_collated,
+            padding=True,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+        
+        return doc_ids, d_collated, all_sep_positions, chunk_counts
+
 
 @dataclass
 class MultiModalEncodeCollator:

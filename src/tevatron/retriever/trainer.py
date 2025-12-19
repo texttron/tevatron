@@ -45,7 +45,10 @@ class TevatronTrainer(Trainer):
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        query, passage = inputs
+        query, passage, *rest = inputs
+        sep_positions = rest[0] if rest else None
+        if hasattr(model, 'sep_positions'):
+            model.sep_positions = sep_positions
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):

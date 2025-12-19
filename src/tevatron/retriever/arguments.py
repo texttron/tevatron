@@ -203,6 +203,10 @@ class DataArguments:
         metadata={"help": "padding side for the tokenizer, can be 'left' or 'right'"}
     )
 
+    passage_chunk_size: int = field(
+        default=0,
+        metadata={"help": "Chunk size for chunked passage encoding with MaxSim. 0=disabled, >0=chunk size in tokens"}
+    )
 
 
 @dataclass
