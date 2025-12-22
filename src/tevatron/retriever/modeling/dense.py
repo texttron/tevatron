@@ -5,7 +5,7 @@ from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
-
+EOS_TOKEN_ID = 151645
 
 class DenseModel(EncoderModel):
 
@@ -20,13 +20,20 @@ class DenseModel(EncoderModel):
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg, eos_positions=None):
+        print(f"eos_positions: {eos_positions}")
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
         if self.passage_chunk_size > 0 and eos_positions:
+            for i, ep in enumerate(eos_positions):
+                for eos_pos in ep:
+                    assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID
+
             return self._pooling_chunked(hidden_states, eos_positions)
         return self._pooling(hidden_states, psg['attention_mask'])
 
     def _pooling_chunked(self, last_hidden_state, eos_positions):
         batch_size, seq_len, hidden_size = last_hidden_state.shape
+        print(f"last_hidden_state.shape: {last_hidden_state.shape}")
+        print(f"eos_positions: {eos_positions}")
         
         if not eos_positions:
             # No chunks, return empty
@@ -34,6 +41,9 @@ class DenseModel(EncoderModel):
                    torch.zeros(batch_size, 0, device=last_hidden_state.device)
         
         # Find max number of chunks across all passages
+        for eos_pos in eos_positions:
+            print(f"eos_pos: {eos_pos}")
+            print(f"type(eos_pos): {type(eos_pos)}")
         max_chunks = max(len(pos_list) for pos_list in eos_positions)
         
         chunk_reps = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)

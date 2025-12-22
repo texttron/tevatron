@@ -82,7 +82,9 @@ def main():
     )
 
     use_chunked = not data_args.encode_is_query and data_args.passage_chunk_size > 0
-    
+    print("data_args.encode_is_query: ", data_args.encode_is_query)
+    print("data_args.passage_chunk_size: ", data_args.passage_chunk_size)
+    print("use_chunked: ", use_chunked)
     if use_chunked:
         logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
         model.passage_chunk_size = data_args.passage_chunk_size
@@ -108,12 +110,13 @@ def main():
             with torch.no_grad():
                 if use_chunked:
                     doc_ids, batch_inputs, eos_positions = batch
-                    # print(batch_inputs)
+                    # batch_inputs: input_ids, attention_mask
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
+                    print(f"eos_positions: {eos_positions}")
                     chunk_embs, chunk_mask = model.encode_passage(batch_inputs, eos_positions)
-                    
-                    # Flatten chunk embeddings and create lookup indices
+                    # chunk_embs: [batch_size, max_chunks, hidden_size]
+                    # chunk_mask: [batch_size, max_chunks]
                     batch_size, max_chunks, hidden_size = chunk_embs.shape
                     for i, doc_id in enumerate(doc_ids):
                         for chunk_idx in range(max_chunks):
@@ -133,11 +136,18 @@ def main():
                     else:
                         model_output: EncoderOutput = model(passage=batch_inputs)
                         encoded.append(model_output.p_reps.cpu().detach().numpy())
-
-    # Combine encoded embeddings
     if use_chunked:
+        print("use_chunked: ", use_chunked)
+        print(f"encoded: {encoded}")
+        print(f"lookup_indices: {lookup_indices}")
+        print(f"length of encoded: {len(encoded)}")
+        print(f"length of lookup_indices: {len(lookup_indices)}")
+    # Combine encoded embeddings
         encoded = np.stack(encoded)
         logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} chunks")
+        print(f"encoded.shape: {encoded.shape}")
+        print(f"length of encoded: {len(encoded)}")
+        input("Press Enter to continue...")
     else:
         encoded = np.concatenate(encoded)
 
