@@ -12,35 +12,35 @@ class DenseModel(EncoderModel):
     def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
         super().__init__(encoder, pooling, normalize, temperature)
         self.passage_chunk_size = 0
-        self.sep_positions = None
+        self.eos_positions = None
 
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
-    def encode_passage(self, psg, sep_positions=None):
+    def encode_passage(self, psg, eos_positions=None):
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
-        if self.passage_chunk_size > 0 and sep_positions:
-            return self._pooling_chunked(hidden_states, sep_positions)
+        if self.passage_chunk_size > 0 and eos_positions:
+            return self._pooling_chunked(hidden_states, eos_positions)
         return self._pooling(hidden_states, psg['attention_mask'])
 
-    def _pooling_chunked(self, last_hidden_state, sep_positions):
+    def _pooling_chunked(self, last_hidden_state, eos_positions):
         batch_size, seq_len, hidden_size = last_hidden_state.shape
         
-        if not sep_positions:
+        if not eos_positions:
             # No chunks, return empty
             return torch.zeros(batch_size, 0, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype), \
                    torch.zeros(batch_size, 0, device=last_hidden_state.device)
         
         # Find max number of chunks across all passages
-        max_chunks = max(len(pos_list) for pos_list in sep_positions)
+        max_chunks = max(len(pos_list) for pos_list in eos_positions)
         
         chunk_reps = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)
         chunk_mask = torch.zeros(batch_size, max_chunks, device=last_hidden_state.device, dtype=torch.float)
         
-        # Extract embeddings at sep_positions (this is the pooling operation for chunked passages)
-        for i, positions in enumerate(sep_positions):
+        # Extract embeddings at eos_positions (this is the pooling operation for chunked passages)
+        for i, positions in enumerate(eos_positions):
             for j, pos in enumerate(positions):
                 if 0 <= pos < seq_len:
                     chunk_reps[i, j] = last_hidden_state[i, pos]

@@ -13,6 +13,76 @@ torch.set_printoptions(threshold=float('inf'), linewidth=10000)
 logger = logging.getLogger(__name__)
 
 
+def _tokenize_and_pad_chunked_passages(
+    passages: List[str],
+    tokenizer: PreTrainedTokenizer,
+    data_args: DataArguments,
+) -> Tuple[dict, List[List[int]]]:
+    """
+    Tokenize passages with EOS separators between chunks.
+    Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
+    
+    Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
+    so that query and passage use the same pooling token automatically.
+    
+    :param passages: List of passage texts to tokenize and chunk
+    :param tokenizer: Tokenizer to use for encoding
+    :param data_args: DataArguments containing chunk_size, max_len, pad_to_multiple_of
+    :return: Tuple of (collated_dict, eos_positions) where:
+        - collated_dict: dict with 'input_ids' and 'attention_mask' tensors
+        - eos_positions: list of lists, one per passage, containing EOS token positions
+    """
+    chunk_len = data_args.passage_chunk_size - 1
+    eos_id = tokenizer.eos_token_id
+    if eos_id is None:
+        raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+    max_length = data_args.passage_max_len  # cap total length (incl. EOS per chunk)
+    
+    all_input_ids = []
+    all_eos_positions = []
+    
+    for passage in passages:
+        if passage is None:
+            passage = ""
+        tokens = tokenizer.encode(passage, add_special_tokens=False)
+        ids = []
+        eos_pos = []
+
+        # Build chunked ids, optionally capped by max_length (total tokens including EOS separators).
+        i = 0
+        while i < len(tokens):
+            if max_length and max_length > 0:
+                remaining = max_length - len(ids)
+                # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
+                if remaining <= 1:
+                    break
+                take = min(chunk_len, len(tokens) - i, remaining - 1)
+                if take <= 0:
+                    break
+            else:
+                take = min(chunk_len, len(tokens) - i)
+
+            chunk = tokens[i:i + take]          # up to chunk_len tokens
+            ids.extend(chunk)
+            ids.append(eos_id)                  # EOS at end of this chunk
+            eos_pos.append(len(ids) - 1)        # position of EOS (pooling position)
+            i += take
+
+        all_input_ids.append(ids)
+        all_eos_positions.append(eos_pos)
+    
+    d_collated = {'input_ids': all_input_ids}
+    # Padding
+    d_collated = tokenizer.pad(
+        d_collated,
+        padding=True, 
+        pad_to_multiple_of=data_args.pad_to_multiple_of,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    return d_collated, all_eos_positions
+
+
 @dataclass
 class TrainCollator:
     """
@@ -56,8 +126,8 @@ class TrainCollator:
         
         # Passage tokenization
         if self.data_args.passage_chunk_size > 0:
-            d_collated, sep_positions = self._tokenize_and_pad_chunked_passages(all_passages)
-            return q_collated, d_collated, sep_positions
+            d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
+            return q_collated, d_collated, eos_positions
         else:
             d_collated = self.tokenizer(
                 all_passages,
@@ -80,68 +150,7 @@ class TrainCollator:
             return q_collated, d_collated
 
     def _tokenize_and_pad_chunked_passages(self, passages: List[str]):
-        """
-        Tokenize passages with EOS separators between chunks.
-        Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
-        
-        Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
-        so that query and passage use the same pooling token automatically.
-        """
-        chunk_len = self.data_args.passage_chunk_size -1
-        # sep_id = 151645 # <|separator|>
-        eos_id = self.tokenizer.eos_token_id
-        if eos_id is None:
-            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
-        max_length = self.data_args.passage_max_len  # cap total length (incl. EOS per chunk)
-        
-        all_input_ids = []
-        all_sep_positions = []
-        
-        for passage in passages:
-            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
-            ids = []
-            sep_pos = []
-
-            # Build chunked ids, optionally capped by max_length (total tokens including EOS separators).
-            i = 0
-            while i < len(tokens):
-                if max_length and max_length > 0:
-                    remaining = max_length - len(ids)
-                    # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
-                    if remaining <= 1:
-                        break
-                    take = min(chunk_len, len(tokens) - i, remaining - 1)
-                    if take <= 0:
-                        break
-                else:
-                    take = min(chunk_len, len(tokens) - i)
-
-                chunk = tokens[i:i + take]          # up to chunk_len tokens
-                ids.extend(chunk)
-                ids.append(eos_id)                  # EOS at end of this chunk
-                sep_pos.append(len(ids) - 1)        # position of EOS (pooling position)
-                i += take
-
-            all_input_ids.append(ids)
-            all_sep_positions.append(sep_pos)
-        
-        print(f"all_input_ids: {all_input_ids}")
-        d_collated = {'input_ids': all_input_ids}
-        # Padding
-        d_collated = self.tokenizer.pad(
-            d_collated,
-            padding=True, 
-            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
-            return_attention_mask=True,
-            return_tensors='pt',
-        )
-        # print(f"d_collated: {d_collated['input_ids']}")
-        # print(f"length of d_collated: {len(d_collated['input_ids'])}")
-        # print(f"attention mask: {d_collated['attention_mask']}")
-        # print(f"length of attention mask: {len(d_collated['attention_mask'])}")
-        # print(f"all_sep_positions: {all_sep_positions[0]}")
-        # input("Press Enter to continue...")
-        return d_collated, all_sep_positions
+        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args)
 
 
 @dataclass
@@ -309,62 +318,17 @@ class ChunkedEncodeCollator:
         """
         Collate function for chunked passage encoding.
         :param features: list of (doc_id, text, image, video, audio) tuples
-        :return: (doc_ids, collated_inputs, sep_positions, chunk_counts)
+        :return: (doc_ids, collated_inputs, eos_positions)
         """
         doc_ids = [x[0] for x in features]
         texts = [x[1] for x in features]
         
-        chunk_len = self.data_args.passage_chunk_size - 1
-        sep_id = 151645  # <|separator|>
-        eos_id = self.tokenizer.eos_token_id
-        if eos_id is None:
-            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
-        max_length = self.data_args.passage_max_len  # cap total length (incl. EOS per chunk)
+        d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts)
         
-        all_input_ids = []
-        all_sep_positions = []
-        chunk_counts = []
-        
-        for text in texts:
-            if text is None:
-                text = ""
-            tokens = self.tokenizer.encode(text, add_special_tokens=False)
-            ids = []
-            sep_pos = []
+        return doc_ids, d_collated, all_eos_positions
 
-            i = 0
-            while i < len(tokens):
-                if max_length and max_length > 0:
-                    remaining = max_length - len(ids)
-                    if remaining <= 1:
-                        break
-                    take = min(chunk_len, len(tokens) - i, remaining - 1)
-                    if take <= 0:
-                        break
-                else:
-                    take = min(chunk_len, len(tokens) - i)
-
-                chunk = tokens[i:i + take]      # up to chunk_len tokens
-                ids.extend(chunk)
-                ids.append(eos_id)              # EOS at end of this chunk
-                sep_pos.append(len(ids) - 1)    # position of EOS
-                i += take
-            
-            all_input_ids.append(ids)
-            all_sep_positions.append(sep_pos)
-            chunk_counts.append(len(sep_pos))
-        
-        # Use tokenizer.pad() for consistent padding
-        d_collated = {'input_ids': all_input_ids}
-        d_collated = self.tokenizer.pad(
-            d_collated,
-            padding=True,
-            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
-            return_attention_mask=True,
-            return_tensors='pt',
-        )
-        
-        return doc_ids, d_collated, all_sep_positions, chunk_counts
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str]):
+        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args)
 
 
 @dataclass

@@ -46,10 +46,10 @@ class TevatronTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage, *rest = inputs
-        sep_positions = rest[0] if rest else None
-        # input(f"trainer.compute_loss: sep_positions: {sep_positions}")
-        if hasattr(model, 'sep_positions'):
-            model.sep_positions = sep_positions
+        eos_positions = rest[0] if rest else None
+        # input(f"trainer.compute_loss: eos_positions: {eos_positions}")
+        if hasattr(model, 'eos_positions'):
+            model.eos_positions = eos_positions
         return model(query=query, passage=passage).loss
 
     def training_step(self, *args):

@@ -107,11 +107,11 @@ def main():
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
                 if use_chunked:
-                    doc_ids, batch_inputs, sep_positions, chunk_counts = batch
+                    doc_ids, batch_inputs, eos_positions = batch
                     # print(batch_inputs)
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
-                    chunk_embs, chunk_mask = model.encode_passage(batch_inputs, sep_positions)
+                    chunk_embs, chunk_mask = model.encode_passage(batch_inputs, eos_positions)
                     
                     # Flatten chunk embeddings and create lookup indices
                     batch_size, max_chunks, hidden_size = chunk_embs.shape

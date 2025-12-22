@@ -50,16 +50,16 @@ class EncoderModel(nn.Module):
         q_reps = self.encode_query(query) if query else None
         p_reps, chunk_mask = None, None
         if passage:
-            # If training with chunked passages, sep_positions is produced by the collator and
+            # If training with chunked passages, eos_positions is produced by the collator and
             # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
             # into encode_passage() to actually get chunk reps/masks.
-            sep_positions = getattr(self, "sep_positions", None)
-            if self.passage_chunk_size > 0 and sep_positions is not None:
-                # print(f"sep_positions: {sep_positions}")
+            eos_positions = getattr(self, "eos_positions", None)
+            if self.passage_chunk_size > 0 and eos_positions is not None:
+                # print(f"eos_positions: {eos_positions}")
                 try:
-                    p_reps = self.encode_passage(passage, sep_positions=sep_positions)
+                    p_reps = self.encode_passage(passage, eos_positions=eos_positions)
                 except TypeError:
-                    # Some models (e.g., multimodal) don't accept sep_positions.
+                    # Some models (e.g., multimodal) don't accept eos_positions.
                     p_reps = self.encode_passage(passage)
             else:
                 p_reps = self.encode_passage(passage)
@@ -137,15 +137,15 @@ class EncoderModel(nn.Module):
             chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
         max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
 
-        # Print argmax chunk index + (optional) original token position from sep_positions
+        # Print argmax chunk index + (optional) original token position from eos_positions
         if True:
             # only log from rank-0 if DDP
             if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
-                sep_positions = getattr(self, "sep_positions", None)
-                # If DDP gathered passages, sep_positions may not align; only use when sizes match.
-                sep_ok = (
-                    isinstance(sep_positions, (list, tuple))
-                    and len(sep_positions) == p_reps.size(0)
+                eos_positions = getattr(self, "eos_positions", None)
+                # If DDP gathered passages, eos_positions may not align; only use when sizes match.
+                eos_ok = (
+                    isinstance(eos_positions, (list, tuple))
+                    and len(eos_positions) == p_reps.size(0)
                 )
                 qn, pn = max_idx.size(0), max_idx.size(1)
                 for qi in range(qn):
@@ -158,8 +158,8 @@ class EncoderModel(nn.Module):
                         else:
                             last_ci = p_reps.size(1) - 1
 
-                        if sep_ok and sep_positions[pi]:
-                            pos_list = sep_positions[pi]
+                        if eos_ok and eos_positions[pi]:
+                            pos_list = eos_positions[pi]
                             best_pos = pos_list[ci] if 0 <= ci < len(pos_list) else None
                             last_pos = pos_list[-1]
                             logger.info(
