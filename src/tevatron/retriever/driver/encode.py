@@ -108,7 +108,7 @@ def main():
             with torch.no_grad():
                 if use_chunked:
                     doc_ids, batch_inputs, sep_positions, chunk_counts = batch
-                    print(batch_inputs)
+                    # print(batch_inputs)
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
                     chunk_embs, chunk_mask = model.encode_passage(batch_inputs, sep_positions)

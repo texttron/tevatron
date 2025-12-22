@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
 from qwen_omni_utils import process_mm_info
 from PIL import Image
+from rich import print
 
 from tevatron.retriever.arguments import DataArguments
-
+torch.set_printoptions(threshold=float('inf'), linewidth=10000)
 
 logger = logging.getLogger(__name__)
 
@@ -87,26 +88,44 @@ class TrainCollator:
         so that query and passage use the same pooling token automatically.
         """
         chunk_len = self.data_args.passage_chunk_size -1
-        sep_id = 151645 # <|separator|>
-        eos_id = 151643 # <|endoftext|>
+        # sep_id = 151645 # <|separator|>
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+        max_length = self.data_args.passage_max_len  # cap total length (incl. EOS per chunk)
         
         all_input_ids = []
         all_sep_positions = []
         
         for passage in passages:
             tokens = self.tokenizer.encode(passage, add_special_tokens=False)
-            tokens.append(eos_id)
             ids = []
             sep_pos = []
-            for i in range(0, len(tokens), chunk_len):
-                chunk = tokens[i:i + chunk_len]     # up to self.data_args.passage_chunk_size -1 tokens
+
+            # Build chunked ids, optionally capped by max_length (total tokens including EOS separators).
+            i = 0
+            while i < len(tokens):
+                if max_length and max_length > 0:
+                    remaining = max_length - len(ids)
+                    # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
+                    if remaining <= 1:
+                        break
+                    take = min(chunk_len, len(tokens) - i, remaining - 1)
+                    if take <= 0:
+                        break
+                else:
+                    take = min(chunk_len, len(tokens) - i)
+
+                chunk = tokens[i:i + take]          # up to chunk_len tokens
                 ids.extend(chunk)
-                ids.append(sep_id)                  # SEP at end of this chunk
-                sep_pos.append(len(ids) - 1)        # position of SEP
+                ids.append(eos_id)                  # EOS at end of this chunk
+                sep_pos.append(len(ids) - 1)        # position of EOS (pooling position)
+                i += take
 
             all_input_ids.append(ids)
             all_sep_positions.append(sep_pos)
         
+        print(f"all_input_ids: {all_input_ids}")
         d_collated = {'input_ids': all_input_ids}
         # Padding
         d_collated = self.tokenizer.pad(
@@ -116,6 +135,12 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
+        # print(f"d_collated: {d_collated['input_ids']}")
+        # print(f"length of d_collated: {len(d_collated['input_ids'])}")
+        # print(f"attention mask: {d_collated['attention_mask']}")
+        # print(f"length of attention mask: {len(d_collated['attention_mask'])}")
+        # print(f"all_sep_positions: {all_sep_positions[0]}")
+        # input("Press Enter to continue...")
         return d_collated, all_sep_positions
 
 
@@ -291,7 +316,10 @@ class ChunkedEncodeCollator:
         
         chunk_len = self.data_args.passage_chunk_size - 1
         sep_id = 151645  # <|separator|>
-        eos_id = 151643  # <|endoftext|>
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+        max_length = self.data_args.passage_max_len  # cap total length (incl. EOS per chunk)
         
         all_input_ids = []
         all_sep_positions = []
@@ -301,15 +329,26 @@ class ChunkedEncodeCollator:
             if text is None:
                 text = ""
             tokens = self.tokenizer.encode(text, add_special_tokens=False)
-            tokens.append(eos_id)
-            
             ids = []
             sep_pos = []
-            for i in range(0, len(tokens), chunk_len):
-                chunk = tokens[i:i + chunk_len]  # up to passage_chunk_size - 1 tokens
+
+            i = 0
+            while i < len(tokens):
+                if max_length and max_length > 0:
+                    remaining = max_length - len(ids)
+                    if remaining <= 1:
+                        break
+                    take = min(chunk_len, len(tokens) - i, remaining - 1)
+                    if take <= 0:
+                        break
+                else:
+                    take = min(chunk_len, len(tokens) - i)
+
+                chunk = tokens[i:i + take]      # up to chunk_len tokens
                 ids.extend(chunk)
-                ids.append(sep_id)  # SEP at end of this chunk
-                sep_pos.append(len(ids) - 1)  # position of SEP
+                ids.append(eos_id)              # EOS at end of this chunk
+                sep_pos.append(len(ids) - 1)    # position of EOS
+                i += take
             
             all_input_ids.append(ids)
             all_sep_positions.append(sep_pos)
