@@ -20,47 +20,49 @@ def _chunk_tokens(
     max_length: int = None,
 ) -> Tuple[List[int], List[int]]:
     """
-    Chunk a list of tokens into chunks of specified size, adding EOS token after each chunk.
+    Chunk tokens into fixed-size chunks with EOS separators.
     
-    :param tokens: List of token IDs to chunk
-    :param chunk_size: Maximum size of each chunk (before adding EOS). Must be >= 2.
+    :param tokens: Token IDs to chunk
+    :param chunk_size: Max chunk size (before EOS). Must be >= 2.
     :param eos_token_id: EOS token ID to append after each chunk
-    :param max_length: Optional maximum total length (including EOS tokens). If None, no limit.
-    :return: Tuple of (chunked_ids, eos_positions) where:
-        - chunked_ids: List of token IDs with EOS separators between chunks
-        - eos_positions: List of positions where EOS tokens were inserted
+    :param max_length: Optional max total length (including EOS). If None, no limit.
+    :return: (chunked_ids, eos_positions) - token IDs with EOS separators and EOS positions
     """
     if chunk_size < 2:
-        # chunk_size must be at least 2 to fit at least 1 token + 1 EOS
         return [], []
     
     chunk_len = chunk_size - 1  # Reserve 1 slot for EOS
+    
+    # Truncate tokens to fit within max_length
+    # Each chunk: chunk_len tokens + 1 EOS = chunk_size total
+    if max_length and max_length > 0:
+        max_tokens_to_use = 0
+        remaining_length = max_length
+        
+        while remaining_length > 1 and max_tokens_to_use < len(tokens):
+            if remaining_length >= chunk_size:
+                max_tokens_to_use += chunk_len
+                remaining_length -= chunk_size
+            else:
+                max_tokens_to_use += remaining_length - 1
+                break
+        
+        tokens = tokens[:max_tokens_to_use]
+    
+    # Chunk tokens and add EOS after each chunk
     ids = []
     eos_pos = []
     
     i = 0
     while i < len(tokens):
-        if max_length and max_length > 0:
-            remaining = max_length - len(ids)
-            # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
-            if remaining <= 1:
-                break
-            take = min(chunk_len, len(tokens) - i, remaining - 1)
-            if take <= 0:
-                break
-        else:
-            take = min(chunk_len, len(tokens) - i)
-            if take <= 0:
-                break
-        
-        chunk = tokens[i:i + take]  # up to chunk_len tokens
+        take = min(chunk_len, len(tokens) - i)
+        chunk = tokens[i:i + take]
         ids.extend(chunk)
-        ids.append(eos_token_id)  # EOS at end of this chunk
-        eos_pos.append(len(ids) - 1)  # position of EOS (pooling position)
+        ids.append(eos_token_id)
+        eos_pos.append(len(ids) - 1)  # EOS position for pooling
         i += take
     
     return ids, eos_pos
-
 
 def _pad_and_adjust_eos_positions(
     all_input_ids: List[List[int]],
@@ -70,26 +72,19 @@ def _pad_and_adjust_eos_positions(
     pad_to_multiple_of: int,
 ) -> Tuple[dict, List[List[int]]]:
     """
-    Pad input IDs and adjust EOS positions based on padding side.
+    Pad input IDs and adjust EOS positions for left padding.
     
-    :param all_input_ids: List of lists of token IDs (one per passage)
-    :param all_eos_positions: List of lists of EOS positions (one per passage)
-    :param tokenizer: Tokenizer to use for padding
-    :param padding_side: 'left' or 'right' - side to pad on
-    :param pad_to_multiple_of: Pad sequences to multiple of this value
-    :return: Tuple of (padded_dict, adjusted_eos_positions) where:
-        - padded_dict: dict with 'input_ids' and 'attention_mask' tensors
-        - adjusted_eos_positions: List of lists with EOS positions adjusted for padding
+    :param all_input_ids: List of token ID lists (one per passage)
+    :param all_eos_positions: List of EOS position lists (one per passage)
+    :param tokenizer: Tokenizer for padding
+    :param padding_side: 'left' or 'right'
+    :param pad_to_multiple_of: Pad to multiple of this value
+    :return: (padded_dict, adjusted_eos_positions) - padded tensors and adjusted EOS positions
     """
     d_collated = {'input_ids': all_input_ids}
-    
-    # Store original lengths before padding to adjust eos_positions for left padding
     original_lengths = [len(ids) for ids in all_input_ids]
-    
-    # Set tokenizer padding_side before padding
     tokenizer.padding_side = padding_side
     
-    # Padding
     d_collated = tokenizer.pad(
         d_collated,
         padding=True,
@@ -98,16 +93,12 @@ def _pad_and_adjust_eos_positions(
         return_tensors='pt',
     )
     
-    # Adjust eos_positions for left padding
-    # When padding_side is 'left', padding tokens are added at the beginning,
-    # so EOS positions need to be shifted by the padding length
-    # Create a deep copy to avoid modifying the original
+    # Shift EOS positions for left padding
     adjusted_eos_positions = [list(eos_pos_list) for eos_pos_list in all_eos_positions]
     if padding_side == 'left':
-        padded_lengths = d_collated['input_ids'].shape[1]  # All sequences have same length after padding
+        padded_lengths = d_collated['input_ids'].shape[1]
         for i, eos_pos_list in enumerate(adjusted_eos_positions):
             padding_length = padded_lengths - original_lengths[i]
-            # Shift each EOS position by the padding length
             adjusted_eos_positions[i] = [pos + padding_length for pos in eos_pos_list]
     
     return d_collated, adjusted_eos_positions
@@ -119,18 +110,12 @@ def _tokenize_and_pad_chunked_passages(
     data_args: DataArguments,
 ) -> Tuple[dict, List[List[int]]]:
     """
-    Tokenize passages with EOS separators between chunks.
-    Each chunk ends with EOS, enabling extraction of chunk embeddings from EOS positions.
+    Tokenize and chunk passages with EOS separators. Each chunk ends with EOS for embedding extraction.
     
-    Uses the same token that tokenizer.add_special_tokens adds (e.g., <|endoftext|>)
-    so that query and passage use the same pooling token automatically.
-    
-    :param passages: List of passage texts to tokenize and chunk
-    :param tokenizer: Tokenizer to use for encoding
-    :param data_args: DataArguments containing chunk_size, max_len, pad_to_multiple_of
-    :return: Tuple of (collated_dict, eos_positions) where:
-        - collated_dict: dict with 'input_ids' and 'attention_mask' tensors
-        - eos_positions: list of lists, one per passage, containing EOS token positions
+    :param passages: Passage texts to tokenize and chunk
+    :param tokenizer: Tokenizer for encoding
+    :param data_args: DataArguments with chunk_size, max_len, pad_to_multiple_of
+    :return: (collated_dict, eos_positions) - padded tensors and EOS positions per passage
     """
     eos_id = tokenizer.eos_token_id
     if eos_id is None:
@@ -185,7 +170,6 @@ class TrainCollator:
         all_queries = [q[0] for q in all_queries]
         all_passages = [p[0] for p in all_passages]
         
-        # Query tokenization
         q_collated = self.tokenizer(
             all_queries,
             padding=False, 
@@ -205,7 +189,6 @@ class TrainCollator:
             return_tensors='pt',
         )
         
-        # Passage tokenization
         if self.data_args.passage_chunk_size > 0:
             d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
             return q_collated, d_collated, eos_positions
@@ -387,18 +370,14 @@ class EncodeCollator:
 
 @dataclass
 class ChunkedEncodeCollator:
-    """
-    Collator for chunked passage encoding (inference/search).
-    Splits passages into chunks with EOS separators, similar to training.
-    Uses the same chunking logic as TrainCollator._tokenize_and_pad_chunked_passages.
-    """
+    """Collator for chunked passage encoding (inference/search). Uses same chunking logic as training."""
     data_args: DataArguments
     tokenizer: PreTrainedTokenizer
 
     def __call__(self, features):
         """
-        Collate function for chunked passage encoding.
-        :param features: list of (doc_id, text, image, video, audio) tuples
+        Collate chunked passage encoding features.
+        :param features: List of (doc_id, text, image, video, audio) tuples
         :return: (doc_ids, collated_inputs, eos_positions)
         """
         doc_ids = [x[0] for x in features]

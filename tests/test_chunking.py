@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 
 def _tevatron_root() -> Path:
@@ -36,7 +37,7 @@ REAL_TEXT = (
     "quantitative assessment of water diffusion by diffusion tensor MRI provides insight into microstructural "
     "development in cerebral white matter in living infants"
 )
-EOS_TOKEN_ID = 151645
+EOS_TOKEN_ID = 151643
 PADDING_TOKEN_ID = 151643
 
 @pytest.fixture(scope="session")
@@ -50,8 +51,729 @@ def train_tokenizer():
     tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-Embedding-0.6B")
     if tok.pad_token_id is None:
         tok.pad_token_id = tok.eos_token_id
+    tok.eos_token_id = tok.pad_token_id
     tok.padding_side = "right"  # finetune_with_chunk.sh uses --padding_side right
     return tok
+
+
+# ============================================================================
+# Unit tests for _chunk_tokens helper function
+# ============================================================================
+
+@pytest.mark.unit
+def test_chunk_tokens_basic():
+    """Test basic chunking functionality."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(10))  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    eos_id = 99
+    chunk_size = 4
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+    
+    # chunk_size=4 means chunk_len=3, so chunks are:
+    # [0,1,2,99], [3,4,5,99], [6,7,8,99], [9,99]
+    expected_ids = [0, 1, 2, 99, 3, 4, 5, 99, 6, 7, 8, 99, 9, 99]
+    expected_eos_pos = [3, 7, 11, 13]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_with_max_length():
+    """Test chunking with max_length constraint."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(20))
+    eos_id = 99
+    chunk_size = 5
+    max_length = 12
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    
+    # Hardcoded golden output: chunk_size=5 means chunk_len=4
+    # First chunk: [0,1,2,3,99] = 5 tokens
+    # Second chunk: [4,5,6,7,99] = 5 tokens
+    # Third chunk: [8,99] = 2 tokens (partial, fits in remaining 2 tokens)
+    # Total: 12 tokens
+    expected_ids = [0, 1, 2, 3, 99, 4, 5, 6, 7, 99, 8, 99]
+    expected_eos_pos = [4, 9, 11]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_max_length_exact_fit():
+    """Test chunking when max_length exactly fits chunks."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(10))
+    eos_id = 99
+    chunk_size = 4
+    max_length = 14  # Exactly fits 3 chunks: 3*4 + 2 = 14
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+
+    expected_ids = [0, 1, 2, 99, 3, 4, 5, 99, 6, 7, 8, 99, 9, 99]
+    expected_eos_pos = [3, 7, 11, 13]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_max_length_too_small():
+    """Test chunking when max_length is too small for even one chunk."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(10))
+    eos_id = 99
+    chunk_size = 4
+    max_length = 1  # Too small for even one chunk (need at least 2: 1 token + EOS)
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    
+    # Should return empty since we can't fit even one chunk
+    assert ids == []
+    assert eos_pos == []
+
+
+@pytest.mark.unit
+def test_chunk_tokens_empty_input():
+    """Test chunking with empty token list."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = []
+    eos_id = 99
+    chunk_size = 4
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+    
+    assert ids == []
+    assert eos_pos == []
+
+@pytest.mark.unit
+def test_chunk_tokens_same_length_as_chunk_size():
+    """Test chunking when tokens are the same length as chunk_size."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+
+    tokens = list(range(20))
+    eos_id = 99
+    chunk_size = 16
+    max_length = 16
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+
+    expected_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 99]
+    expected_eos_pos = [15]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_single_token():
+    """Test chunking with single token."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = [42]
+    eos_id = 99
+    chunk_size = 4
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+    
+    assert ids == [42, 99]
+    assert eos_pos == [1]
+
+
+@pytest.mark.unit
+def test_chunk_tokens_no_max_length():
+    """Test chunking without max_length constraint."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(15))
+    eos_id = 99
+    chunk_size = 5
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length=None)
+    
+    # Hardcoded golden output: chunk_size=5 means chunk_len=4
+    # Chunks: [0-3,99], [4-7,99], [8-11,99], [12-14,99]
+    expected_ids = [0, 1, 2, 3, 99, 4, 5, 6, 7, 99, 8, 9, 10, 11, 99, 12, 13, 14, 99]
+    expected_eos_pos = [4, 9, 14, 18]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_chunk_size_one():
+    """Test chunking with chunk_size=1 (invalid, should return empty)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = [1, 2, 3]
+    eos_id = 99
+    chunk_size = 1
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+    
+    # chunk_size=1 is invalid (need at least 2: 1 token + 1 EOS)
+    # Should return empty
+    assert ids == []
+    assert eos_pos == []
+
+
+@pytest.mark.unit
+def test_chunk_tokens_chunk_size_two():
+    """Test chunking with chunk_size=2."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = [1, 2, 3, 4, 5]
+    eos_id = 99
+    chunk_size = 2
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+    
+    # chunk_size=2 means chunk_len=1
+    # Chunks: [1,99], [2,99], [3,99], [4,99], [5,99]
+    expected_ids = [1, 99, 2, 99, 3, 99, 4, 99, 5, 99]
+    expected_eos_pos = [1, 3, 5, 7, 9]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_max_length_stops_at_boundary():
+    """Test that max_length stops chunking at chunk boundary."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(20))
+    eos_id = 99
+    chunk_size = 5
+    max_length = 10  # Exactly 2 chunks: 2*5 = 10
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    expected_ids = [0, 1, 2, 3, 99, 4, 5, 6, 7, 99]
+    expected_eos_pos = [4, 9]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_chunk_size_greater_than_max_length():
+    """Test chunking when chunk_size > max_length (only one partial chunk fits)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    tokens = list(range(20))
+    eos_id = 99
+    chunk_size = 10  # chunk_size > max_length
+    max_length = 5   # max_length < chunk_size
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    
+    # Hardcoded golden output: chunk_size=10 means chunk_len=9, but max_length=5
+    # Can only fit: 4 tokens + 1 EOS = 5 tokens (exactly max_length)
+    expected_ids = [0, 1, 2, 3, 99]
+    expected_eos_pos = [4]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+
+
+@pytest.mark.unit
+def test_chunk_tokens_truncation_takes_from_front():
+    """Test that truncation when tokens exceed max_length takes from the front (beginning) of the list."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    # Create tokens with distinct values at front and back to verify truncation direction
+    tokens = list(range(20))  # [0, 1, 2, ..., 19]
+    eos_id = 99
+    chunk_size = 5  # chunk_len = 4
+    max_length = 8  # Can fit: 1 full chunk (4 tokens + 1 EOS = 5) + 1 partial (2 tokens + 1 EOS = 3) = 8 total
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    
+    # Hardcoded golden output: truncation takes from front, so we get [0,1,2,3,99,4,5,99]
+    # If it took from back, we'd get [16,17,18,19,99,...] or similar
+    expected_ids = [0, 1, 2, 3, 99, 4, 5, 99]
+    expected_eos_pos = [4, 7]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+    
+    # Verify it's taking from the front: first token should be 0 (beginning of original list)
+    assert ids[0] == 0
+    # Verify it's NOT taking from the back: last content token should be 5, not 19
+    assert ids[-2] == 5  # Last content token before final EOS
+    assert ids[-2] != 19  # Confirms we're not taking from the end
+
+
+@pytest.mark.unit
+def test_chunk_tokens_truncation_then_padding_complex_case(train_tokenizer):
+    """Test complex case: tokens exceed max_length (truncation from front), then padding is applied."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens, _pad_and_adjust_eos_positions
+    
+    # Create a long token sequence that will be truncated
+    # Use distinct values to clearly see truncation direction
+    tokens = list(range(100, 200))  # [100, 101, 102, ..., 199] - 100 tokens
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    chunk_size = 10  # chunk_len = 9
+    max_length = 20  # Can fit: 1 full chunk (9 tokens + 1 EOS = 10) + 1 partial (9 tokens + 1 EOS = 10) = 20 total
+    
+    # Step 1: Chunk with truncation (takes from front)
+    chunked_ids, eos_positions = _chunk_tokens(tokens, chunk_size, eos_id, max_length)
+    
+    # Verify truncation takes from front: should start with 100, not 199
+    assert chunked_ids[0] == 100  # First token from original list
+    assert chunked_ids[-2] == 117  # Last content token (not 199) - second chunk ends at 117
+    assert len(chunked_ids) == 20  # Exactly max_length
+    
+    # Hardcoded golden output: truncated from front
+    # Original: 100 tokens [100-199]
+    # After truncation (front): 18 tokens [100-117] + 2 EOS = 20 tokens
+    expected_chunked_ids = [
+        100, 101, 102, 103, 104, 105, 106, 107, 108, eos_id,  # First chunk: 9 tokens + EOS
+        109, 110, 111, 112, 113, 114, 115, 116, 117, eos_id   # Second chunk: 9 tokens + EOS
+    ]
+    expected_eos_positions = [9, 19]  # EOS positions before padding (list, not list of lists)
+    
+    assert chunked_ids == expected_chunked_ids
+    assert eos_positions == expected_eos_positions
+    
+    # Step 2: Test left padding with truncation
+    all_input_ids = [chunked_ids]
+    all_eos_positions = [eos_positions]
+    
+    # Apply our padding function
+    padded_dict_left, adjusted_eos_positions_left = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='left',
+        pad_to_multiple_of=8,
+    )
+    expected_padded_ids_left = [
+        pad_id, pad_id, pad_id, pad_id,  # 4 padding tokens
+        100, 101, 102, 103, 104, 105, 106, 107, 108, eos_id,  # First chunk: 9 tokens + EOS
+        109, 110, 111, 112, 113, 114, 115, 116, 117, eos_id   # Second chunk: 9 tokens + EOS
+    ]
+    expected_attention_mask_left = [0, 0, 0, 0] + [1] * 20  # 4 padding + 20 content
+    expected_adjusted_eos_positions_left = [[13, 23]]
+    
+    assert padded_dict_left['input_ids'][0].tolist() == expected_padded_ids_left
+    assert padded_dict_left['attention_mask'][0].tolist() == expected_attention_mask_left
+    assert adjusted_eos_positions_left == expected_adjusted_eos_positions_left
+
+# ============================================================================
+# Unit tests for _pad_and_adjust_eos_positions helper function
+# ============================================================================
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_right_padding(train_tokenizer):
+    """Test padding with right padding (no EOS position adjustment needed)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, 2, 3, eos_id],  # Passage 0: 4 tokens, EOS at position 3
+        [4, 5, eos_id],      # Passage 1: 3 tokens, EOS at position 2
+    ]
+    all_eos_positions = [[3], [2]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='right',
+        pad_to_multiple_of=4,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [1, 2, 3, eos_id],      # Passage 0: padded to 4 (no padding needed)
+        [4, 5, eos_id, pad_id], # Passage 1: padded to 4 (1 padding token)
+    ])
+    expected_attention_mask = torch.tensor([
+        [1, 1, 1, 1],   # Passage 0: all tokens valid
+        [1, 1, 1, 0],   # Passage 1: last token is padding
+    ])
+    expected_eos_positions = [[3], [2]]  # EOS positions unchanged for right padding
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'right'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=4,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_left_padding(train_tokenizer):
+    """Test padding with left padding (EOS positions should be shifted)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, 2, 3, eos_id],  # Passage 0: 4 tokens, EOS at position 3
+        [4, 5, eos_id],      # Passage 1: 3 tokens, EOS at position 2
+    ]
+    all_eos_positions = [[3], [2]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='left',
+        pad_to_multiple_of=4,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [1, 2, 3, eos_id],      # Passage 0: padded to 4 (no padding needed)
+        [pad_id, 4, 5, eos_id], # Passage 1: padded to 4 (1 padding token on left)
+    ])
+    expected_attention_mask = torch.tensor([
+        [1, 1, 1, 1],   # Passage 0: all tokens valid
+        [0, 1, 1, 1],   # Passage 1: first token is padding
+    ])
+    # Passage 0: original length 4, padded length 4, padding_length=0, EOS stays at 3
+    # Passage 1: original length 3, padded length 4, padding_length=1, EOS shifts from 2 to 3
+    expected_eos_positions = [[3], [3]]
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'left'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=4,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_multiple_eos(train_tokenizer):
+    """Test padding with multiple EOS positions per passage."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, 2, eos_id, 3, 4, eos_id],  # Passage 0: 6 tokens, EOS at positions 2, 5
+        [5, eos_id],                    # Passage 1: 2 tokens, EOS at position 1
+    ]
+    all_eos_positions = [[2, 5], [1]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='left',
+        pad_to_multiple_of=8,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [pad_id, pad_id, 1, 2, eos_id, 3, 4, eos_id],  # Passage 0: padded to 8 (2 padding tokens on left)
+        [pad_id, pad_id, pad_id, pad_id, pad_id, pad_id, 5, eos_id],  # Passage 1: padded to 8 (6 padding tokens on left)
+    ])
+    expected_attention_mask = torch.tensor([
+        [0, 0, 1, 1, 1, 1, 1, 1],   # Passage 0: first 2 tokens are padding
+        [0, 0, 0, 0, 0, 0, 1, 1],   # Passage 1: first 6 tokens are padding
+    ])
+    # Passage 0: original length 6, padded length 8, padding_length=2, EOS shift from [2,5] to [4,7]
+    # Passage 1: original length 2, padded length 8, padding_length=6, EOS shift from 1 to 7
+    expected_eos_positions = [[4, 7], [7]]
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'left'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=8,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_no_padding_needed(train_tokenizer):
+    """Test when sequences are already the same length."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, 2, eos_id],
+        [3, 4, eos_id],
+    ]
+    all_eos_positions = [[2], [2]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='right',
+        pad_to_multiple_of=3,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [1, 2, eos_id],
+        [3, 4, eos_id],
+    ])
+    expected_attention_mask = torch.tensor([
+        [1, 1, 1],
+        [1, 1, 1],
+    ])
+    expected_eos_positions = [[2], [2]]  # EOS positions unchanged for right padding
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'right'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=3,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_empty_input(train_tokenizer):
+    """Test with empty input."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    all_input_ids = []
+    all_eos_positions = []
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='right',
+        pad_to_multiple_of=4,
+    )
+    
+    # Hardcoded golden output for empty input
+    expected_eos_positions = []
+    
+    assert adjusted_eos_positions == expected_eos_positions
+    # When input is empty, tokenizer.pad may return list or tensor depending on implementation
+    if isinstance(padded_dict['input_ids'], torch.Tensor):
+        assert padded_dict['input_ids'].shape[0] == 0
+        assert padded_dict['attention_mask'].shape[0] == 0
+    else:
+        assert len(padded_dict['input_ids']) == 0
+        assert len(padded_dict['attention_mask']) == 0
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_single_passage(train_tokenizer):
+    """Test with single passage."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    
+    all_input_ids = [[1, 2, 3, eos_id]]
+    all_eos_positions = [[3]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='right',
+        pad_to_multiple_of=4,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [1, 2, 3, eos_id],  # Already length 4, no padding needed
+    ])
+    expected_attention_mask = torch.tensor([
+        [1, 1, 1, 1],   # All tokens valid
+    ])
+    expected_eos_positions = [[3]]
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'right'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=4,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_pad_to_multiple_of_one(train_tokenizer):
+    """Test with pad_to_multiple_of=1 (no rounding)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, 2, eos_id],
+        [3, eos_id],
+    ]
+    all_eos_positions = [[2], [1]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='right',
+        pad_to_multiple_of=1,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [1, 2, eos_id],        # Padded to max_len=3 (no rounding needed with pad_to_multiple_of=1)
+        [3, eos_id, pad_id],    # Padded to max_len=3 (1 padding token)
+    ])
+    expected_attention_mask = torch.tensor([
+        [1, 1, 1],   # All tokens valid
+        [1, 1, 0],   # Last token is padding
+    ])
+    expected_eos_positions = [[2], [1]]  # EOS positions unchanged for right padding
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'right'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=1,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
+@pytest.mark.unit
+def test_pad_and_adjust_eos_positions_left_padding_multiple_chunks(train_tokenizer):
+    """Test left padding with multiple chunks per passage."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _pad_and_adjust_eos_positions
+    
+    eos_id = train_tokenizer.eos_token_id
+    pad_id = train_tokenizer.pad_token_id
+    
+    all_input_ids = [
+        [1, eos_id, 2, 3, eos_id],  # Passage 0: 5 tokens, EOS at positions 1, 4
+        [4, 5, eos_id],              # Passage 1: 3 tokens, EOS at position 2
+    ]
+    all_eos_positions = [[1, 4], [2]]
+    
+    padded_dict, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=train_tokenizer,
+        padding_side='left',
+        pad_to_multiple_of=8,
+    )
+    
+    # Hardcoded golden output
+    expected_input_ids = torch.tensor([
+        [pad_id, pad_id, pad_id, 1, eos_id, 2, 3, eos_id],  # Passage 0: padded to 8 (3 padding tokens on left)
+        [pad_id, pad_id, pad_id, pad_id, pad_id, 4, 5, eos_id],  # Passage 1: padded to 8 (5 padding tokens on left)
+    ])
+    expected_attention_mask = torch.tensor([
+        [0, 0, 0, 1, 1, 1, 1, 1],   # Passage 0: first 3 tokens are padding
+        [0, 0, 0, 0, 0, 1, 1, 1],   # Passage 1: first 5 tokens are padding
+    ])
+    # Passage 0: original length 5, padded length 8, padding_length=3, EOS shift from [1,4] to [4,7]
+    # Passage 1: original length 3, padded length 8, padding_length=5, EOS shift from 2 to 7
+    expected_eos_positions = [[4, 7], [7]]
+    
+    assert torch.equal(padded_dict['input_ids'], expected_input_ids)
+    assert torch.equal(padded_dict['attention_mask'], expected_attention_mask)
+    assert adjusted_eos_positions == expected_eos_positions
+    
+    # Verify behavior matches tokenizer.pad directly
+    train_tokenizer.padding_side = 'left'
+    direct_padded = train_tokenizer.pad(
+        {'input_ids': all_input_ids},
+        padding=True,
+        pad_to_multiple_of=8,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    assert torch.equal(padded_dict['input_ids'], direct_padded['input_ids'])
+    assert torch.equal(padded_dict['attention_mask'], direct_padded['attention_mask'])
+
+
 
 
 @pytest.mark.unit
@@ -73,13 +795,103 @@ def test_train_collator_chunked_passages(train_tokenizer):
     got_ids = d_collated["input_ids"][0].tolist()
     got_mask = d_collated["attention_mask"][0].tolist()
 
+    # Hardcoded golden output: 2 chunks (255 tokens + EOS, 174 tokens + EOS) = 431 tokens, padded to 432
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311, 6629, 279,
+        9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311, 90684, 349,
+        2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284, 220, 16,
+        22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014, 8552, 6239, 315, 6811,
+        37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991, 41434, 320, 77, 284,
+        220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647, 13, 758, 279, 8622, 4158, 4925,
+        279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572, 1550, 11, 220, 16, 13, 23,
+        19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16, 13, 17, 19197, 441, 17,
+        58634, 13, 758, 279, 44900, 47594, 315, 279, 5306, 47639, 11, 279, 3076, 9981, 57330,
+        36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17, 19041, 220, 16, 13, 16, 19197, 441,
+        17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080, 279, 12128, 7194, 572, 311, 4647,
+        448, 7046, 10740, 2750, 304, 279, 5306, 47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968,
+        4991, 41434, 518, 4647, 8542, 5080, 3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320,
+        16, 13, 19, 51615, 220, 15, 13, 17, 19, 19041, 220, 16, 13, 16, EOS_TOKEN_ID, 20, 51615,
+        220, 15, 13, 15, 24, 19197, 441, 17, 58634, 11, 281, 284, 220, 15, 13, 15, 16, 21, 8, 323,
+        4722, 8674, 458, 285, 354, 17764, 304, 2176, 5671, 7707, 448, 2480, 9663, 41434, 320,
+        5782, 4925, 11, 220, 16, 15, 13, 24, 51615, 220, 15, 13, 21, 19041, 220, 17, 17, 13, 24,
+        51615, 220, 18, 13, 15, 13384, 281, 284, 220, 15, 13, 15, 15, 16, 26, 5306, 47639, 11,
+        220, 17, 19, 13, 15, 51615, 220, 19, 13, 19, 19, 19041, 220, 18, 18, 13, 16, 51615, 220,
+        15, 13, 21, 4, 281, 284, 220, 15, 13, 15, 15, 21, 568, 11581, 2408, 301, 15479, 48674,
+        304, 279, 42094, 1620, 385, 1242, 1033, 9434, 553, 57330, 15626, 51360, 438, 4124, 438,
+        220, 17, 23, 73760, 26, 2480, 9663, 323, 855, 4991, 41434, 518, 4647, 8542, 12864, 11799,
+        304, 4158, 4925, 23788, 7321, 13, 576, 821, 13216, 429, 46516, 15449, 315, 3015, 57330,
+        553, 57330, 15626, 51360, 5707, 20017, 1119, 8003, 95697, 4401, 304, 59645, 4158, 4925,
+        304, 5382, 41434, EOS_TOKEN_ID, PADDING_TOKEN_ID
+    ]
+    expected_mask = [1] * 431 + [0]  # 431 ones + 1 zero
+    expected_eos_positions = [[255, 430]]
+
     assert sum(got_mask) == 431
-    assert eos_positions == [[255, 430]]
+    assert len(got_ids) == 432  # Padded to multiple of 16
+    assert eos_positions == expected_eos_positions
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
     assert got_ids[255] == train_tokenizer.eos_token_id
     assert got_ids[430] == train_tokenizer.eos_token_id
-    assert len(got_ids) == 432  # Padded to multiple of 16
     assert got_mask[255] == 1
     assert got_mask[430] == 1
+
+
+@pytest.mark.unit
+def test_train_collator_chunked_passages_left_padding(train_tokenizer):
+    """Test chunking with passage_max_len=512, passage_chunk_size=256, left padding."""
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    data_args = DataArguments(
+        passage_max_len=512,
+        passage_chunk_size=256,
+        pad_to_multiple_of=16,
+        padding_side="left",
+        append_eos_token=False,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+    d_collated, eos_positions = collator._tokenize_and_pad_chunked_passages([REAL_TEXT])
+
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    expected_ids = [ PADDING_TOKEN_ID,
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311, 6629, 279,
+        9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311, 90684, 349,
+        2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284, 220, 16,
+        22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014, 8552, 6239, 315, 6811,
+        37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991, 41434, 320, 77, 284,
+        220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647, 13, 758, 279, 8622, 4158, 4925,
+        279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572, 1550, 11, 220, 16, 13, 23,
+        19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16, 13, 17, 19197, 441, 17,
+        58634, 13, 758, 279, 44900, 47594, 315, 279, 5306, 47639, 11, 279, 3076, 9981, 57330,
+        36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17, 19041, 220, 16, 13, 16, 19197, 441,
+        17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080, 279, 12128, 7194, 572, 311, 4647,
+        448, 7046, 10740, 2750, 304, 279, 5306, 47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968,
+        4991, 41434, 518, 4647, 8542, 5080, 3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320,
+        16, 13, 19, 51615, 220, 15, 13, 17, 19, 19041, 220, 16, 13, 16, EOS_TOKEN_ID, 20, 51615,
+        220, 15, 13, 15, 24, 19197, 441, 17, 58634, 11, 281, 284, 220, 15, 13, 15, 16, 21, 8, 323,
+        4722, 8674, 458, 285, 354, 17764, 304, 2176, 5671, 7707, 448, 2480, 9663, 41434, 320,
+        5782, 4925, 11, 220, 16, 15, 13, 24, 51615, 220, 15, 13, 21, 19041, 220, 17, 17, 13, 24,
+        51615, 220, 18, 13, 15, 13384, 281, 284, 220, 15, 13, 15, 15, 16, 26, 5306, 47639, 11,
+        220, 17, 19, 13, 15, 51615, 220, 19, 13, 19, 19, 19041, 220, 18, 18, 13, 16, 51615, 220,
+        15, 13, 21, 4, 281, 284, 220, 15, 13, 15, 15, 21, 568, 11581, 2408, 301, 15479, 48674,
+        304, 279, 42094, 1620, 385, 1242, 1033, 9434, 553, 57330, 15626, 51360, 438, 4124, 438,
+        220, 17, 23, 73760, 26, 2480, 9663, 323, 855, 4991, 41434, 518, 4647, 8542, 12864, 11799,
+        304, 4158, 4925, 23788, 7321, 13, 576, 821, 13216, 429, 46516, 15449, 315, 3015, 57330,
+        553, 57330, 15626, 51360, 5707, 20017, 1119, 8003, 95697, 4401, 304, 59645, 4158, 4925,
+        304, 5382, 41434, EOS_TOKEN_ID
+    ]
+    expected_mask = [0] + [1] * 431  # 1 padding + 431 content
+    expected_eos_positions = [[256, 431]]
+
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions == expected_eos_positions
 
 
 @pytest.mark.unit
@@ -104,8 +916,41 @@ def test_chunked_collator_with_multiple_passages(train_tokenizer):
     
     q_batch, p_batch, eos_positions = collator(features)
     
+    # Hardcoded golden output: both passages have 2 chunks (31 tokens + EOS, 31 tokens + EOS) = 64 tokens each
+    expected_ids_0 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        EOS_TOKEN_ID, 56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, EOS_TOKEN_ID
+    ]
+    expected_mask_0 = [1] * 64
+    expected_eos_0 = [31, 63]
+    
+    expected_ids_1 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        EOS_TOKEN_ID, 56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, EOS_TOKEN_ID
+    ]
+    expected_mask_1 = [1] * 64
+    expected_eos_1 = [31, 63]
+    
     assert p_batch["input_ids"].shape[0] == 2
     assert len(eos_positions) == 2
+    
+    got_ids_0 = p_batch["input_ids"][0].tolist()
+    got_mask_0 = p_batch["attention_mask"][0].tolist()
+    got_ids_1 = p_batch["input_ids"][1].tolist()
+    got_mask_1 = p_batch["attention_mask"][1].tolist()
+    
+    assert got_ids_0 == expected_ids_0
+    assert got_mask_0 == expected_mask_0
+    assert eos_positions[0] == expected_eos_0
+    assert got_ids_1 == expected_ids_1
+    assert got_mask_1 == expected_mask_1
+    assert eos_positions[1] == expected_eos_1
     
     for i in range(p_batch["input_ids"].shape[0]):
         got_ids = p_batch["input_ids"][i].tolist()
@@ -120,15 +965,14 @@ def test_chunked_collator_with_multiple_passages(train_tokenizer):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("chunk_size", [64, 128])
-def test_chunking_capped_to_maxlen(train_tokenizer, chunk_size):
-    """When chunk_size >= max_len, chunking is capped to max_len with one EOS."""
+def test_chunking_capped_to_maxlen_chunk_size_64(train_tokenizer):
+    """When chunk_size >= max_len, chunking is capped to max_len with one EOS (chunk_size=64)."""
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import TrainCollator
 
     long_text = (REAL_TEXT + " ") * 20
     data_args = DataArguments(
-        passage_chunk_size=chunk_size,
+        passage_chunk_size=64,
         passage_max_len=64,
         pad_to_multiple_of=16,
         padding_side="right",
@@ -139,9 +983,62 @@ def test_chunking_capped_to_maxlen(train_tokenizer, chunk_size):
     ids = d_collated["input_ids"][0].tolist()
     mask = d_collated["attention_mask"][0].tolist()
 
+    # Hardcoded golden output: 63 tokens + 1 EOS = 64 tokens
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311, 6629, 279,
+        9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311, 90684, 349,
+        2326, EOS_TOKEN_ID
+    ]
+    expected_mask = [1] * 64
+    expected_eos_positions = [[63]]
+
     assert sum(mask) == 64
     assert len(ids) == 64
-    assert eos_positions == [[63]]
+    assert eos_positions == expected_eos_positions
+    assert ids == expected_ids
+    assert mask == expected_mask
+    assert ids[63] == EOS_TOKEN_ID
+    assert EOS_TOKEN_ID not in ids[:63]
+    assert _strictly_increasing(eos_positions[0])
+
+
+@pytest.mark.unit
+def test_chunking_capped_to_maxlen_chunk_size_128(train_tokenizer):
+    """When chunk_size >= max_len, chunking is capped to max_len with one EOS (chunk_size=128)."""
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    long_text = (REAL_TEXT + " ") * 20
+    data_args = DataArguments(
+        passage_chunk_size=128,
+        passage_max_len=64,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+    d_collated, eos_positions = collator._tokenize_and_pad_chunked_passages([long_text])
+    ids = d_collated["input_ids"][0].tolist()
+    mask = d_collated["attention_mask"][0].tolist()
+
+    # Hardcoded golden output: 63 tokens + 1 EOS = 64 tokens
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311, 6629, 279,
+        9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311, 90684, 349,
+        2326, EOS_TOKEN_ID
+    ]
+    expected_mask = [1] * 64
+    expected_eos_positions = [[63]]
+
+    assert sum(mask) == 64
+    assert len(ids) == 64
+    assert eos_positions == expected_eos_positions
+    assert ids == expected_ids
+    assert mask == expected_mask
     assert ids[63] == EOS_TOKEN_ID
     assert EOS_TOKEN_ID not in ids[:63]
     assert _strictly_increasing(eos_positions[0])
@@ -329,156 +1226,3 @@ def test_chunking_multiple_passages_different_lengths(train_tokenizer):
     assert eos_positions[3] == expected_eos_3
     assert ids_3 == expected_ids_3
     assert mask_3 == expected_mask_3
-
-
-@pytest.mark.unit
-def test_non_chunked_padding_side_behavior(train_tokenizer):
-    """Test that padding_side affects pooling position extraction."""
-    import torch
-    from unittest.mock import Mock
-    from tevatron.retriever.arguments import DataArguments
-    from tevatron.retriever.collator import TrainCollator
-    from tevatron.retriever.modeling.dense import DenseModel
-    
-    test_passage = REAL_TEXT
-    
-    # Right padding
-    data_args_right = DataArguments(
-        passage_max_len=64,
-        passage_chunk_size=0,
-        pad_to_multiple_of=16,
-        padding_side="right",
-        append_eos_token=False,
-    )
-    collator_right = TrainCollator(data_args=data_args_right, tokenizer=train_tokenizer)
-    _, p_batch_right = collator_right([("query", [test_passage], [])])
-    attention_mask_right = p_batch_right['attention_mask'][0]
-    last_valid_pos_right = attention_mask_right.sum().item() - 1
-    
-    # Left padding
-    data_args_left = DataArguments(
-        passage_max_len=64,
-        passage_chunk_size=0,
-        pad_to_multiple_of=16,
-        padding_side="left",
-        append_eos_token=False,
-    )
-    collator_left = TrainCollator(data_args=data_args_left, tokenizer=train_tokenizer)
-    _, p_batch_left = collator_left([("query", [test_passage], [])])
-    attention_mask_left = p_batch_left['attention_mask'][0]
-    num_valid_left = attention_mask_left.sum().item()
-    is_left_padding = (attention_mask_left[-1] == 1).item()
-    
-    # Verify content tokens are identical
-    content_right = p_batch_right['input_ids'][0][attention_mask_right.bool()].tolist()
-    content_left = p_batch_left['input_ids'][0][attention_mask_left.bool()].tolist()
-    assert content_right == content_left
-    
-    # Test pooling with mock model
-    hidden_size = 64
-    
-    class MockEncoderOutput:
-        def __init__(self, last_hidden_state):
-            self.last_hidden_state = last_hidden_state
-    
-    def mock_encoder_forward(**kwargs):
-        input_ids = kwargs['input_ids']
-        batch_size, seq_len = input_ids.shape
-        hidden_states = torch.zeros(batch_size, seq_len, hidden_size, dtype=torch.float32)
-        for i in range(batch_size):
-            for j in range(seq_len):
-                hidden_states[i, j, 0] = float(j)
-        return MockEncoderOutput(last_hidden_state=hidden_states)
-    
-    mock_encoder = Mock(side_effect=mock_encoder_forward)
-    mock_encoder.config = Mock()
-    mock_encoder.config.hidden_size = hidden_size
-    
-    model = DenseModel(encoder=mock_encoder, pooling='last', normalize=False)
-    model.passage_chunk_size = 0
-    
-    p_reps_right = model.encode_passage(p_batch_right)
-    p_reps_left = model.encode_passage(p_batch_left)
-    
-    assert torch.allclose(p_reps_right[0, 0], torch.tensor(float(last_valid_pos_right)))
-    expected_pos_left = len(attention_mask_left) - 1 if is_left_padding else num_valid_left - 1
-    assert torch.allclose(p_reps_left[0, 0], torch.tensor(float(expected_pos_left)))
-
-
-@pytest.mark.unit
-def test_chunked_passages_left_padding(train_tokenizer):
-    """Test that EOS positions are correctly adjusted for left padding."""
-    import torch
-    from unittest.mock import Mock
-    from tevatron.retriever.arguments import DataArguments
-    from tevatron.retriever.collator import TrainCollator
-    from tevatron.retriever.modeling.dense import DenseModel
-    
-    test_passage = REAL_TEXT
-    
-    # Right padding (baseline)
-    data_args_right = DataArguments(
-        passage_max_len=128,
-        passage_chunk_size=64,
-        pad_to_multiple_of=16,
-        padding_side="right",
-        append_eos_token=False,
-    )
-    collator_right = TrainCollator(data_args=data_args_right, tokenizer=train_tokenizer)
-    _, p_batch_right, eos_positions_right = collator_right([("query", [test_passage], [])])
-    
-    # Left padding
-    data_args_left = DataArguments(
-        passage_max_len=128,
-        passage_chunk_size=64,
-        pad_to_multiple_of=16,
-        padding_side="left",
-        append_eos_token=False,
-    )
-    collator_left = TrainCollator(data_args=data_args_left, tokenizer=train_tokenizer)
-    _, p_batch_left, eos_positions_left = collator_left([("query", [test_passage], [])])
-    
-    attention_mask_left = p_batch_left['attention_mask'][0]
-    num_valid_tokens = attention_mask_left.sum().item()
-    padding_length = len(attention_mask_left) - num_valid_tokens
-    
-    # Verify EOS positions are shifted by padding_length
-    assert len(eos_positions_right[0]) == len(eos_positions_left[0])
-    for eos_right, eos_left in zip(eos_positions_right[0], eos_positions_left[0]):
-        assert eos_left == eos_right + padding_length
-        assert p_batch_left['input_ids'][0][eos_left] == train_tokenizer.eos_token_id
-    
-    # Test pooling extracts from correct positions
-    hidden_size = 64
-    
-    class MockEncoderOutput:
-        def __init__(self, last_hidden_state):
-            self.last_hidden_state = last_hidden_state
-    
-    def mock_encoder_forward(**kwargs):
-        input_ids = kwargs['input_ids']
-        batch_size, seq_len = input_ids.shape
-        hidden_states = torch.zeros(batch_size, seq_len, hidden_size, dtype=torch.float32)
-        for i in range(batch_size):
-            for j in range(seq_len):
-                hidden_states[i, j, 0] = float(j)
-        return MockEncoderOutput(last_hidden_state=hidden_states)
-    
-    mock_encoder = Mock(side_effect=mock_encoder_forward)
-    mock_encoder.config = Mock()
-    mock_encoder.config.hidden_size = hidden_size
-    
-    model = DenseModel(encoder=mock_encoder, pooling='last', normalize=False)
-    model.passage_chunk_size = 64
-    
-    chunk_reps_right, _ = model.encode_passage(p_batch_right, eos_positions_right)
-    chunk_reps_left, _ = model.encode_passage(p_batch_left, eos_positions_left)
-    
-    # Verify embeddings differ by padding_length
-    for i, (eos_right, eos_left) in enumerate(zip(eos_positions_right[0], eos_positions_left[0])):
-        assert torch.allclose(chunk_reps_right[0, i, 0], torch.tensor(float(eos_right)))
-        assert torch.allclose(chunk_reps_left[0, i, 0], torch.tensor(float(eos_left)))
-        assert torch.allclose(
-            chunk_reps_left[0, i, 0] - chunk_reps_right[0, i, 0],
-            torch.tensor(float(padding_length))
-        )
