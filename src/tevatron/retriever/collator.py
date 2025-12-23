@@ -72,6 +72,14 @@ def _tokenize_and_pad_chunked_passages(
         all_eos_positions.append(eos_pos)
     
     d_collated = {'input_ids': all_input_ids}
+    
+    # Store original lengths before padding to adjust eos_positions for left padding
+    original_lengths = [len(ids) for ids in all_input_ids]
+    
+    # Set tokenizer padding_side before padding
+    original_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = data_args.padding_side
+    
     # Padding
     d_collated = tokenizer.pad(
         d_collated,
@@ -80,6 +88,20 @@ def _tokenize_and_pad_chunked_passages(
         return_attention_mask=True,
         return_tensors='pt',
     )
+    
+    # Restore original padding_side
+    tokenizer.padding_side = original_padding_side
+    
+    # Adjust eos_positions for left padding
+    # When padding_side is 'left', padding tokens are added at the beginning,
+    # so EOS positions need to be shifted by the padding length
+    if data_args.padding_side == 'left':
+        padded_lengths = d_collated['input_ids'].shape[1]  # All sequences have same length after padding
+        for i, eos_pos_list in enumerate(all_eos_positions):
+            padding_length = padded_lengths - original_lengths[i]
+            # Shift each EOS position by the padding length
+            all_eos_positions[i] = [pos + padding_length for pos in eos_pos_list]
+    
     return d_collated, all_eos_positions
 
 

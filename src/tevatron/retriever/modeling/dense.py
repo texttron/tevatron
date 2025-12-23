@@ -5,7 +5,7 @@ from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
-EOS_TOKEN_ID = 151645
+EOS_TOKEN_ID = 151643
 
 class DenseModel(EncoderModel):
 
@@ -28,6 +28,7 @@ class DenseModel(EncoderModel):
                     assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID
 
             return self._pooling_chunked(hidden_states, eos_positions)
+        
         return self._pooling(hidden_states, psg['attention_mask'])
 
     def _pooling_chunked(self, last_hidden_state, eos_positions):

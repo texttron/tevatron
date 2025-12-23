@@ -480,3 +480,352 @@ def test_chunking_multiple_passages_different_lengths(train_tokenizer):
     assert eos_positions[3] == expected_eos_3
     assert ids_3 == expected_ids_3
     assert mask_3 == expected_mask_3
+
+
+@pytest.mark.unit
+def test_non_chunked_padding_side_behavior(train_tokenizer):
+    """
+    Test non-chunked passage encoding behavior with left vs right padding.
+    This verifies that padding_side affects how _pooling('last'/'eos') extracts embeddings.
+    """
+    import torch
+    from unittest.mock import Mock
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+    from tevatron.retriever.modeling.dense import DenseModel
+    
+    # Test passage - will be truncated to max_len
+    test_passage = REAL_TEXT  # Long passage that will be truncated
+    
+    # Test Case 1: Right padding
+    data_args_right = DataArguments(
+        passage_max_len=64,
+        passage_chunk_size=0,  # No chunking
+        pad_to_multiple_of=16,
+        padding_side="right",
+        passage_prefix="",
+        append_eos_token=False,
+    )
+    
+    collator_right = TrainCollator(data_args=data_args_right, tokenizer=train_tokenizer)
+    q_batch_right, p_batch_right = collator_right([("query", [test_passage], [])])
+    
+    # Verify right padding structure
+    input_ids_right = p_batch_right['input_ids'][0]
+    attention_mask_right = p_batch_right['attention_mask'][0]
+    seq_len_right = len(attention_mask_right)
+    
+    # With right padding, content tokens are at the beginning, padding at the end
+    # Last position should be padding (since passage is truncated and padded)
+    # Note: first position might be special token (BOS) due to add_special_tokens=True
+    assert attention_mask_right[-1] == 0, "Right padding: last position should be padding"
+    
+    # Last valid token position
+    last_valid_pos_right = attention_mask_right.sum().item() - 1
+    
+    # Test Case 2: Left padding
+    data_args_left = DataArguments(
+        passage_max_len=64,
+        passage_chunk_size=0,  # No chunking
+        pad_to_multiple_of=16,
+        padding_side="left",
+        passage_prefix="",
+        append_eos_token=False,
+    )
+    
+    collator_left = TrainCollator(data_args=data_args_left, tokenizer=train_tokenizer)
+    q_batch_left, p_batch_left = collator_left([("query", [test_passage], [])])
+    
+    # Verify left padding structure
+    input_ids_left = p_batch_left['input_ids'][0]
+    attention_mask_left = p_batch_left['attention_mask'][0]
+    seq_len_left = len(attention_mask_left)
+    
+    # With left padding, padding tokens are at the beginning, content at the end
+    # Due to pad_to_multiple_of, the actual behavior depends on content length
+    # Key observation: The pooling logic checks if last position is valid to determine left padding
+    num_valid_left = attention_mask_left.sum().item()
+    
+    # The _pooling logic: left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+    # If last position is 1 for all sequences, it treats it as left padding
+    is_detected_as_left_padding = (attention_mask_left[-1] == 1).item()
+    
+    # Verify both versions tokenized the same content (ignoring padding)
+    content_tokens_right = input_ids_right[attention_mask_right.bool()].tolist()
+    content_tokens_left = input_ids_left[attention_mask_left.bool()].tolist()
+    assert content_tokens_right == content_tokens_left, "Content tokens should be identical"
+    
+    # Test Case 3: Verify pooling behavior with mock model
+    hidden_size = 64
+    
+    class MockEncoderOutput:
+        def __init__(self, last_hidden_state):
+            self.last_hidden_state = last_hidden_state
+    
+    def mock_encoder_forward(**kwargs):
+        input_ids = kwargs['input_ids']
+        batch_size, seq_len = input_ids.shape
+        # Create hidden states where each position encodes its position index
+        hidden_states = torch.zeros(batch_size, seq_len, hidden_size, dtype=torch.float32)
+        for i in range(batch_size):
+            for j in range(seq_len):
+                # Encode position j in the first dimension
+                hidden_states[i, j, 0] = float(j)
+        return MockEncoderOutput(last_hidden_state=hidden_states)
+    
+    mock_encoder = Mock(side_effect=mock_encoder_forward)
+    mock_encoder.config = Mock()
+    mock_encoder.config.hidden_size = hidden_size
+    
+    model = DenseModel(encoder=mock_encoder, pooling='last', normalize=False)
+    model.passage_chunk_size = 0  # No chunking
+    
+    # Test right padding pooling
+    p_reps_right = model.encode_passage(p_batch_right)
+    
+    # Test left padding pooling
+    p_reps_left = model.encode_passage(p_batch_left)
+    
+    # Verify pooling extracts from correct positions
+    # Right padding: uses sequence_lengths calculation (attention_mask.sum() - 1)
+    expected_pos_right = last_valid_pos_right
+    assert torch.allclose(p_reps_right[0, 0], torch.tensor(float(expected_pos_right)))
+    
+    # Left padding: The _pooling logic checks: left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+    # If last position is 1, it uses last_hidden_state[:, -1]
+    # Otherwise, it calculates sequence_lengths = attention_mask.sum(dim=1) - 1
+    if is_detected_as_left_padding:
+        expected_pos_left = seq_len_left - 1
+    else:
+        expected_pos_left = num_valid_left - 1
+    assert torch.allclose(p_reps_left[0, 0], torch.tensor(float(expected_pos_left)))
+    
+    # Verify the key difference: right padding always uses sequence_lengths calculation
+    # Left padding uses last position if detected as left padding, otherwise sequence_lengths
+    # The actual positions depend on the padding structure
+    print(f"Right padding: extracted from position {expected_pos_right} (last_valid_pos)")
+    print(f"Left padding: extracted from position {expected_pos_left} (is_left_padding={is_detected_as_left_padding})")
+    print(f"Right padding mask: first={attention_mask_right[0].item()}, last={attention_mask_right[-1].item()}")
+    print(f"Left padding mask: first={attention_mask_left[0].item()}, last={attention_mask_left[-1].item()}")
+
+
+@pytest.mark.unit
+def test_chunked_passages_left_padding(train_tokenizer):
+    """
+    Test chunked passage encoding with left padding.
+    This verifies that EOS positions are correctly adjusted when padding is on the left.
+    """
+    import torch
+    from unittest.mock import Mock
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+    from tevatron.retriever.modeling.dense import DenseModel
+    
+    # Test passage that will be chunked
+    test_passage = REAL_TEXT
+    
+    # Test Case 1: Right padding (baseline)
+    data_args_right = DataArguments(
+        passage_max_len=128,
+        passage_chunk_size=64,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        passage_prefix="",
+        append_eos_token=False,
+    )
+    
+    collator_right = TrainCollator(data_args=data_args_right, tokenizer=train_tokenizer)
+    q_batch_right, p_batch_right, eos_positions_right = collator_right([("query", [test_passage], [])])
+    
+    # Verify right padding structure
+    input_ids_right = p_batch_right['input_ids'][0]
+    attention_mask_right = p_batch_right['attention_mask'][0]
+    seq_len_right = len(attention_mask_right)
+    
+    # With right padding, content tokens are at the beginning, padding at the end
+    assert attention_mask_right[-1] == 0, "Right padding: last position should be padding"
+    
+    # Verify EOS positions are correct (should be in the content area, before padding)
+    for eos_pos in eos_positions_right[0]:
+        assert eos_pos < attention_mask_right.sum().item(), f"EOS position {eos_pos} should be in valid token range"
+        assert input_ids_right[eos_pos] == train_tokenizer.eos_token_id, f"Position {eos_pos} should be EOS token"
+    
+    # Test Case 2: Left padding
+    data_args_left = DataArguments(
+        passage_max_len=128,
+        passage_chunk_size=64,
+        pad_to_multiple_of=16,
+        padding_side="left",
+        passage_prefix="",
+        append_eos_token=False,
+    )
+    
+    collator_left = TrainCollator(data_args=data_args_left, tokenizer=train_tokenizer)
+    q_batch_left, p_batch_left, eos_positions_left = collator_left([("query", [test_passage], [])])
+    
+    # Verify left padding structure
+    input_ids_left = p_batch_left['input_ids'][0]
+    attention_mask_left = p_batch_left['attention_mask'][0]
+    seq_len_left = len(attention_mask_left)
+    
+    # With left padding, padding tokens are at the beginning, content at the end
+    # Note: Due to pad_to_multiple_of, the actual padding structure may vary
+    # Check that there is padding at the beginning
+    num_valid_tokens = attention_mask_left.sum().item()
+    padding_length = seq_len_left - num_valid_tokens
+    if padding_length > 0:
+        # If there's padding, first positions should be padding
+        assert attention_mask_left[0] == 0, "Left padding: first position should be padding when padding exists"
+    assert attention_mask_left[-1] == 1, "Left padding: last position should be content (valid token)"
+    
+    # Verify EOS positions are correctly adjusted for left padding
+    # EOS positions should be shifted by the padding length
+    
+    # Verify all EOS positions are in the valid token range (after padding)
+    for eos_pos in eos_positions_left[0]:
+        assert eos_pos >= padding_length, f"EOS position {eos_pos} should be after padding (padding_length={padding_length})"
+        assert eos_pos < seq_len_left, f"EOS position {eos_pos} should be within sequence length {seq_len_left}"
+        assert input_ids_left[eos_pos] == train_tokenizer.eos_token_id, f"Position {eos_pos} should be EOS token"
+        assert attention_mask_left[eos_pos] == 1, f"EOS position {eos_pos} should be in valid token range"
+    
+    # Verify that EOS positions are correctly shifted
+    # The relative positions within the content should be the same, but absolute positions differ
+    # Right padding: EOS at positions like [63, 127] (before padding)
+    # Left padding: EOS at positions like [padding_length + 63, padding_length + 127] (after padding)
+    assert len(eos_positions_right[0]) == len(eos_positions_left[0]), "Should have same number of chunks"
+    
+    # Verify the relative positions are preserved (EOS positions differ by padding_length)
+    for i, (eos_right, eos_left) in enumerate(zip(eos_positions_right[0], eos_positions_left[0])):
+        expected_left_pos = eos_right + padding_length
+        assert eos_left == expected_left_pos, \
+            f"Chunk {i}: EOS position should be shifted by padding_length. " \
+            f"Expected {expected_left_pos}, got {eos_left} (right={eos_right}, padding_length={padding_length})"
+    
+    # Test Case 3: Verify pooling behavior with mock model
+    hidden_size = 64
+    
+    class MockEncoderOutput:
+        def __init__(self, last_hidden_state):
+            self.last_hidden_state = last_hidden_state
+    
+    def mock_encoder_forward(**kwargs):
+        input_ids = kwargs['input_ids']
+        batch_size, seq_len = input_ids.shape
+        # Create hidden states where each position encodes its position index
+        hidden_states = torch.zeros(batch_size, seq_len, hidden_size, dtype=torch.float32)
+        for i in range(batch_size):
+            for j in range(seq_len):
+                # Encode position j in the first dimension
+                hidden_states[i, j, 0] = float(j)
+        return MockEncoderOutput(last_hidden_state=hidden_states)
+    
+    mock_encoder = Mock(side_effect=mock_encoder_forward)
+    mock_encoder.config = Mock()
+    mock_encoder.config.hidden_size = hidden_size
+    
+    model = DenseModel(encoder=mock_encoder, pooling='last', normalize=False)
+    model.passage_chunk_size = 64
+    
+    # Test right padding pooling
+    chunk_reps_right, chunk_mask_right = model.encode_passage(p_batch_right, eos_positions_right)
+    
+    # Test left padding pooling
+    chunk_reps_left, chunk_mask_left = model.encode_passage(p_batch_left, eos_positions_left)
+    
+    # Verify pooling extracts from correct EOS positions
+    # Right padding: extracts from eos_positions_right
+    # Left padding: extracts from eos_positions_left (which are adjusted)
+    assert chunk_reps_right.shape == chunk_reps_left.shape, "Should have same number of chunks"
+    assert chunk_mask_right.shape == chunk_mask_left.shape, "Should have same chunk mask shape"
+    
+    # Verify that embeddings are extracted from the correct positions
+    # For right padding, EOS at position 63 should give embedding with value 63.0
+    # For left padding, EOS at position (padding_length + 63) should give embedding with value (padding_length + 63.0)
+    for i, (eos_right, eos_left) in enumerate(zip(eos_positions_right[0], eos_positions_left[0])):
+        # Right padding: embedding should encode position eos_right
+        assert torch.allclose(chunk_reps_right[0, i, 0], torch.tensor(float(eos_right))), \
+            f"Right padding chunk {i}: embedding should encode EOS position {eos_right}"
+        
+        # Left padding: embedding should encode position eos_left
+        assert torch.allclose(chunk_reps_left[0, i, 0], torch.tensor(float(eos_left))), \
+            f"Left padding chunk {i}: embedding should encode EOS position {eos_left}"
+        
+        # Verify masks are correct
+        assert chunk_mask_right[0, i] == 1.0, f"Right padding chunk {i} should be valid"
+        assert chunk_mask_left[0, i] == 1.0, f"Left padding chunk {i} should be valid"
+    
+    # Verify that the embeddings differ by the padding length (in the first dimension)
+    # This confirms that EOS positions are correctly adjusted
+    for i in range(len(eos_positions_right[0])):
+        expected_diff = float(padding_length)
+        actual_diff = chunk_reps_left[0, i, 0] - chunk_reps_right[0, i, 0]
+        assert torch.allclose(actual_diff, torch.tensor(expected_diff)), \
+            f"Chunk {i}: embedding difference should equal padding_length. " \
+            f"Expected {expected_diff}, got {actual_diff.item()}"
+    
+    print(f"Right padding EOS positions: {eos_positions_right[0]}")
+    print(f"Left padding EOS positions: {eos_positions_left[0]}")
+    print(f"Padding length: {padding_length}")
+    print(f"Sequence length: {seq_len_left}")
+    print(f"Valid tokens: {num_valid_tokens}")
+    
+    # Test Case 4: Verify with append_eos_token=True
+    data_args_right_eos = DataArguments(
+        passage_max_len=64,
+        passage_chunk_size=0,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        passage_prefix="",
+        append_eos_token=True,
+    )
+    
+    data_args_left_eos = DataArguments(
+        passage_max_len=64,
+        passage_chunk_size=0,
+        pad_to_multiple_of=16,
+        padding_side="left",
+        passage_prefix="",
+        append_eos_token=True,
+    )
+    
+    collator_right_eos = TrainCollator(data_args=data_args_right_eos, tokenizer=train_tokenizer)
+    collator_left_eos = TrainCollator(data_args=data_args_left_eos, tokenizer=train_tokenizer)
+    
+    q_batch_eos_right, p_batch_eos_right = collator_right_eos([("query", [test_passage], [])])
+    q_batch_eos_left, p_batch_eos_left = collator_left_eos([("query", [test_passage], [])])
+    
+    # Verify EOS token is present in both
+    content_right_eos = p_batch_eos_right['input_ids'][0][p_batch_eos_right['attention_mask'][0].bool()].tolist()
+    content_left_eos = p_batch_eos_left['input_ids'][0][p_batch_eos_left['attention_mask'][0].bool()].tolist()
+    
+    assert content_right_eos[-1] == train_tokenizer.eos_token_id
+    assert content_left_eos[-1] == train_tokenizer.eos_token_id
+    
+    # Test pooling with EOS
+    p_reps_eos_right = model.encode_passage(p_batch_eos_right)
+    p_reps_eos_left = model.encode_passage(p_batch_eos_left)
+    
+    # Both should extract from EOS position
+    mask_eos_right = p_batch_eos_right['attention_mask'][0]
+    mask_eos_left = p_batch_eos_left['attention_mask'][0]
+    
+    # Right padding: uses sequence_lengths calculation
+    last_valid_eos_right = mask_eos_right.sum().item() - 1
+    
+    # Left padding: checks if last position is valid
+    is_left_padding_eos = (mask_eos_left[-1] == 1).item()
+    if is_left_padding_eos:
+        last_valid_eos_left = mask_eos_left.shape[0] - 1
+    else:
+        last_valid_eos_left = mask_eos_left.sum().item() - 1
+    
+    assert torch.allclose(p_reps_eos_right[0, 0], torch.tensor(float(last_valid_eos_right)))
+    assert torch.allclose(p_reps_eos_left[0, 0], torch.tensor(float(last_valid_eos_left)))
+    
+    # With EOS, the extracted positions should be where EOS is located
+    assert p_batch_eos_right['input_ids'][0][last_valid_eos_right] == train_tokenizer.eos_token_id
+    assert p_batch_eos_left['input_ids'][0][last_valid_eos_left] == train_tokenizer.eos_token_id
+    
+    # Summary: This test verifies that padding_side affects pooling position calculation
+    # Right padding: always uses attention_mask.sum() - 1
+    # Left padding: uses seq_len - 1 if last position is valid, otherwise attention_mask.sum() - 1
