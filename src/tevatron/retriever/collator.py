@@ -13,6 +13,106 @@ torch.set_printoptions(threshold=float('inf'), linewidth=10000)
 logger = logging.getLogger(__name__)
 
 
+def _chunk_tokens(
+    tokens: List[int],
+    chunk_size: int,
+    eos_token_id: int,
+    max_length: int = None,
+) -> Tuple[List[int], List[int]]:
+    """
+    Chunk a list of tokens into chunks of specified size, adding EOS token after each chunk.
+    
+    :param tokens: List of token IDs to chunk
+    :param chunk_size: Maximum size of each chunk (before adding EOS). Must be >= 2.
+    :param eos_token_id: EOS token ID to append after each chunk
+    :param max_length: Optional maximum total length (including EOS tokens). If None, no limit.
+    :return: Tuple of (chunked_ids, eos_positions) where:
+        - chunked_ids: List of token IDs with EOS separators between chunks
+        - eos_positions: List of positions where EOS tokens were inserted
+    """
+    if chunk_size < 2:
+        # chunk_size must be at least 2 to fit at least 1 token + 1 EOS
+        return [], []
+    
+    chunk_len = chunk_size - 1  # Reserve 1 slot for EOS
+    ids = []
+    eos_pos = []
+    
+    i = 0
+    while i < len(tokens):
+        if max_length and max_length > 0:
+            remaining = max_length - len(ids)
+            # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
+            if remaining <= 1:
+                break
+            take = min(chunk_len, len(tokens) - i, remaining - 1)
+            if take <= 0:
+                break
+        else:
+            take = min(chunk_len, len(tokens) - i)
+            if take <= 0:
+                break
+        
+        chunk = tokens[i:i + take]  # up to chunk_len tokens
+        ids.extend(chunk)
+        ids.append(eos_token_id)  # EOS at end of this chunk
+        eos_pos.append(len(ids) - 1)  # position of EOS (pooling position)
+        i += take
+    
+    return ids, eos_pos
+
+
+def _pad_and_adjust_eos_positions(
+    all_input_ids: List[List[int]],
+    all_eos_positions: List[List[int]],
+    tokenizer: PreTrainedTokenizer,
+    padding_side: str,
+    pad_to_multiple_of: int,
+) -> Tuple[dict, List[List[int]]]:
+    """
+    Pad input IDs and adjust EOS positions based on padding side.
+    
+    :param all_input_ids: List of lists of token IDs (one per passage)
+    :param all_eos_positions: List of lists of EOS positions (one per passage)
+    :param tokenizer: Tokenizer to use for padding
+    :param padding_side: 'left' or 'right' - side to pad on
+    :param pad_to_multiple_of: Pad sequences to multiple of this value
+    :return: Tuple of (padded_dict, adjusted_eos_positions) where:
+        - padded_dict: dict with 'input_ids' and 'attention_mask' tensors
+        - adjusted_eos_positions: List of lists with EOS positions adjusted for padding
+    """
+    d_collated = {'input_ids': all_input_ids}
+    
+    # Store original lengths before padding to adjust eos_positions for left padding
+    original_lengths = [len(ids) for ids in all_input_ids]
+    
+    # Set tokenizer padding_side before padding
+    tokenizer.padding_side = padding_side
+    
+    # Padding
+    d_collated = tokenizer.pad(
+        d_collated,
+        padding=True,
+        pad_to_multiple_of=pad_to_multiple_of,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    
+    # Adjust eos_positions for left padding
+    # When padding_side is 'left', padding tokens are added at the beginning,
+    # so EOS positions need to be shifted by the padding length
+    # Create a deep copy to avoid modifying the original
+    adjusted_eos_positions = [list(eos_pos_list) for eos_pos_list in all_eos_positions]
+    if padding_side == 'left':
+        padded_lengths = d_collated['input_ids'].shape[1]  # All sequences have same length after padding
+        for i, eos_pos_list in enumerate(adjusted_eos_positions):
+            padding_length = padded_lengths - original_lengths[i]
+            # Shift each EOS position by the padding length
+            adjusted_eos_positions[i] = [pos + padding_length for pos in eos_pos_list]
+    
+    return d_collated, adjusted_eos_positions
+
+
 def _tokenize_and_pad_chunked_passages(
     passages: List[str],
     tokenizer: PreTrainedTokenizer,
@@ -32,7 +132,6 @@ def _tokenize_and_pad_chunked_passages(
         - collated_dict: dict with 'input_ids' and 'attention_mask' tensors
         - eos_positions: list of lists, one per passage, containing EOS token positions
     """
-    chunk_len = data_args.passage_chunk_size - 1
     eos_id = tokenizer.eos_token_id
     if eos_id is None:
         raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
@@ -45,64 +144,24 @@ def _tokenize_and_pad_chunked_passages(
         if passage is None:
             passage = ""
         tokens = tokenizer.encode(passage, add_special_tokens=False)
-        ids = []
-        eos_pos = []
-
-        # Build chunked ids, optionally capped by max_length (total tokens including EOS separators).
-        i = 0
-        while i < len(tokens):
-            if max_length and max_length > 0:
-                remaining = max_length - len(ids)
-                # Need at least 1 slot for EOS; otherwise stop (don't add empty chunks).
-                if remaining <= 1:
-                    break
-                take = min(chunk_len, len(tokens) - i, remaining - 1)
-                if take <= 0:
-                    break
-            else:
-                take = min(chunk_len, len(tokens) - i)
-
-            chunk = tokens[i:i + take]          # up to chunk_len tokens
-            ids.extend(chunk)
-            ids.append(eos_id)                  # EOS at end of this chunk
-            eos_pos.append(len(ids) - 1)        # position of EOS (pooling position)
-            i += take
-
+        ids, eos_pos = _chunk_tokens(
+            tokens=tokens,
+            chunk_size=data_args.passage_chunk_size,
+            eos_token_id=eos_id,
+            max_length=max_length,
+        )
         all_input_ids.append(ids)
         all_eos_positions.append(eos_pos)
     
-    d_collated = {'input_ids': all_input_ids}
-    
-    # Store original lengths before padding to adjust eos_positions for left padding
-    original_lengths = [len(ids) for ids in all_input_ids]
-    
-    # Set tokenizer padding_side before padding
-    original_padding_side = tokenizer.padding_side
-    tokenizer.padding_side = data_args.padding_side
-    
-    # Padding
-    d_collated = tokenizer.pad(
-        d_collated,
-        padding=True, 
+    d_collated, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=tokenizer,
+        padding_side=data_args.padding_side,
         pad_to_multiple_of=data_args.pad_to_multiple_of,
-        return_attention_mask=True,
-        return_tensors='pt',
     )
     
-    # Restore original padding_side
-    tokenizer.padding_side = original_padding_side
-    
-    # Adjust eos_positions for left padding
-    # When padding_side is 'left', padding tokens are added at the beginning,
-    # so EOS positions need to be shifted by the padding length
-    if data_args.padding_side == 'left':
-        padded_lengths = d_collated['input_ids'].shape[1]  # All sequences have same length after padding
-        for i, eos_pos_list in enumerate(all_eos_positions):
-            padding_length = padded_lengths - original_lengths[i]
-            # Shift each EOS position by the padding length
-            all_eos_positions[i] = [pos + padding_length for pos in eos_pos_list]
-    
-    return d_collated, all_eos_positions
+    return d_collated, adjusted_eos_positions
 
 
 @dataclass

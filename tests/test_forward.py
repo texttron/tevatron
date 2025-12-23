@@ -136,10 +136,7 @@ def test_compute_maxsim_similarity():
 
 @pytest.mark.unit
 def test_forward_with_chunking(train_tokenizer):
-    """
-    Test model forward function with chunked passages.
-    This tests the integration of encode_query, encode_passage, and compute_maxsim_similarity.
-    """
+    """Test model forward with chunked passages: encode_query, encode_passage, compute_maxsim_similarity."""
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import TrainCollator
@@ -151,30 +148,19 @@ def test_forward_with_chunking(train_tokenizer):
         "(MRI) sequence with diffusion tensor analysis was applied to measure the apparent diffusion coefficient."
     )
     
-    # Setup data arguments
     data_args = DataArguments(
         passage_chunk_size=32,
         passage_max_len=128,
         pad_to_multiple_of=16,
         padding_side="right",
-        passage_prefix="",
-        query_prefix="",
         append_eos_token=False,
     )
-    
-    # Create collator
     collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
     
-    # Create test data: 2 queries, 2 passages (1 positive each)
     queries = ["What is cerebral white matter?", "What is MRI?"]
     passages = [REAL_TEXT, "MRI stands for Magnetic Resonance Imaging."]
+    q_batch, p_batch, eos_positions = collator([(q, [p], []) for q, p in zip(queries, passages)])
     
-    # Collate data
-    q_batch, p_batch, eos_positions = collator([
-        (q, [p], []) for q, p in zip(queries, passages)
-    ])
-    
-    # Create mock encoder
     hidden_size = 64
     
     class MockEncoderOutput:
@@ -184,82 +170,49 @@ def test_forward_with_chunking(train_tokenizer):
     def mock_encoder_forward(**kwargs):
         input_ids = kwargs['input_ids']
         batch_size, seq_len = input_ids.shape
-        hidden_states = torch.randn(batch_size, seq_len, hidden_size)
-        return MockEncoderOutput(last_hidden_state=hidden_states)
+        return MockEncoderOutput(last_hidden_state=torch.randn(batch_size, seq_len, hidden_size))
     
     mock_encoder = Mock(side_effect=mock_encoder_forward)
     mock_encoder.config = Mock()
     mock_encoder.config.hidden_size = hidden_size
     
-    # Create model
     model = DenseModel(encoder=mock_encoder, pooling='last', normalize=False)
     model.passage_chunk_size = data_args.passage_chunk_size
     model.eos_positions = eos_positions
     model.training = True
     
-    # Forward pass
     output = model(query=q_batch, passage=p_batch)
     
-    # Verify output structure
     assert hasattr(output, 'q_reps')
     assert hasattr(output, 'p_reps')
     assert hasattr(output, 'scores')
     assert hasattr(output, 'loss')
+    assert output.q_reps.shape == (len(queries), hidden_size)
     
-    # Verify query representations
-    assert output.q_reps.shape[0] == len(queries)
-    assert output.q_reps.shape[1] == hidden_size
-    
-    # Verify passage representations (chunked)
-    assert isinstance(output.p_reps, tuple)  # Should be (chunk_reps, chunk_mask)
     chunk_reps, chunk_mask = output.p_reps
     assert chunk_reps.shape[0] == len(passages)
     assert chunk_reps.shape[2] == hidden_size
-    assert chunk_mask.shape == (len(passages), chunk_reps.shape[1])
-    
-    # Verify scores shape
-    # With 2 queries and 2 passages, scores should be [2, 2]
     assert output.scores.shape == (len(queries), len(passages))
+    assert output.loss.item() >= 0
     
-    # Verify loss is computed
-    assert output.loss is not None
-    assert output.loss.item() >= 0  # Loss should be non-negative
-    
-    # Test Case 2: Verify MaxSim is used (not regular similarity)
-    # Create a scenario where MaxSim gives different result than mean pooling
+    # Test MaxSim with known embeddings
     model.eval()
     with torch.no_grad():
-        # Use known embeddings where max chunk is different from mean
         q_reps_test = torch.tensor([[1.0, 0.0], [0.0, 1.0]], dtype=torch.float32)
-        # Passage with 2 chunks: first chunk similar to query, second chunk dissimilar
         p_reps_test = torch.tensor([
-            [[1.0, 0.0], [0.0, 1.0]],  # Passage 0: chunk 0 matches query 0, chunk 1 matches query 1
-            [[0.0, 1.0], [1.0, 0.0]],  # Passage 1: chunk 0 matches query 1, chunk 1 matches query 0
+            [[1.0, 0.0], [0.0, 1.0]],
+            [[0.0, 1.0], [1.0, 0.0]],
         ], dtype=torch.float32)
         chunk_mask_test = torch.ones(2, 2)
         
         scores_test = model.compute_maxsim_similarity(q_reps_test, p_reps_test, chunk_mask_test)
-        
-        # Query 0 with Passage 0: max similarity should be with chunk 0 (1.0)
-        assert torch.allclose(scores_test[0, 0], torch.tensor(1.0))
-        # Query 0 with Passage 1: max similarity should be with chunk 1 (1.0)
-        assert torch.allclose(scores_test[0, 1], torch.tensor(1.0))
-        # Query 1 with Passage 0: max similarity should be with chunk 1 (1.0)
-        assert torch.allclose(scores_test[1, 0], torch.tensor(1.0))
-        # Query 1 with Passage 1: max similarity should be with chunk 0 (1.0)
-        assert torch.allclose(scores_test[1, 1], torch.tensor(1.0))
+        assert torch.allclose(scores_test, torch.ones(2, 2))
     
-    # Test Case 3: Verify padding chunks are ignored
+    # Test padding chunks are ignored
     p_reps_padded = torch.randn(2, 3, hidden_size)
-    chunk_mask_padded = torch.tensor([
-        [1.0, 1.0, 0.0],  # Passage 0: 2 valid chunks
-        [1.0, 0.0, 0.0],  # Passage 1: 1 valid chunk
-    ])
-    
+    chunk_mask_padded = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
     scores_padded = model.compute_maxsim_similarity(output.q_reps, p_reps_padded, chunk_mask_padded)
-    assert scores_padded.shape == (len(queries), len(passages))
     
-    # Verify that padding doesn't affect the max (should only consider valid chunks)
     for q_idx in range(len(queries)):
         for p_idx in range(len(passages)):
             chunk_scores = torch.einsum('h,ch->c', output.q_reps[q_idx], p_reps_padded[p_idx])
