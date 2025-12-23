@@ -54,7 +54,9 @@ class DenseModel(EncoderModel):
         for i, positions in enumerate(eos_positions):
             for j, pos in enumerate(positions):
                 if 0 <= pos < seq_len:
+                    # i is the batch index, j is the chunk index, pos is the eos position
                     chunk_reps[i, j] = last_hidden_state[i, pos]
+                    # chunk_mask is 1.0 for valid chunks, 0.0 for padding chunks
                     chunk_mask[i, j] = 1.0
                 else:
                     logger.warning(f"Position {pos} out of bounds for sequence length {seq_len} in batch {i}, chunk {j}")

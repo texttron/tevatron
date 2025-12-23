@@ -89,12 +89,16 @@ class EncoderModel(nn.Module):
             else:
                 # print(f"start compute similarity==========================")
                 scores = self.compute_similarity(q_reps, p_reps)
+            # view the scores as [Q, P] where Q is the number of queries and P is the number of passages
             scores = scores.view(q_reps.size(0), -1)
 
             num_psg_per_query = scores.size(1) // q_reps.size(0)
             target = torch.arange(q_reps.size(0), device=scores.device, dtype=torch.long)
             target = target * num_psg_per_query
-
+            # target contains the indices of the positive passages in this batch target.shape = [Q]
+            # so the target is [0, 4, 8, 12] for batch_size = 2, group_size = 4, chunk_size = 64
+            print(f"target: {target}")
+            print(f"target.shape: {target.shape}")
             loss = self.compute_loss(scores / self.temperature, target)
             if self.is_ddp:
                 loss = loss * self.world_size # counter average weight reduction
@@ -137,39 +141,40 @@ class EncoderModel(nn.Module):
             chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
         max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
 
-        # Print argmax chunk index + (optional) original token position from eos_positions
+        # Log maxsim info: read chunk indices directly from max_idx
         if True:
             # only log from rank-0 if DDP
             if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
                 eos_positions = getattr(self, "eos_positions", None)
-                # If DDP gathered passages, eos_positions may not align; only use when sizes match.
                 eos_ok = (
                     isinstance(eos_positions, (list, tuple))
                     and len(eos_positions) == p_reps.size(0)
                 )
-                qn, pn = max_idx.size(0), max_idx.size(1)
-                for qi in range(qn):
-                    for pi in range(pn):
-                        ci = int(max_idx[qi, pi].item())
-                        # last valid chunk index for this passage (by mask)
-                        if chunk_mask is not None:
-                            valid = int(chunk_mask[pi].sum().item())
-                            last_ci = max(valid - 1, 0)
-                        else:
-                            last_ci = p_reps.size(1) - 1
-
-                        if eos_ok and eos_positions[pi]:
-                            pos_list = eos_positions[pi]
-                            best_pos = pos_list[ci] if 0 <= ci < len(pos_list) else None
-                            last_pos = pos_list[-1]
+                
+                # Compute last valid chunk indices for all passages
+                if chunk_mask is not None:
+                    last_ci_per_passage = (chunk_mask.sum(dim=1) - 1).clamp(min=0)  # [P]
+                else:
+                    last_ci_per_passage = torch.full((p_reps.size(0),), p_reps.size(1) - 1, dtype=torch.long)
+                
+                # Log for each query-passage pair
+                for qi in range(max_idx.size(0)):
+                    for pi in range(max_idx.size(1)):
+                        ci = int(max_idx[qi, pi].item())  # best chunk index from max_idx
+                        last_ci = int(last_ci_per_passage[pi].item())
+                        score = float(max_vals[qi, pi].item())
+                        
+                        if eos_ok and eos_positions[pi] and ci < len(eos_positions[pi]):
+                            best_pos = eos_positions[pi][ci]
+                            last_pos = eos_positions[pi][-1]
                             logger.info(
                                 f"[maxsim] q={qi} p={pi} best_chunk={ci} best_pos={best_pos} "
-                                f"last_chunk={last_ci} last_pos={last_pos} best_score={float(max_vals[qi, pi].item()):.6f}"
+                                f"last_chunk={last_ci} last_pos={last_pos} best_score={score:.6f}"
                             )
                         else:
                             logger.info(
                                 f"[maxsim] q={qi} p={pi} best_chunk={ci} last_chunk={last_ci} "
-                                f"best_score={float(max_vals[qi, pi].item()):.6f}"
+                                f"best_score={score:.6f}"
                             )
 
         return max_vals
