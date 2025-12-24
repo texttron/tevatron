@@ -130,6 +130,7 @@ class TrainDataset(Dataset):
             # Select negative documents
             negative_size = self.data_args.train_group_size - 1
             if len(group['negative_passages']) < negative_size:
+                print(f"selected_negatives: Randomly selected!!!!!!!!!!!!!!!!!!!!!!!!!!")
                 selected_negatives = random.choices(group['negative_passages'], k=negative_size)
             elif self.data_args.train_group_size == 1:
                 selected_negatives = []
@@ -394,7 +395,8 @@ class DistilTrainDataset(TrainDataset):
 
         negative_size = self.data_args.train_group_size - 1
         if len(negative_document_ids) < negative_size:
-            selected_negative_document_ids = random.choices(negative_document_ids, k=negative_size)
+            rng = random.Random(_hashed_seed)
+            selected_negative_document_ids = rng.choices(negative_document_ids, k=negative_size)
         elif self.data_args.train_group_size == 1:
             selected_negative_document_ids = []
         else:

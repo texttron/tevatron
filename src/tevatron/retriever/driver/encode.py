@@ -148,7 +148,7 @@ def main():
         logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} chunks")
         print(f"encoded.shape: {encoded.shape}")
         print(f"length of encoded: {len(encoded)}")
-        input("Press Enter to continue...")
+        # input("Press Enter to continue...")
     else:
         encoded = np.concatenate(encoded)
 
