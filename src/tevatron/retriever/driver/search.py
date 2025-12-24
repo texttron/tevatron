@@ -78,7 +78,7 @@ def search_queries_chunked(retriever, q_reps, p_lookup, args):
         sorted_docs = sorted(doc_max_scores.items(), key=lambda x: x[1], reverse=True)[:args.depth]
         aggregated_results.append(sorted_docs)
     print(f"aggregated_results: {aggregated_results[0]}")
-    input("Press Enter to continue...")
+    # input("Press Enter to continue...")
     return aggregated_results
 
 
