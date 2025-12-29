@@ -80,6 +80,7 @@ def _chunk_tokens(
     while i < len(tokens):
         # Pick chunk size for this chunk
         if use_variable_sizes:
+            # Randomly pick a chunk size between min and max
             current_chunk_size = random.randint(chunk_size_min, chunk_size_max)
         else:
             current_chunk_size = chunk_size
@@ -102,7 +103,9 @@ def _chunk_tokens(
         ids.extend(chunk)
         ids.append(eos_token_id)
         eos_pos.append(len(ids) - 1)  # EOS position for pooling
-        total_length += current_chunk_size
+        # Use actual chunk size (take + 1 for EOS) for total_length tracking
+        actual_chunk_size = take + 1
+        total_length += actual_chunk_size
         i += take
     
     return ids, eos_pos
@@ -179,6 +182,7 @@ def _tokenize_and_pad_chunked_passages(
             passage = ""
         tokens = tokenizer.encode(passage, add_special_tokens=False)
         # Use per-passage chunk size if provided, otherwise use fixed chunk size
+        # Note: chunk_size is ignored in _chunk_tokens when chunk_size_range is provided
         chunk_size = chunk_sizes[idx] if chunk_sizes is not None else data_args.passage_chunk_size
         ids, eos_pos = _chunk_tokens(
             tokens=tokens,
