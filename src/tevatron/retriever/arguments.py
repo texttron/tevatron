@@ -213,6 +213,11 @@ class DataArguments:
         metadata={"help": "Chunk size range for random chunking during training (e.g., '64,128'). Randomly selects chunk size in [min, max] range per passage. Only for training."}
     )
 
+    passage_chunk_size_variable: bool = field(
+        default=False,
+        metadata={"help": "If True and passage_chunk_size_range is set, each chunk within a passage gets a random size from the range. If False, all chunks in a passage use the same random size. Only for training."}
+    )
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):

@@ -19,31 +19,52 @@ def _chunk_tokens(
     chunk_size: int,
     eos_token_id: int,
     max_length: int = None,
+    chunk_size_range: Optional[Tuple[int, int]] = None,
 ) -> Tuple[List[int], List[int]]:
     """
-    Chunk tokens into fixed-size chunks with EOS separators.
+    Chunk tokens into chunks with EOS separators.
     
     :param tokens: Token IDs to chunk
-    :param chunk_size: Max chunk size (before EOS). Must be >= 2.
+    :param chunk_size: Max chunk size (before EOS). Must be >= 2. Used when chunk_size_range is None.
     :param eos_token_id: EOS token ID to append after each chunk
     :param max_length: Optional max total length (including EOS). If None, no limit.
+    :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes. If set, each chunk uses a random size in [min, max].
     :return: (chunked_ids, eos_positions) - token IDs with EOS separators and EOS positions
     """
-    if chunk_size < 2:
-        return [], []
+    # Determine chunk size parameters
+    if chunk_size_range is not None:
+        chunk_size_min, chunk_size_max = chunk_size_range
+        if chunk_size_min < 2:
+            raise ValueError(f"Minimum chunk size must be >= 2, got {chunk_size_min}")
+        if chunk_size_max < chunk_size_min:
+            raise ValueError(f"Maximum chunk size ({chunk_size_max}) must be >= minimum chunk size ({chunk_size_min})")
+        use_variable_sizes = True
+        # For max_length calculation, use average chunk size
+        avg_chunk_size = (chunk_size_min + chunk_size_max) // 2
+        effective_chunk_size = avg_chunk_size
+    else:
+        if chunk_size < 2:
+            return [], []
+        use_variable_sizes = False
+        effective_chunk_size = chunk_size
     
-    chunk_len = chunk_size - 1  # Reserve 1 slot for EOS
+    chunk_len = effective_chunk_size - 1  # Reserve 1 slot for EOS (for estimation)
     
-    # Truncate tokens to fit within max_length
-    # Each chunk: chunk_len tokens + 1 EOS = chunk_size total
+    # Truncate tokens to fit within max_length (conservative estimate)
     if max_length and max_length > 0:
         max_tokens_to_use = 0
         remaining_length = max_length
         
+        if use_variable_sizes:
+            # For variable sizes, use min chunk size for conservative estimation
+            est_chunk_size = chunk_size_min
+        else:
+            est_chunk_size = chunk_size
+        
         while remaining_length > 1 and max_tokens_to_use < len(tokens):
-            if remaining_length >= chunk_size:
-                max_tokens_to_use += chunk_len
-                remaining_length -= chunk_size
+            if remaining_length >= est_chunk_size:
+                max_tokens_to_use += (est_chunk_size - 1)
+                remaining_length -= est_chunk_size
             else:
                 max_tokens_to_use += remaining_length - 1
                 break
@@ -55,12 +76,33 @@ def _chunk_tokens(
     eos_pos = []
     
     i = 0
+    total_length = 0
     while i < len(tokens):
-        take = min(chunk_len, len(tokens) - i)
+        # Pick chunk size for this chunk
+        if use_variable_sizes:
+            current_chunk_size = random.randint(chunk_size_min, chunk_size_max)
+        else:
+            current_chunk_size = chunk_size
+        
+        # Check if we have space for this chunk (including EOS)
+        if max_length and total_length + current_chunk_size > max_length:
+            # Use remaining space (leave 1 for EOS if possible)
+            remaining = max_length - total_length - 1
+            if remaining > 0:
+                take = min(remaining, len(tokens) - i)
+                chunk = tokens[i:i + take]
+                ids.extend(chunk)
+                ids.append(eos_token_id)
+                eos_pos.append(len(ids) - 1)
+            break
+        
+        current_chunk_len = current_chunk_size - 1  # Reserve 1 slot for EOS
+        take = min(current_chunk_len, len(tokens) - i)
         chunk = tokens[i:i + take]
         ids.extend(chunk)
         ids.append(eos_token_id)
         eos_pos.append(len(ids) - 1)  # EOS position for pooling
+        total_length += current_chunk_size
         i += take
     
     return ids, eos_pos
@@ -110,6 +152,7 @@ def _tokenize_and_pad_chunked_passages(
     tokenizer: PreTrainedTokenizer,
     data_args: DataArguments,
     chunk_sizes: Optional[List[int]] = None,
+    chunk_size_range: Optional[Tuple[int, int]] = None,
 ) -> Tuple[dict, List[List[int]]]:
     """
     Tokenize and chunk passages with EOS separators. Each chunk ends with EOS for embedding extraction.
@@ -118,6 +161,7 @@ def _tokenize_and_pad_chunked_passages(
     :param tokenizer: Tokenizer for encoding
     :param data_args: DataArguments with chunk_size, max_len, pad_to_multiple_of
     :param chunk_sizes: Optional list of chunk sizes (one per passage). If None, uses data_args.passage_chunk_size
+    :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes per chunk. If set, each chunk within a passage uses a random size.
     :return: (collated_dict, eos_positions) - padded tensors and EOS positions per passage
     """
     eos_id = tokenizer.eos_token_id
@@ -141,6 +185,7 @@ def _tokenize_and_pad_chunked_passages(
             chunk_size=chunk_size,
             eos_token_id=eos_id,
             max_length=max_length,
+            chunk_size_range=chunk_size_range,
         )
         all_input_ids.append(ids)
         all_eos_positions.append(eos_pos)
@@ -216,12 +261,22 @@ class TrainCollator:
             if chunk_size_max < chunk_size_min:
                 raise ValueError(f"Maximum chunk size ({chunk_size_max}) must be >= minimum chunk size ({chunk_size_min})")
             
-            # Generate random chunk sizes for each passage
-            chunk_sizes = [
-                random.randint(chunk_size_min, chunk_size_max)
-                for _ in all_passages
-            ]
-            d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_sizes=chunk_sizes)
+            if self.data_args.passage_chunk_size_variable:
+                # Variable chunk sizes: each chunk within a passage gets a random size
+                # Pass the range to _chunk_tokens, which will randomly pick a size for each chunk
+                chunk_size_range = (chunk_size_min, chunk_size_max)
+                d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(
+                    all_passages, 
+                    chunk_size_range=chunk_size_range
+                )
+            else:
+                # Fixed random chunk size per passage: all chunks in a passage use the same random size
+                # Generate random chunk sizes for each passage
+                chunk_sizes = [
+                    random.randint(chunk_size_min, chunk_size_max)
+                    for _ in all_passages
+                ]
+                d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_sizes=chunk_sizes)
             return q_collated, d_collated, eos_positions
         elif use_fixed_chunking:
             d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
@@ -247,8 +302,8 @@ class TrainCollator:
             )
             return q_collated, d_collated
 
-    def _tokenize_and_pad_chunked_passages(self, passages: List[str], chunk_sizes: Optional[List[int]] = None):
-        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args, chunk_sizes=chunk_sizes)
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str], chunk_sizes: Optional[List[int]] = None, chunk_size_range: Optional[Tuple[int, int]] = None):
+        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args, chunk_sizes=chunk_sizes, chunk_size_range=chunk_size_range)
 
 
 @dataclass
