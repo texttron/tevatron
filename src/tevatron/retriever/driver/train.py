@@ -88,7 +88,16 @@ def main():
         torch_dtype=torch_dtype,
         attn_implementation=model_args.attn_implementation,
     )
-    model.passage_chunk_size = data_args.passage_chunk_size
+    # Set passage_chunk_size: use fixed chunk size if set, otherwise set to 1 if using random chunking
+    # (model uses passage_chunk_size > 0 as signal to use chunked encoding)
+    if data_args.passage_chunk_size > 0:
+        model.passage_chunk_size = data_args.passage_chunk_size
+    elif data_args.passage_chunk_size_range is not None:
+        # For random chunking, set to a positive value to enable chunked encoding
+        # The actual chunk sizes will be determined per-passage by the collator
+        model.passage_chunk_size = 1
+    else:
+        model.passage_chunk_size = 0
 
     train_dataset = TrainDataset(data_args)
     collator = TrainCollator(data_args, tokenizer)

@@ -208,6 +208,11 @@ class DataArguments:
         metadata={"help": "Chunk size for chunked passage encoding with MaxSim. 0=disabled, >0=chunk size in tokens"}
     )
 
+    passage_chunk_size_range: Optional[str] = field(
+        default=None,
+        metadata={"help": "Chunk size range for random chunking during training (e.g., '64,128'). Randomly selects chunk size in [min, max] range per passage. Only for training."}
+    )
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):

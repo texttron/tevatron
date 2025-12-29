@@ -35,24 +35,15 @@ def search_queries_chunked(retriever, q_reps, p_lookup, args):
     Search with chunked passages and aggregate by document using MaxSim.
     """
     # Search more chunks to ensure good recall after aggregation
-    search_depth = args.depth
+    chunk_multiplier = getattr(args, 'chunk_multiplier', 10)
+    search_depth = args.depth * chunk_multiplier
     
-    print(f"q_reps: {len(q_reps)}")
-    print(f"p_lookup: {p_lookup}")
-    print(f"len(p_lookup): {len(p_lookup)}")
-    print(f"args.batch_size: {args.batch_size}")
     if args.batch_size > 0:
         # all_scores.shape = [Q, search_depth]
         all_scores, all_indices = retriever.batch_search(q_reps, search_depth, args.batch_size, args.quiet)
     else:
         # all_scores.shape = [search_depth]
         all_scores, all_indices = retriever.search(q_reps, search_depth)
-    
-    print(f"all_scores: {all_scores}")
-    print(f"all_indices: {all_indices}")
-    print(f"all_scores.shape: {all_scores.shape}") # [Q, search_depth]
-    print(f"all_indices.shape: {all_indices.shape}") # [Q, search_depth]
-    # input("Press Enter to continue...")
     # Aggregate by document ID using MaxSim
     aggregated_results = []
     for q_idx in range(len(q_reps)):
@@ -77,8 +68,6 @@ def search_queries_chunked(retriever, q_reps, p_lookup, args):
         # Sort by score and take top-depth
         sorted_docs = sorted(doc_max_scores.items(), key=lambda x: x[1], reverse=True)[:args.depth]
         aggregated_results.append(sorted_docs)
-    print(f"aggregated_results: {aggregated_results[0]}")
-    # input("Press Enter to continue...")
     return aggregated_results
 
 
