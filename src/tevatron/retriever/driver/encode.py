@@ -21,7 +21,7 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
-from tevatron.retriever.collator import EncodeCollator, ChunkedEncodeCollator
+from tevatron.retriever.collator import EncodeCollator, ChunkedEncodeCollator, PreChunkedEncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, DenseModel
 
 logger = logging.getLogger(__name__)
@@ -83,10 +83,18 @@ def main():
     )
 
     use_chunked = not data_args.encode_is_query and data_args.passage_chunk_size > 0
+    use_pre_chunked = not data_args.encode_is_query and data_args.encode_use_pre_chunked
     print("data_args.encode_is_query: ", data_args.encode_is_query)
     print("data_args.passage_chunk_size: ", data_args.passage_chunk_size)
+    print("data_args.encode_use_pre_chunked: ", data_args.encode_use_pre_chunked)
     print("use_chunked: ", use_chunked)
-    if use_chunked:
+    print("use_pre_chunked: ", use_pre_chunked)
+    
+    if use_pre_chunked:
+        logger.info("Using pre-chunked passage encoding (custom EOS positions from pre-chunked data)")
+        model.passage_chunk_size = 1  # Signal to use chunked encoding
+        encode_collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
+    elif use_chunked:
         logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
         model.passage_chunk_size = data_args.passage_chunk_size
         encode_collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
@@ -109,7 +117,7 @@ def main():
     for batch in tqdm(encode_loader):
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
-                if use_chunked:
+                if use_pre_chunked or use_chunked:
                     doc_ids, batch_inputs, eos_positions = batch
                     # batch_inputs: input_ids, attention_mask
                     for k, v in batch_inputs.items():
@@ -137,7 +145,7 @@ def main():
                     else:
                         model_output: EncoderOutput = model(passage=batch_inputs)
                         encoded.append(model_output.p_reps.cpu().detach().numpy())
-    if use_chunked:
+    if use_pre_chunked or use_chunked:
         print("use_chunked: ", use_chunked)
         print(f"encoded: {encoded}")
         print(f"lookup_indices: {lookup_indices}")

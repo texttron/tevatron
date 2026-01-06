@@ -218,6 +218,11 @@ class DataArguments:
         metadata={"help": "If True and passage_chunk_size_range is set, each chunk within a passage gets a random size from the range. If False, all chunks in a passage use the same random size. Only for training."}
     )
 
+    encode_use_pre_chunked: bool = field(
+        default=False,
+        metadata={"help": "If True, expects dataset with 'chunks' field (list of pre-chunked passage strings). EOS tokens will be added between chunks. If False, uses regular 'text' field. Only for encoding (not training)."}
+    )
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):
