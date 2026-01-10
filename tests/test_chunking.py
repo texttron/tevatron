@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import random
 
 import pytest
 import torch
@@ -37,6 +38,45 @@ REAL_TEXT = (
     "quantitative assessment of water diffusion by diffusion tensor MRI provides insight into microstructural "
     "development in cerebral white matter in living infants"
 )
+
+# Semantically chunked version of REAL_TEXT - split into meaningful semantic units
+REAL_TEXT_SEMANTIC_CHUNKS = [
+    # Chunk 1: Introduction - Background on white matter alterations
+    "Alterations of the architecture of cerebral white matter in the developing human brain can affect cortical "
+    "development and result in functional disabilities.",
+    
+    # Chunk 2: Methodology - MRI technique description
+    "A line scan diffusion-weighted magnetic resonance imaging (MRI) sequence with diffusion tensor analysis was "
+    "applied to measure the apparent diffusion coefficient, to calculate relative anisotropy, and to delineate "
+    "three-dimensional fiber architecture in cerebral white matter in preterm (n = 17) and full-term infants (n = 7).",
+    
+    # Chunk 3: Study design - Longitudinal follow-up
+    "To assess effects of prematurity on cerebral white matter development, early gestation preterm infants "
+    "(n = 10) were studied a second time at term.",
+    
+    # Chunk 4: Results - Central white matter findings
+    "In the central white matter the mean apparent diffusion coefficient at 28 wk was high, 1.8 microm2/ms, and "
+    "decreased toward term to 1.2 microm2/ms.",
+    
+    # Chunk 5: Results - Internal capsule findings
+    "In the posterior limb of the internal capsule, the mean apparent diffusion coefficients at both times were "
+    "similar (1.2 versus 1.1 microm2/ms). Relative anisotropy was higher the closer birth was to term with greater "
+    "absolute values in the internal capsule than in the central white matter.",
+    
+    # Chunk 6: Results - Preterm vs full-term comparisons
+    "Preterm infants at term showed higher mean diffusion coefficients in the central white matter (1.4 +/- 0.24 "
+    "versus 1.15 +/- 0.09 microm2/ms, p = 0.016) and lower relative anisotropy in both areas compared with "
+    "full-term infants (white matter, 10.9 +/- 0.6 versus 22.9 +/- 3.0%, p = 0.001; internal capsule, 24.0 +/- "
+    "4.44 versus 33.1 +/- 0.6% p = 0.006).",
+    
+    # Chunk 7: Results - Corpus callosum findings
+    "Nonmyelinated fibers in the corpus callosum were visible by diffusion tensor MRI as early as 28 wk; full-term "
+    "and preterm infants at term showed marked differences in white matter fiber organization.",
+    
+    # Chunk 8: Conclusion
+    "The data indicate that quantitative assessment of water diffusion by diffusion tensor MRI provides insight into "
+    "microstructural development in cerebral white matter in living infants"
+]
 EOS_TOKEN_ID = 151643
 PADDING_TOKEN_ID = 151643
 
@@ -1226,3 +1266,903 @@ def test_chunking_multiple_passages_different_lengths(train_tokenizer):
     assert eos_positions[3] == expected_eos_3
     assert ids_3 == expected_ids_3
     assert mask_3 == expected_mask_3
+
+
+# ============================================================================
+# Unit tests for random chunk sizes within a range
+# ============================================================================
+
+@pytest.mark.unit
+def test_chunk_tokens_random_chunk_size_range_fixed_per_passage(train_tokenizer):
+    """Test chunking with random chunk size range, fixed per passage (all chunks in a passage use same random size)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    # Set seed for deterministic results
+    random.seed(42)
+    
+    tokens = list(range(100))  # 100 tokens
+    eos_id = 99
+    chunk_size_range = (10, 20)  # Random chunk size between 10 and 20
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size=10, eos_token_id=eos_id, chunk_size_range=chunk_size_range)
+    
+    # Hardcoded golden output with seed=42 and chunk_size_range=(10, 20)
+    # With seed=42, random.randint(10, 20) generates: 19, 12, 11, 15, 14, 13, 13, 12, 5 (for chunks)
+    # Chunk sizes (before EOS): 19, 12, 11, 15, 14, 13, 13, 12, 5
+    # Chunk lengths (tokens per chunk): 18, 11, 10, 14, 13, 12, 12, 11, 4
+    expected_ids = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99,  # Chunk 1: 19 tokens (18 + EOS)
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 99,  # Chunk 2: 12 tokens (11 + EOS)
+        29, 30, 31, 32, 33, 34, 35, 36, 37, 99,  # Chunk 3: 11 tokens (10 + EOS)
+        38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 99,  # Chunk 4: 15 tokens (14 + EOS)
+        51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 99,  # Chunk 5: 14 tokens (13 + EOS)
+        63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 99,  # Chunk 6: 13 tokens (12 + EOS)
+        75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 99,  # Chunk 7: 13 tokens (12 + EOS)
+        86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 99,  # Chunk 8: 12 tokens (11 + EOS)
+        96, 97, 98, 99, 99  # Chunk 9: 5 tokens (4 + EOS)
+    ]
+    expected_eos_pos = [19, 30, 40, 54, 67, 80, 92, 103, 108]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+    
+    # Verify structure: each chunk should end with EOS
+    for eos_pos_val in eos_pos:
+        assert ids[eos_pos_val] == eos_id
+
+
+@pytest.mark.unit
+def test_chunk_tokens_random_chunk_size_range_with_max_length(train_tokenizer):
+    """Test random chunk size range with max_length constraint."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _chunk_tokens
+    
+    random.seed(123)
+    
+    tokens = list(range(200))
+    eos_id = 99
+    chunk_size_range = (15, 25)
+    max_length = 50
+    
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size=15, eos_token_id=eos_id, max_length=max_length, chunk_size_range=chunk_size_range)
+    
+    # Hardcoded golden output with seed=123, chunk_size_range=(15, 25), max_length=50
+    # With seed=123, random.randint(15, 25) generates: 15, 20, 16 (for chunks)
+    # Chunk sizes (before EOS): 15, 20, 16
+    # Chunk lengths (tokens per chunk): 14, 19, 15
+    # Total: 14 + 1 + 19 + 1 + 15 + 1 = 50 tokens (exactly max_length)
+    expected_ids = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 99,  # Chunk 1: 15 tokens (14 + EOS)
+        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 99,  # Chunk 2: 20 tokens (19 + EOS)
+        32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 99  # Chunk 3: 16 tokens (15 + EOS, truncated to fit max_length)
+    ]
+    expected_eos_pos = [14, 33, 49]
+    
+    assert ids == expected_ids
+    assert eos_pos == expected_eos_pos
+    assert len(ids) == max_length  # Exactly max_length
+    
+    # Verify all EOS positions are valid
+    for eos_pos_val in eos_pos:
+        assert ids[eos_pos_val] == eos_id
+        assert eos_pos_val < len(ids)
+
+
+@pytest.mark.unit
+def test_train_collator_random_chunk_size_range_fixed_per_passage(train_tokenizer):
+    """Test TrainCollator with random chunk size range, fixed per passage."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=2,
+        passage_chunk_size_range="32,64",  # Random chunk size between 32 and 64
+        passage_chunk_size_variable=False,  # Fixed random size per passage
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None), (REAL_TEXT, None, None, None)]),
+    ]
+    
+    q_batch, p_batch, eos_positions = collator(features)
+    
+    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=False
+    # With seed=42, random.randint(32, 64) generates: 40 for passage 0, 34 for passage 1
+    # Passage 0: chunk_size=40 (chunk_len=39), produces 4 chunks: [38, 77, 116, 127]
+    # Passage 1: chunk_size=34 (chunk_len=33), produces 4 chunks: [32, 65, 98, 127]
+    expected_ids_0 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284,
+        EOS_TOKEN_ID, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
+        41434, 320, 77, 284, 220, 16, 15, EOS_TOKEN_ID, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
+        13, 758, EOS_TOKEN_ID
+    ]
+    expected_mask_0 = [1] * 128
+    expected_eos_positions_0 = [38, 77, 116, 127]
+    
+    expected_ids_1 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, EOS_TOKEN_ID, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, EOS_TOKEN_ID, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991,
+        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, EOS_TOKEN_ID, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743,
+        367, 855, 4991, 41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
+        13, 758, EOS_TOKEN_ID
+    ]
+    expected_mask_1 = [1] * 128
+    expected_eos_positions_1 = [32, 65, 98, 127]
+    
+    # Verify structure
+    assert p_batch["input_ids"].shape[0] == 2
+    assert len(eos_positions) == 2
+    
+    # Verify passage 0
+    got_ids_0 = p_batch["input_ids"][0].tolist()
+    got_mask_0 = p_batch["attention_mask"][0].tolist()
+    assert got_ids_0 == expected_ids_0
+    assert got_mask_0 == expected_mask_0
+    assert eos_positions[0] == expected_eos_positions_0
+    assert _strictly_increasing(eos_positions[0])
+    for eos_pos in eos_positions[0]:
+        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_0[eos_pos] == 1
+    
+    # Verify passage 1
+    got_ids_1 = p_batch["input_ids"][1].tolist()
+    got_mask_1 = p_batch["attention_mask"][1].tolist()
+    assert got_ids_1 == expected_ids_1
+    assert got_mask_1 == expected_mask_1
+    assert eos_positions[1] == expected_eos_positions_1
+    assert _strictly_increasing(eos_positions[1])
+    for eos_pos in eos_positions[1]:
+        assert got_ids_1[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_1[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_train_collator_random_chunk_size_range_variable_per_chunk(train_tokenizer):
+    """Test TrainCollator with random chunk size range, variable per chunk."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size_range="32,64",  # Random chunk size between 32 and 64
+        passage_chunk_size_variable=True,  # Variable chunk size per chunk
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None)]),
+    ]
+    
+    q_batch, p_batch, eos_positions = collator(features)
+    
+    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=True
+    # With seed=42 and variable chunk sizes, each chunk gets a random size from [32, 64]
+    # Chunk sizes generated: 40, 34, 50, 48, 47, 41, 3 (last partial chunk)
+    # EOS positions: [38, 71, 120, 167, 213, 253, 255]
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, EOS_TOKEN_ID, 304, 855, 4991,
+        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
+        41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, EOS_TOKEN_ID, 2086, 882, 518, 4647,
+        13, 758, 279, 8622, 4158, 4925, 279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572,
+        1550, 11, 220, 16, 13, 23, 19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16,
+        13, 17, 19197, 441, 17, 58634, 13, EOS_TOKEN_ID, 758, 279, 44900, 47594, 315, 279, 5306,
+        47639, 11, 279, 3076, 9981, 57330, 36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17,
+        19041, 220, 16, 13, 16, 19197, 441, 17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080,
+        279, 12128, 7194, 572, 311, EOS_TOKEN_ID, 4647, 448, 7046, 10740, 2750, 304, 279, 5306,
+        47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968, 4991, 41434, 518, 4647, 8542, 5080,
+        3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320, 16, 13, 19, 51615, 220, 15, 13,
+        EOS_TOKEN_ID, 17, EOS_TOKEN_ID
+    ]
+    expected_mask = [1] * 256
+    expected_eos_positions = [38, 71, 120, 167, 213, 253, 255]
+    
+    # Verify structure
+    assert p_batch["input_ids"].shape[0] == 1
+    assert len(eos_positions) == 1
+    
+    got_ids = p_batch["input_ids"][0].tolist()
+    got_mask = p_batch["attention_mask"][0].tolist()
+    
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions[0] == expected_eos_positions
+    assert _strictly_increasing(eos_positions[0])
+    
+    # Verify each EOS position is valid
+    for eos_pos in eos_positions[0]:
+        assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_train_collator_random_chunk_size_range_hardcoded_output(train_tokenizer):
+    """Test TrainCollator with random chunk size range - hardcoded golden output."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size_range="32,48",  # Random chunk size between 32 and 48
+        passage_chunk_size_variable=False,  # Fixed random size per passage
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    short_text = "Hello world this is a test passage"
+    features = [
+        (("q1", None, None, None), [(short_text, None, None, None)]),
+    ]
+    
+    q_batch, p_batch, eos_positions = collator(features)
+    
+    got_ids = p_batch["input_ids"][0].tolist()
+    got_mask = p_batch["attention_mask"][0].tolist()
+    
+    # Hardcoded golden output with seed=42 and chunk_size_range=(32,48)
+    # short_text tokenizes to: [9707, 1879, 419, 374, 264, 1273, 21085]
+    # With seed=42, random.randint(32, 48) = 40 (first call)
+    # So chunk_len = 39, but we only have 7 tokens, so we get: [7 tokens] + EOS
+    expected_ids = [9707, 1879, 419, 374, 264, 1273, 21085, EOS_TOKEN_ID] + [PADDING_TOKEN_ID] * 8
+    expected_mask = [1] * 8 + [0] * 8
+    expected_eos_positions = [[7]]
+    
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions == expected_eos_positions
+
+
+# ============================================================================
+# Unit tests for prechunked passages
+# ============================================================================
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_basic(train_tokenizer):
+    """Test PreChunkedEncodeCollator with basic pre-chunked passages."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    # Pre-chunked passages: each passage is a list of chunk strings
+    features = [
+        ("doc1", ["Hello world", "This is chunk 2", "Final chunk"], None, None, None),
+        ("doc2", ["Single chunk passage"], None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Hardcoded golden output:
+    # doc1: "Hello world" -> [9707, 1879] + EOS, "This is chunk 2" -> [1986, 374, 11879, 220, 17] + EOS, "Final chunk" -> [19357, 11879] + EOS
+    # Total: 12 tokens (11 content + 3 EOS), padded to 16
+    expected_ids_0 = [9707, 1879, EOS_TOKEN_ID, 1986, 374, 11879, 220, 17, EOS_TOKEN_ID, 19357, 11879, EOS_TOKEN_ID] + [PADDING_TOKEN_ID] * 4
+    expected_mask_0 = [1] * 12 + [0] * 4
+    expected_eos_positions_0 = [2, 8, 11]
+    
+    # doc2: "Single chunk passage" -> [10888, 11879, 21085] + EOS
+    # Total: 4 tokens (3 content + 1 EOS), padded to 16
+    expected_ids_1 = [10888, 11879, 21085, EOS_TOKEN_ID] + [PADDING_TOKEN_ID] * 12
+    expected_mask_1 = [1] * 4 + [0] * 12
+    expected_eos_positions_1 = [3]
+    
+    assert doc_ids == ["doc1", "doc2"]
+    assert d_collated["input_ids"].shape[0] == 2
+    assert len(eos_positions) == 2
+    
+    # Verify doc1
+    got_ids_0 = d_collated["input_ids"][0].tolist()
+    got_mask_0 = d_collated["attention_mask"][0].tolist()
+    assert got_ids_0 == expected_ids_0
+    assert got_mask_0 == expected_mask_0
+    assert eos_positions[0] == expected_eos_positions_0
+    assert len(eos_positions[0]) == 3
+    assert _strictly_increasing(eos_positions[0])
+    for eos_pos in eos_positions[0]:
+        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_0[eos_pos] == 1
+    
+    # Verify doc2
+    got_ids_1 = d_collated["input_ids"][1].tolist()
+    got_mask_1 = d_collated["attention_mask"][1].tolist()
+    assert got_ids_1 == expected_ids_1
+    assert got_mask_1 == expected_mask_1
+    assert eos_positions[1] == expected_eos_positions_1
+    assert len(eos_positions[1]) == 1
+    for eos_pos in eos_positions[1]:
+        assert got_ids_1[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_1[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_hardcoded_output(train_tokenizer):
+    """Test PreChunkedEncodeCollator with hardcoded golden output."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=64,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    # Pre-chunked passages
+    features = [
+        ("doc1", ["Hello", "world"], None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    # Hardcoded golden output:
+    # "Hello" -> [9707] + EOS
+    # "world" -> [14615] + EOS (tokenized separately, different from "Hello world")
+    # Total: 4 tokens, padded to 16
+    expected_ids = [9707, EOS_TOKEN_ID, 14615, EOS_TOKEN_ID] + [PADDING_TOKEN_ID] * 12
+    expected_mask = [1] * 4 + [0] * 12
+    expected_eos_positions = [[1, 3]]
+    
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions == expected_eos_positions
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_max_length_truncation(train_tokenizer):
+    """Test PreChunkedEncodeCollator with max_length truncation."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=20,  # Small max length to trigger truncation
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    # Create chunks that will exceed max_length
+    long_chunk = REAL_TEXT[:200]  # Long chunk
+    features = [
+        ("doc1", [long_chunk, "Second chunk", "Third chunk"], None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Hardcoded golden output with max_length=20:
+    # First chunk (long_chunk) tokenizes to 19 tokens, then EOS is added at position 19
+    # Total: 20 tokens (19 content + 1 EOS), which exactly fills max_length
+    # Second and third chunks are not included due to truncation
+    # Padded to 32 (multiple of 16)
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646,
+        7802, 82519, 4401, 323, EOS_TOKEN_ID
+    ] + [PADDING_TOKEN_ID] * 12
+    expected_mask = [1] * 20 + [0] * 12
+    expected_eos_positions = [19]
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions[0] == expected_eos_positions
+    assert len(got_ids) == 32  # Padded to multiple of 16
+    assert sum(got_mask) == 20  # Exactly 20 tokens (19 content + 1 EOS)
+    
+    # Verify EOS positions are valid
+    for eos_pos in eos_positions[0]:
+        assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask[eos_pos] == 1
+        assert eos_pos < len(got_ids)
+    
+    # Verify truncation: only first chunk fits, second and third chunks are not included
+    assert len(eos_positions[0]) == 1  # Only one EOS (from first chunk)
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_left_padding(train_tokenizer):
+    """Test PreChunkedEncodeCollator with left padding."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=64,
+        pad_to_multiple_of=16,
+        padding_side="left",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", ["Hello", "world"], None, None, None),
+        ("doc2", ["Short"], None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    got_ids_0 = d_collated["input_ids"][0].tolist()
+    got_mask_0 = d_collated["attention_mask"][0].tolist()
+    got_ids_1 = d_collated["input_ids"][1].tolist()
+    got_mask_1 = d_collated["attention_mask"][1].tolist()
+    
+    # Both should be padded to same length (64, rounded to 64)
+    assert len(got_ids_0) == len(got_ids_1)
+    
+    # Verify EOS positions are adjusted for left padding
+    # doc1: [9707, EOS, 1879, EOS] = 4 tokens, padded to 64 -> 60 padding tokens
+    # EOS positions shift from [1, 3] to [61, 63]
+    assert len(eos_positions[0]) == 2
+    assert eos_positions[0][0] > 1  # Should be shifted right
+    assert eos_positions[0][1] > 3  # Should be shifted right
+    
+    # Verify EOS tokens are at correct positions
+    for eos_pos in eos_positions[0]:
+        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_0[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_empty_chunks(train_tokenizer):
+    """Test PreChunkedEncodeCollator with empty chunks list."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=64,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", [], None, None, None),  # Empty chunks
+        ("doc2", ["Non-empty"], None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    assert doc_ids == ["doc1", "doc2"]
+    assert len(eos_positions) == 2
+    
+    # Empty chunks should have no EOS positions
+    assert eos_positions[0] == []
+    
+    # Non-empty should have EOS positions
+    assert len(eos_positions[1]) > 0
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_multiple_passages_different_lengths(train_tokenizer):
+    """Test PreChunkedEncodeCollator with multiple passages of different chunk counts."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", ["Chunk 1", "Chunk 2"], None, None, None),  # 2 chunks
+        ("doc2", ["Single chunk"], None, None, None),  # 1 chunk
+        ("doc3", ["A", "B", "C", "D"], None, None, None),  # 4 chunks
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    assert doc_ids == ["doc1", "doc2", "doc3"]
+    assert d_collated["input_ids"].shape[0] == 3
+    assert len(eos_positions) == 3
+    
+    # Verify each passage has correct number of EOS positions
+    assert len(eos_positions[0]) == 2  # doc1: 2 chunks
+    assert len(eos_positions[1]) == 1  # doc2: 1 chunk
+    assert len(eos_positions[2]) == 4  # doc3: 4 chunks
+    
+    # Verify all EOS positions are valid
+    for i in range(3):
+        got_ids = d_collated["input_ids"][i].tolist()
+        got_mask = d_collated["attention_mask"][i].tolist()
+        
+        assert _strictly_increasing(eos_positions[i])
+        for eos_pos in eos_positions[i]:
+            assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+            assert got_mask[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_prechunked_encode_collator_semantic_chunks(train_tokenizer):
+    """Test PreChunkedEncodeCollator with semantically chunked REAL_TEXT."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import PreChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+    )
+    collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    # Use semantically chunked version of REAL_TEXT
+    features = [
+        ("doc1", REAL_TEXT_SEMANTIC_CHUNKS, None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Hardcoded golden output with semantically chunked REAL_TEXT (8 chunks)
+    # Each semantic chunk is tokenized and separated by EOS tokens
+    # Total: 437 content tokens + 8 EOS tokens = 445 tokens, padded to 448 (multiple of 16)
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, EOS_TOKEN_ID, 32, 1555, 8569, 57330, 12635,
+        291, 23970, 56981, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284,
+        220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, EOS_TOKEN_ID, 1249, 8552,
+        6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
+        41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647, 13,
+        EOS_TOKEN_ID, 641, 279, 8622, 4158, 4925, 279, 3076, 9981, 57330, 35606, 518, 220, 17, 23,
+        73760, 572, 1550, 11, 220, 16, 13, 23, 19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647,
+        311, 220, 16, 13, 17, 19197, 441, 17, 58634, 13, EOS_TOKEN_ID, 641, 279, 44900, 47594, 315,
+        279, 5306, 47639, 11, 279, 3076, 9981, 57330, 36829, 518, 2176, 3039, 1033, 4428, 320, 16,
+        13, 17, 19041, 220, 16, 13, 16, 19197, 441, 17, 58634, 568, 39402, 458, 285, 354, 17764, 572,
+        5080, 279, 12128, 7194, 572, 311, 4647, 448, 7046, 10740, 2750, 304, 279, 5306, 47639, 1091,
+        304, 279, 8622, 4158, 4925, 13, EOS_TOKEN_ID, 4703, 4991, 41434, 518, 4647, 8542, 5080, 3076,
+        57330, 36829, 304, 279, 8622, 4158, 4925, 320, 16, 13, 19, 51615, 220, 15, 13, 17, 19, 19041,
+        220, 16, 13, 16, 20, 51615, 220, 15, 13, 15, 24, 19197, 441, 17, 58634, 11, 281, 284, 220,
+        15, 13, 15, 16, 21, 8, 323, 4722, 8674, 458, 285, 354, 17764, 304, 2176, 5671, 7707, 448,
+        2480, 9663, 41434, 320, 5782, 4925, 11, 220, 16, 15, 13, 24, 51615, 220, 15, 13, 21, 19041,
+        220, 17, 17, 13, 24, 51615, 220, 18, 13, 15, 13384, 281, 284, 220, 15, 13, 15, 15, 16, 26,
+        5306, 47639, 11, 220, 17, 19, 13, 15, 51615, 220, 19, 13, 19, 19, 19041, 220, 18, 18, 13, 16,
+        51615, 220, 15, 13, 21, 4, 281, 284, 220, 15, 13, 15, 15, 21, 568, EOS_TOKEN_ID, 8121, 2408,
+        301, 15479, 48674, 304, 279, 42094, 1620, 385, 1242, 1033, 9434, 553, 57330, 15626, 51360,
+        438, 4124, 438, 220, 17, 23, 73760, 26, 2480, 9663, 323, 855, 4991, 41434, 518, 4647, 8542,
+        12864, 11799, 304, 4158, 4925, 23788, 7321, 13, EOS_TOKEN_ID, 785, 821, 13216, 429, 46516,
+        15449, 315, 3015, 57330, 553, 57330, 15626, 51360, 5707, 20017, 1119, 8003, 95697, 4401, 304,
+        59645, 4158, 4925, 304, 5382, 41434, EOS_TOKEN_ID
+    ] + [PADDING_TOKEN_ID] * 11
+    expected_mask = [1] * 437 + [0] * 11
+    expected_eos_positions = [24, 91, 125, 167, 229, 366, 409, 436]
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    # Verify structure: should have 8 EOS positions (one per semantic chunk)
+    assert doc_ids == ["doc1"]
+    assert d_collated["input_ids"].shape[0] == 1
+    assert len(eos_positions) == 1
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions[0] == expected_eos_positions
+    assert len(eos_positions[0]) == 8  # 8 semantic chunks
+    assert _strictly_increasing(eos_positions[0])
+    
+    # Verify all EOS positions are valid
+    for eos_pos in eos_positions[0]:
+        assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask[eos_pos] == 1
+        assert eos_pos < len(got_ids)
+    
+    # Verify that semantic chunks are preserved (each chunk ends with EOS)
+    # Check that we have content tokens between EOS positions
+    for i in range(len(eos_positions[0]) - 1):
+        chunk_start = eos_positions[0][i] + 1  # Start after EOS
+        chunk_end = eos_positions[0][i + 1]  # End at next EOS
+        assert chunk_end > chunk_start  # Should have content tokens between EOS markers
+    
+    # Verify total length is reasonable (should fit within max_length=512)
+    assert len(got_ids) == 448  # Padded to multiple of 16
+    assert sum(got_mask) == 437  # 437 content tokens
+    assert len(got_ids) % 16 == 0  # Padded to multiple of 16
+
+
+# ============================================================================
+# Unit tests for random chunking in ChunkedEncodeCollator (inference/search)
+# ============================================================================
+
+@pytest.mark.unit
+def test_chunked_encode_collator_random_chunk_size_range_fixed_per_passage(train_tokenizer):
+    """Test ChunkedEncodeCollator with random chunk size range, fixed per passage (inference)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import ChunkedEncodeCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size_range="32,64",  # Random chunk size between 32 and 64
+        passage_chunk_size_variable=False,  # Fixed random size per passage
+    )
+    collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", REAL_TEXT, None, None, None),
+        ("doc2", REAL_TEXT, None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=False
+    # With seed=42, random.randint(32, 64) generates: 39 for doc1, 33 for doc2
+    # doc1: chunk_size=39 (chunk_len=38), produces 4 chunks: [38, 77, 116, 127]
+    #   - Chunk 1: 38 tokens (0-37) + EOS at 38
+    #   - Chunk 2: 38 tokens (39-76) + EOS at 77
+    #   - Chunk 3: 38 tokens (78-115) + EOS at 116
+    #   - Chunk 4: 10 tokens (117-126) + EOS at 127
+    # doc2: chunk_size=33 (chunk_len=32), produces 4 chunks: [32, 65, 98, 127]
+    #   - Chunk 1: 32 tokens (0-31) + EOS at 32
+    #   - Chunk 2: 32 tokens (33-64) + EOS at 65
+    #   - Chunk 3: 32 tokens (66-97) + EOS at 98
+    #   - Chunk 4: 28 tokens (99-126) + EOS at 127
+    expected_ids_0 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284,
+        EOS_TOKEN_ID, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
+        41434, 320, 77, 284, 220, 16, 15, EOS_TOKEN_ID, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
+        13, 758, EOS_TOKEN_ID
+    ]
+    expected_mask_0 = [1] * 128
+    expected_eos_positions_0 = [38, 77, 116, 127]
+    
+    expected_ids_1 = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, EOS_TOKEN_ID, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, EOS_TOKEN_ID, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991,
+        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, EOS_TOKEN_ID, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743,
+        367, 855, 4991, 41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
+        13, 758, EOS_TOKEN_ID
+    ]
+    expected_mask_1 = [1] * 128
+    expected_eos_positions_1 = [32, 65, 98, 127]
+    
+    # Verify structure
+    assert doc_ids == ["doc1", "doc2"]
+    assert d_collated["input_ids"].shape[0] == 2
+    assert len(eos_positions) == 2
+    
+    # Verify doc1
+    got_ids_0 = d_collated["input_ids"][0].tolist()
+    got_mask_0 = d_collated["attention_mask"][0].tolist()
+    assert got_ids_0 == expected_ids_0
+    assert got_mask_0 == expected_mask_0
+    assert eos_positions[0] == expected_eos_positions_0
+    assert _strictly_increasing(eos_positions[0])
+    for eos_pos in eos_positions[0]:
+        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_0[eos_pos] == 1
+    
+    # Verify doc2
+    got_ids_1 = d_collated["input_ids"][1].tolist()
+    got_mask_1 = d_collated["attention_mask"][1].tolist()
+    assert got_ids_1 == expected_ids_1
+    assert got_mask_1 == expected_mask_1
+    assert eos_positions[1] == expected_eos_positions_1
+    assert _strictly_increasing(eos_positions[1])
+    for eos_pos in eos_positions[1]:
+        assert got_ids_1[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask_1[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_chunked_encode_collator_random_chunk_size_range_variable_per_chunk(train_tokenizer):
+    """Test ChunkedEncodeCollator with random chunk size range, variable per chunk (inference)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import ChunkedEncodeCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size_range="32,64",  # Random chunk size between 32 and 64
+        passage_chunk_size_variable=True,  # Variable chunk size per chunk
+    )
+    collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", REAL_TEXT, None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=True
+    # With seed=42 and variable chunk sizes, each chunk gets a random size from [32, 64]
+    # Chunk sizes generated: 40, 34, 50, 48, 47, 41, 3 (last partial chunk)
+    # EOS positions: [38, 71, 120, 167, 213, 253, 255]
+    expected_ids = [
+        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
+        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
+        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
+        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
+        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, EOS_TOKEN_ID, 304, 855, 4991,
+        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
+        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
+        41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, EOS_TOKEN_ID, 2086, 882, 518, 4647,
+        13, 758, 279, 8622, 4158, 4925, 279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572,
+        1550, 11, 220, 16, 13, 23, 19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16,
+        13, 17, 19197, 441, 17, 58634, 13, EOS_TOKEN_ID, 758, 279, 44900, 47594, 315, 279, 5306,
+        47639, 11, 279, 3076, 9981, 57330, 36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17,
+        19041, 220, 16, 13, 16, 19197, 441, 17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080,
+        279, 12128, 7194, 572, 311, EOS_TOKEN_ID, 4647, 448, 7046, 10740, 2750, 304, 279, 5306,
+        47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968, 4991, 41434, 518, 4647, 8542, 5080,
+        3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320, 16, 13, 19, 51615, 220, 15, 13,
+        EOS_TOKEN_ID, 17, EOS_TOKEN_ID
+    ]
+    expected_mask = [1] * 256
+    expected_eos_positions = [38, 71, 120, 167, 213, 253, 255]
+    
+    # Verify structure
+    assert doc_ids == ["doc1"]
+    assert d_collated["input_ids"].shape[0] == 1
+    assert len(eos_positions) == 1
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions[0] == expected_eos_positions
+    assert _strictly_increasing(eos_positions[0])
+    
+    # Verify each EOS position is valid
+    for eos_pos in eos_positions[0]:
+        assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask[eos_pos] == 1
+
+
+@pytest.mark.unit
+def test_chunked_encode_collator_random_chunk_size_range_hardcoded_output(train_tokenizer):
+    """Test ChunkedEncodeCollator with random chunk size range - hardcoded golden output (inference)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import ChunkedEncodeCollator
+    
+    random.seed(42)
+    
+    data_args = DataArguments(
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size_range="32,48",  # Random chunk size between 32 and 48
+        passage_chunk_size_variable=False,  # Fixed random size per passage
+    )
+    collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    short_text = "Hello world this is a test passage"
+    features = [
+        ("doc1", short_text, None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    # Hardcoded golden output with seed=42 and chunk_size_range=(32,48)
+    # short_text tokenizes to: [9707, 1879, 419, 374, 264, 1273, 21085]
+    # With seed=42, random.randint(32, 48) = 40 (first call)
+    # So chunk_len = 39, but we only have 7 tokens, so we get: [7 tokens] + EOS
+    expected_ids = [9707, 1879, 419, 374, 264, 1273, 21085, EOS_TOKEN_ID] + [PADDING_TOKEN_ID] * 8
+    expected_mask = [1] * 8 + [0] * 8
+    expected_eos_positions = [[7]]
+    
+    assert doc_ids == ["doc1"]
+    assert got_ids == expected_ids
+    assert got_mask == expected_mask
+    assert eos_positions == expected_eos_positions
+
+
+@pytest.mark.unit
+def test_chunked_encode_collator_fixed_chunk_size_still_works(train_tokenizer):
+    """Test ChunkedEncodeCollator with fixed chunk size (no random chunking) still works."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import ChunkedEncodeCollator
+    
+    data_args = DataArguments(
+        passage_max_len=128,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size=32,  # Fixed chunk size, no random chunking
+    )
+    collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+    
+    features = [
+        ("doc1", REAL_TEXT, None, None, None),
+    ]
+    
+    doc_ids, d_collated, eos_positions = collator(features)
+    
+    # Verify structure
+    assert doc_ids == ["doc1"]
+    assert d_collated["input_ids"].shape[0] == 1
+    assert len(eos_positions) == 1
+    assert len(eos_positions[0]) > 0
+    
+    got_ids = d_collated["input_ids"][0].tolist()
+    got_mask = d_collated["attention_mask"][0].tolist()
+    
+    # Verify EOS positions are strictly increasing
+    assert _strictly_increasing(eos_positions[0])
+    
+    # Verify each EOS position is valid
+    for eos_pos in eos_positions[0]:
+        assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+        assert got_mask[eos_pos] == 1

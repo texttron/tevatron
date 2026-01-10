@@ -84,19 +84,36 @@ def main():
 
     use_chunked = not data_args.encode_is_query and data_args.passage_chunk_size > 0
     use_pre_chunked = not data_args.encode_is_query and data_args.encode_use_pre_chunked
+    use_random_chunking = not data_args.encode_is_query and data_args.passage_chunk_size_range is not None
     print("data_args.encode_is_query: ", data_args.encode_is_query)
     print("data_args.passage_chunk_size: ", data_args.passage_chunk_size)
+    print("data_args.passage_chunk_size_range: ", data_args.passage_chunk_size_range)
+    print("data_args.passage_chunk_size_variable: ", data_args.passage_chunk_size_variable)
     print("data_args.encode_use_pre_chunked: ", data_args.encode_use_pre_chunked)
     print("use_chunked: ", use_chunked)
     print("use_pre_chunked: ", use_pre_chunked)
+    print("use_random_chunking: ", use_random_chunking)
     
     if use_pre_chunked:
         logger.info("Using pre-chunked passage encoding (custom EOS positions from pre-chunked data)")
         model.passage_chunk_size = 1  # Signal to use chunked encoding
         encode_collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
-    elif use_chunked:
-        logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
-        model.passage_chunk_size = data_args.passage_chunk_size
+    elif use_chunked or use_random_chunking:
+        if use_random_chunking:
+            logger.info(f"Using random chunked passage encoding with chunk_size_range={data_args.passage_chunk_size_range}, variable={data_args.passage_chunk_size_variable}")
+        else:
+            logger.info(f"Using chunked passage encoding with chunk_size={data_args.passage_chunk_size}")
+        # For random chunking, we still need a base chunk_size for the model
+        # Use the minimum of the range if random chunking is enabled
+        if use_random_chunking:
+            try:
+                parts = [p.strip() for p in data_args.passage_chunk_size_range.split(',')]
+                chunk_size_min = int(parts[0])
+                model.passage_chunk_size = chunk_size_min
+            except:
+                model.passage_chunk_size = data_args.passage_chunk_size if data_args.passage_chunk_size > 0 else 64
+        else:
+            model.passage_chunk_size = data_args.passage_chunk_size
         encode_collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
     else:
         encode_collator = EncodeCollator(data_args=data_args, tokenizer=tokenizer)
@@ -117,7 +134,7 @@ def main():
     for batch in tqdm(encode_loader):
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
-                if use_pre_chunked or use_chunked:
+                if use_pre_chunked or use_chunked or use_random_chunking:
                     doc_ids, batch_inputs, eos_positions = batch
                     # batch_inputs: input_ids, attention_mask
                     for k, v in batch_inputs.items():
@@ -145,7 +162,7 @@ def main():
                     else:
                         model_output: EncoderOutput = model(passage=batch_inputs)
                         encoded.append(model_output.p_reps.cpu().detach().numpy())
-    if use_pre_chunked or use_chunked:
+    if use_pre_chunked or use_chunked or use_random_chunking:
         print("use_chunked: ", use_chunked)
         print(f"encoded: {encoded}")
         print(f"lookup_indices: {lookup_indices}")
