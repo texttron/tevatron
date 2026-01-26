@@ -102,16 +102,36 @@ class EncoderModel(nn.Module):
         """
         MaxSim: max similarity between query and passage chunks.
         q_reps: [Q, H], p_reps: [P, C, H], chunk_mask: [P, C]
-        Q: number of queries
-        P: number of passages
+        Q: number of queries (total across all ranks after DDP gather)
+        P: number of passages (total across all ranks after DDP gather)
         C: number of chunks per passage
         H: dimension of the embeddings
-        Returns: [Q, P]
+        Returns: [Q, P] - similarity matrix for ALL queries and ALL passages
         """
+        Q, H = q_reps.shape
+        P, C, _ = p_reps.shape
+        
+        # Log shapes to verify we're using all gathered passages
+        if getattr(self, "is_ddp", False) and getattr(self, "process_rank", 0) == 0:
+            logger.info(f"[MaxSim] Computing scores for Q={Q} queries, P={P} passages, C={C} chunks, H={H} dims")
+            if self.world_size > 1:
+                logger.info(f"[MaxSim] This includes passages from all {self.world_size} ranks (gathered via DDP)")
+        
+        # Compute similarity: for each query and passage, compute similarity to all chunks
         chunk_scores = torch.einsum('qh,pch->qpc', q_reps, p_reps) # 第 q 个 query 和第 p 个 passage 的第 c 个 chunk 的相似度
+        
         if chunk_mask is not None:
-            padding_mask = ~chunk_mask.unsqueeze(0).bool()
+            # Mask out padding chunks by setting their scores to -inf
+            padding_mask = ~chunk_mask.unsqueeze(0).bool()  # [1, P, C]
             chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
+            
+            # Log masking info
+            if getattr(self, "is_ddp", False) and getattr(self, "process_rank", 0) == 0:
+                valid_chunks = chunk_mask.sum().item()
+                total_chunks = chunk_mask.numel()
+                logger.info(f"[MaxSim] Masked {total_chunks - valid_chunks}/{total_chunks} padding chunks")
+        
+        # Take max over chunks for each query-passage pair
         max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
 
         # Log maxsim info: read chunk indices directly from max_idx

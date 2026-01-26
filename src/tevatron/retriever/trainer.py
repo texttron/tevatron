@@ -27,16 +27,26 @@ class TevatronTrainer(Trainer):
         return wrapped
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        """Gather tensor from all ranks."""
+        """Gather tensor from all ranks, concatenating along dim 0 (batch dimension)."""
         if t is None:
             return None
         t = t.contiguous()
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        
+        # Create placeholders for gathering
         all_tensors = [torch.empty_like(t) for _ in range(world_size)]
         dist.all_gather(all_tensors, t)
-        all_tensors[rank] = t  # Keep local tensor for gradient flow
-        return torch.cat(all_tensors, dim=0)
+        
+        # Keep local tensor for gradient flow (important for backprop!)
+        all_tensors[rank] = t
+        
+        # Concatenate along dim 0 (batch dimension)
+        # Works for 2D [B, H], 3D [B, C, H], etc.
+        gathered = torch.cat(all_tensors, dim=0)
+        
+        logger.debug(f"[Gather] rank={rank}, input shape={t.shape}, output shape={gathered.shape}")
+        return gathered
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
         # If we are executing this function, we are the process zero, so we don't check for that.
@@ -92,17 +102,49 @@ class TevatronTrainer(Trainer):
             q_reps = self._dist_gather_tensor(q_reps)
             p_reps = self._dist_gather_tensor(p_reps)
             chunk_mask = self._dist_gather_tensor(chunk_mask)
+            logger.info(f"[DDP] After gather - q_reps: {q_reps.shape}, p_reps: {p_reps.shape}, chunk_mask: {chunk_mask.shape if chunk_mask is not None else None}")
         
         # Compute similarity (use maxsim for chunked passages)
         unwrapped_model = model.module if hasattr(model, 'module') else model
+        
+        # Defensive check: ensure p_reps shape matches expected usage
         if unwrapped_model.passage_chunk_size > 0 and chunk_mask is not None:
+            # Chunked passage mode: p_reps should be [P, C, H]
+            if p_reps.dim() != 3:
+                raise ValueError(
+                    f"Expected 3D p_reps [P, C, H] for chunked passages, got shape {p_reps.shape}. "
+                    f"passage_chunk_size={unwrapped_model.passage_chunk_size}, chunk_mask shape={chunk_mask.shape}"
+                )
+            logger.info(f"[MaxSim] Computing with q_reps: {q_reps.shape}, p_reps: {p_reps.shape}, chunk_mask: {chunk_mask.shape}")
             scores = unwrapped_model.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+            logger.info(f"[MaxSim] Output scores shape: {scores.shape}")
         else:
+            # Regular mode: p_reps should be [P, H]
+            if p_reps.dim() == 3:
+                # Edge case: chunked but no mask - shouldn't happen but handle gracefully
+                logger.warning(
+                    f"Got 3D p_reps {p_reps.shape} but chunk_mask is None. "
+                    f"Averaging over chunks as fallback."
+                )
+                p_reps = p_reps.mean(dim=1)  # [P, C, H] -> [P, H]
+            elif p_reps.dim() != 2:
+                raise ValueError(f"Expected 2D p_reps [P, H], got shape {p_reps.shape}")
+            
+            logger.info(f"[Regular] Computing with q_reps: {q_reps.shape}, p_reps: {p_reps.shape}")
             scores = torch.matmul(q_reps, p_reps.transpose(0, 1))
+            logger.info(f"[Regular] Output scores shape: {scores.shape}")
+        
         scores = scores.view(q_reps.size(0), -1)
         
+        # Create target labels: each query should match its corresponding passage
+        # After DDP gather, we have Q total queries and P total passages
+        # If we have N passages per query, then query i should match passage i*N
         target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-        target = target * (p_reps.size(0) // q_reps.size(0))
+        num_passages_per_query = p_reps.size(0) // q_reps.size(0)
+        target = target * num_passages_per_query
+        
+        logger.info(f"[Loss] scores shape: {scores.shape}, target shape: {target.shape}, "
+                   f"passages_per_query: {num_passages_per_query}")
         
         # Compute loss
         loss = torch.nn.functional.cross_entropy(scores / unwrapped_model.temperature, target)
