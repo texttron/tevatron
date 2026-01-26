@@ -80,9 +80,17 @@ class TevatronTrainer(Trainer):
         eos_positions = rest[0] if rest else None
         print(f"[DEBUG Trainer] Received {len(rest)} extra inputs, eos_positions: {eos_positions}")
         
-        # Attach eos_positions to model if needed (for passage chunking)
-        if hasattr(model, 'eos_positions'):
-            model.eos_positions = eos_positions
+        # Unwrap DDP model first (important for attribute access)
+        unwrapped_model = model.module if hasattr(model, 'module') else model
+        
+        # Attach eos_positions to the unwrapped model (for passage chunking)
+        # This is critical: the forward() method reads this attribute via getattr(self, "eos_positions", None)
+        if eos_positions is not None:
+            unwrapped_model.eos_positions = eos_positions
+            logger.info(f"[Chunking] Set eos_positions with {len(eos_positions)} passages, "
+                       f"passage_chunk_size={unwrapped_model.passage_chunk_size}")
+        else:
+            logger.info(f"[Chunking] No eos_positions provided, passage_chunk_size={unwrapped_model.passage_chunk_size}")
         
         # Set static graph on first call if needed (for gradient_checkpointing + DDP)
         if self.is_ddp and self.args.gradient_checkpointing and not hasattr(self, '_static_graph_set'):
@@ -91,11 +99,16 @@ class TevatronTrainer(Trainer):
                 logger.info("Enabled DDP static graph mode in compute_loss")
             self._static_graph_set = True
         
-        # Get embeddings from model
+        # Get embeddings from model (forward() will read eos_positions from unwrapped_model)
         output = model(query=query, passage=passage)
         q_reps = output.q_reps
         p_reps = output.p_reps
         chunk_mask = output.chunk_mask
+        
+        # Log what we got back from forward()
+        logger.info(f"[Forward] Got q_reps: {q_reps.shape if q_reps is not None else None}, "
+                   f"p_reps: {p_reps.shape if p_reps is not None else None}, "
+                   f"chunk_mask: {chunk_mask.shape if chunk_mask is not None else None}")
         
         # Gather embeddings from all ranks for in-batch negatives
         if self.is_ddp:
@@ -105,7 +118,7 @@ class TevatronTrainer(Trainer):
             logger.info(f"[DDP] After gather - q_reps: {q_reps.shape}, p_reps: {p_reps.shape}, chunk_mask: {chunk_mask.shape if chunk_mask is not None else None}")
         
         # Compute similarity (use maxsim for chunked passages)
-        unwrapped_model = model.module if hasattr(model, 'module') else model
+        # Note: unwrapped_model was already defined above
         
         # Defensive check: ensure p_reps shape matches expected usage
         if unwrapped_model.passage_chunk_size > 0 and chunk_mask is not None:

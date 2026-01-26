@@ -55,19 +55,31 @@ class EncoderModel(nn.Module):
             # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
             # into encode_passage() to actually get chunk reps/masks.
             eos_positions = getattr(self, "eos_positions", None)
+            
+            # Detailed logging for debugging
+            logger.info(f"[Encoder.forward] passage_chunk_size={self.passage_chunk_size}, "
+                       f"eos_positions={'None' if eos_positions is None else f'list[{len(eos_positions)}]'}, "
+                       f"training={self.training}")
+            
             if self.passage_chunk_size > 0 and eos_positions is not None:
-                # print(f"eos_positions: {eos_positions}")
+                logger.info(f"[Encoder.forward] Calling encode_passage WITH eos_positions")
                 try:
                     p_reps = self.encode_passage(passage, eos_positions=eos_positions)
                 except TypeError:
                     # Some models (e.g., multimodal) don't accept eos_positions.
+                    logger.warning(f"[Encoder.forward] encode_passage doesn't accept eos_positions, calling without")
                     p_reps = self.encode_passage(passage)
             else:
+                logger.info(f"[Encoder.forward] Calling encode_passage WITHOUT eos_positions "
+                           f"(chunk_size={self.passage_chunk_size}, eos_pos={'exists' if eos_positions else 'None'})")
                 p_reps = self.encode_passage(passage)
-            # print(f"p_reps: {p_reps}")
-            # print(f"type(p_reps): {type(p_reps)}")
+            
+            # Check if we got chunked output
             if self.passage_chunk_size > 0 and isinstance(p_reps, tuple):
                 p_reps, chunk_mask = p_reps
+                logger.info(f"[Encoder.forward] Got chunked output: p_reps {p_reps.shape}, chunk_mask {chunk_mask.shape}")
+            else:
+                logger.info(f"[Encoder.forward] Got regular output: p_reps {p_reps.shape if isinstance(p_reps, torch.Tensor) else type(p_reps)}")
 
         # Return embeddings only during training - loss is computed in trainer
         if q_reps is None or p_reps is None or self.training:

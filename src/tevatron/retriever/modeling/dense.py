@@ -20,38 +20,49 @@ class DenseModel(EncoderModel):
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg, eos_positions=None):
-        print(f"[DEBUG] passage_chunk_size: {self.passage_chunk_size}")
-        print(f"[DEBUG] eos_positions: {eos_positions}")
+        logger.info(f"[DenseModel.encode_passage] passage_chunk_size: {self.passage_chunk_size}")
+        logger.info(f"[DenseModel.encode_passage] eos_positions: "
+                   f"{'None' if eos_positions is None else f'list[{len(eos_positions)}] with lens {[len(ep) for ep in eos_positions]}'}")
+        
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+        logger.info(f"[DenseModel.encode_passage] hidden_states shape: {hidden_states.shape}")
+        
         if self.passage_chunk_size > 0 and eos_positions:
+            # Verify EOS tokens are at the right positions
             for i, ep in enumerate(eos_positions):
                 for eos_pos in ep:
-                    assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID
+                    assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID, \
+                        f"Expected EOS token {EOS_TOKEN_ID} at position {eos_pos} in passage {i}, got {psg['input_ids'][i][eos_pos]}"
 
-            return self._pooling_chunked(hidden_states, eos_positions)
+            logger.info(f"[DenseModel.encode_passage] Calling _pooling_chunked")
+            result = self._pooling_chunked(hidden_states, eos_positions)
+            logger.info(f"[DenseModel.encode_passage] Returning tuple: reps {result[0].shape}, mask {result[1].shape}")
+            return result
         
+        logger.info(f"[DenseModel.encode_passage] Calling regular _pooling (no chunking)")
         return self._pooling(hidden_states, psg['attention_mask'])
 
     def _pooling_chunked(self, last_hidden_state, eos_positions):
         batch_size, seq_len, hidden_size = last_hidden_state.shape
-        print(f"last_hidden_state.shape: {last_hidden_state.shape}")
-        print(f"eos_positions: {eos_positions}")
+        logger.info(f"[_pooling_chunked] Input: last_hidden_state shape {last_hidden_state.shape}")
+        logger.info(f"[_pooling_chunked] eos_positions: {eos_positions}")
         
         if not eos_positions:
             # No chunks, return empty
+            logger.warning(f"[_pooling_chunked] eos_positions is empty! Returning empty tensors")
             return torch.zeros(batch_size, 0, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype), \
                    torch.zeros(batch_size, 0, device=last_hidden_state.device)
         
         # Find max number of chunks across all passages
-        for eos_pos in eos_positions:
-            print(f"eos_pos: {eos_pos}")
-            print(f"type(eos_pos): {type(eos_pos)}")
-        max_chunks = max(len(pos_list) for pos_list in eos_positions)
+        chunk_counts = [len(pos_list) for pos_list in eos_positions]
+        logger.info(f"[_pooling_chunked] Chunk counts per passage: {chunk_counts}")
+        max_chunks = max(chunk_counts)
         
         chunk_reps = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)
         chunk_mask = torch.zeros(batch_size, max_chunks, device=last_hidden_state.device, dtype=torch.float)
         
         # Extract embeddings at eos_positions (this is the pooling operation for chunked passages)
+        valid_chunks_count = 0
         for i, positions in enumerate(eos_positions):
             for j, pos in enumerate(positions):
                 if 0 <= pos < seq_len:
@@ -59,11 +70,15 @@ class DenseModel(EncoderModel):
                     chunk_reps[i, j] = last_hidden_state[i, pos]
                     # chunk_mask is 1.0 for valid chunks, 0.0 for padding chunks
                     chunk_mask[i, j] = 1.0
+                    valid_chunks_count += 1
                 else:
                     logger.warning(f"Position {pos} out of bounds for sequence length {seq_len} in batch {i}, chunk {j}")
         
         if self.normalize:
             chunk_reps = F.normalize(chunk_reps, p=2, dim=-1)
+        
+        logger.info(f"[_pooling_chunked] Created chunk_reps {chunk_reps.shape}, chunk_mask {chunk_mask.shape}")
+        logger.info(f"[_pooling_chunked] Valid chunks: {valid_chunks_count}/{batch_size * max_chunks}, mask sum: {chunk_mask.sum().item()}")
         
         return chunk_reps, chunk_mask
         
