@@ -17,6 +17,27 @@ class TevatronTrainer(Trainer):
         self.is_ddp = dist.is_initialized()
         self._dist_loss_scale_factor = dist.get_world_size() if self.is_ddp else 1
 
+    def _wrap_model(self, model, training=True, dataloader=None):
+        """Override to enable static_graph for DDP with gradient checkpointing."""
+        wrapped = super()._wrap_model(model, training, dataloader)
+        # Enable static graph to handle gradient checkpointing
+        if self.is_ddp and self.args.gradient_checkpointing and hasattr(wrapped, '_set_static_graph'):
+            wrapped._set_static_graph()
+            logger.info("Enabled DDP static graph mode")
+        return wrapped
+
+    def _dist_gather_tensor(self, t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+        """Gather tensor from all ranks."""
+        if t is None:
+            return None
+        t = t.contiguous()
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        all_tensors = [torch.empty_like(t) for _ in range(world_size)]
+        dist.all_gather(all_tensors, t)
+        all_tensors[rank] = t  # Keep local tensor for gradient flow
+        return torch.cat(all_tensors, dim=0)
+
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
         # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -46,7 +67,37 @@ class TevatronTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage = inputs
-        return model(query=query, passage=passage).loss
+
+        # Set static graph on first call if needed (for gradient_checkpointing + DDP)
+        if self.is_ddp and self.args.gradient_checkpointing and not hasattr(self, '_static_graph_set'):
+            if hasattr(model, '_set_static_graph'):
+                model._set_static_graph()
+                logger.info("Enabled DDP static graph mode in compute_loss")
+            self._static_graph_set = True
+
+        # Get embeddings from model
+        output = model(query=query, passage=passage)
+        q_reps = output.q_reps
+        p_reps = output.p_reps
+
+        # Gather embeddings from all ranks for in-batch negatives
+        if self.is_ddp:
+            q_reps = self._dist_gather_tensor(q_reps)
+            p_reps = self._dist_gather_tensor(p_reps)
+
+        # Compute similarity and loss
+        scores = torch.matmul(q_reps, p_reps.transpose(0, 1))
+        scores = scores.view(q_reps.size(0), -1)
+
+        target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
+        target = target * (p_reps.size(0) // q_reps.size(0))
+
+        # Handle DDP wrapped model
+        unwrapped_model = model.module if hasattr(model, 'module') else model
+        loss = torch.nn.functional.cross_entropy(scores / unwrapped_model.temperature, target)
+        if self.is_ddp:
+            loss = loss * dist.get_world_size()
+        return loss
 
     def training_step(self, *args):
         return super(TevatronTrainer, self).training_step(*args) / self._dist_loss_scale_factor

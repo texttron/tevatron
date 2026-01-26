@@ -48,34 +48,16 @@ class EncoderModel(nn.Module):
         q_reps = self.encode_query(query) if query else None
         p_reps = self.encode_passage(passage) if passage else None
 
-        # for inference
-        if q_reps is None or p_reps is None:
+        # Return embeddings only - loss is computed in trainer
+        if q_reps is None or p_reps is None or self.training:
             return EncoderOutput(
                 q_reps=q_reps,
                 p_reps=p_reps
             )
 
-        # for training
-        if self.training:
-            if self.is_ddp:
-                q_reps = self._dist_gather_tensor(q_reps)
-                p_reps = self._dist_gather_tensor(p_reps)
-
-            scores = self.compute_similarity(q_reps, p_reps)
-            scores = scores.view(q_reps.size(0), -1)
-
-            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-            target = target * (p_reps.size(0) // q_reps.size(0))
-
-            loss = self.compute_loss(scores / self.temperature, target)
-            if self.is_ddp:
-                loss = loss * self.world_size  # counter average weight reduction
-        # for eval
-        else:
-            scores = self.compute_similarity(q_reps, p_reps)
-            loss = None
+        # for eval: compute scores
+        scores = self.compute_similarity(q_reps, p_reps)
         return EncoderOutput(
-            loss=loss,
             scores=scores,
             q_reps=q_reps,
             p_reps=p_reps,
@@ -108,6 +90,7 @@ class EncoderModel(nn.Module):
         all_tensors = torch.cat(all_tensors, dim=0)
 
         return all_tensors
+
 
     @classmethod
     def build(
