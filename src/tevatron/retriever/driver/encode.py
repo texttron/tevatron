@@ -141,8 +141,6 @@ def main():
                         batch_inputs[k] = v.to(training_args.device)
                     print(f"eos_positions: {eos_positions}")
                     chunk_embs, chunk_mask = model.encode_passage(batch_inputs, eos_positions)
-                    # chunk_embs: [batch_size, max_chunks, hidden_size]
-                    # chunk_mask: [batch_size, max_chunks]
                     batch_size, max_chunks, hidden_size = chunk_embs.shape
                     for i, doc_id in enumerate(doc_ids):
                         for chunk_idx in range(max_chunks):
@@ -165,15 +163,9 @@ def main():
     if use_pre_chunked or use_chunked or use_random_chunking:
         print("use_chunked: ", use_chunked)
         print(f"encoded: {encoded}")
-        print(f"lookup_indices: {lookup_indices}")
-        print(f"length of encoded: {len(encoded)}")
-        print(f"length of lookup_indices: {len(lookup_indices)}")
     # Combine encoded embeddings
         encoded = np.stack(encoded)
         logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} chunks")
-        print(f"encoded.shape: {encoded.shape}")
-        print(f"length of encoded: {len(encoded)}")
-        # input("Press Enter to continue...")
     else:
         encoded = np.concatenate(encoded)
 

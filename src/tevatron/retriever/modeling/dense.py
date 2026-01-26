@@ -20,7 +20,8 @@ class DenseModel(EncoderModel):
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
     def encode_passage(self, psg, eos_positions=None):
-        print(f"eos_positions: {eos_positions}")
+        print(f"[DEBUG] passage_chunk_size: {self.passage_chunk_size}")
+        print(f"[DEBUG] eos_positions: {eos_positions}")
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
         if self.passage_chunk_size > 0 and eos_positions:
             for i, ep in enumerate(eos_positions):
