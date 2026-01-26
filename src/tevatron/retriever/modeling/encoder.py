@@ -146,41 +146,41 @@ class EncoderModel(nn.Module):
         # Take max over chunks for each query-passage pair
         max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
 
-        # Log maxsim info: read chunk indices directly from max_idx
-        if True:
-            # only log from rank-0 if DDP
-            if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
-                eos_positions = getattr(self, "eos_positions", None)
-                eos_ok = (
-                    isinstance(eos_positions, (list, tuple))
-                    and len(eos_positions) == p_reps.size(0)
-                )
+        # # Log maxsim info: read chunk indices directly from max_idx
+        # if True:
+        #     # only log from rank-0 if DDP
+        #     if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
+        #         eos_positions = getattr(self, "eos_positions", None)
+        #         eos_ok = (
+        #             isinstance(eos_positions, (list, tuple))
+        #             and len(eos_positions) == p_reps.size(0)
+        #         )
                 
-                # Compute last valid chunk indices for all passages
-                if chunk_mask is not None:
-                    last_ci_per_passage = (chunk_mask.sum(dim=1) - 1).clamp(min=0)  # [P]
-                else:
-                    last_ci_per_passage = torch.full((p_reps.size(0),), p_reps.size(1) - 1, dtype=torch.long)
+        #         # Compute last valid chunk indices for all passages
+        #         if chunk_mask is not None:
+        #             last_ci_per_passage = (chunk_mask.sum(dim=1) - 1).clamp(min=0)  # [P]
+        #         else:
+        #             last_ci_per_passage = torch.full((p_reps.size(0),), p_reps.size(1) - 1, dtype=torch.long)
                 
-                # Log for each query-passage pair
-                for qi in range(max_idx.size(0)):
-                    for pi in range(max_idx.size(1)):
-                        ci = int(max_idx[qi, pi].item())  # best chunk index from max_idx
-                        last_ci = int(last_ci_per_passage[pi].item())
-                        score = float(max_vals[qi, pi].item())
+        #         # Log for each query-passage pair
+        #         for qi in range(max_idx.size(0)):
+        #             for pi in range(max_idx.size(1)):
+        #                 ci = int(max_idx[qi, pi].item())  # best chunk index from max_idx
+        #                 last_ci = int(last_ci_per_passage[pi].item())
+        #                 score = float(max_vals[qi, pi].item())
                         
-                        if eos_ok and eos_positions[pi] and ci < len(eos_positions[pi]):
-                            best_pos = eos_positions[pi][ci]
-                            last_pos = eos_positions[pi][-1]
-                            logger.info(
-                                f"[maxsim] q={qi} p={pi} best_chunk={ci} best_pos={best_pos} "
-                                f"last_chunk={last_ci} last_pos={last_pos} best_score={score:.6f}"
-                            )
-                        else:
-                            logger.info(
-                                f"[maxsim] q={qi} p={pi} best_chunk={ci} last_chunk={last_ci} "
-                                f"best_score={score:.6f}"
-                            )
+        #                 if eos_ok and eos_positions[pi] and ci < len(eos_positions[pi]):
+        #                     best_pos = eos_positions[pi][ci]
+        #                     last_pos = eos_positions[pi][-1]
+        #                     logger.info(
+        #                         f"[maxsim] q={qi} p={pi} best_chunk={ci} best_pos={best_pos} "
+        #                         f"last_chunk={last_ci} last_pos={last_pos} best_score={score:.6f}"
+        #                     )
+        #                 else:
+        #                     logger.info(
+        #                         f"[maxsim] q={qi} p={pi} best_chunk={ci} last_chunk={last_ci} "
+        #                         f"best_score={score:.6f}"
+        #                     )
 
         return max_vals
 

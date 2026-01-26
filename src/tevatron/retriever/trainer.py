@@ -106,7 +106,7 @@ class TevatronTrainer(Trainer):
         chunk_mask = output.chunk_mask
         
         # Log what we got back from forward()
-        logger.info(f"[Forward] Got q_reps: {q_reps.shape if q_reps is not None else None}, "
+        logger.info(f"[Forward in trainer.compute_loss] Got q_reps: {q_reps.shape if q_reps is not None else None}, "
                    f"p_reps: {p_reps.shape if p_reps is not None else None}, "
                    f"chunk_mask: {chunk_mask.shape if chunk_mask is not None else None}")
         

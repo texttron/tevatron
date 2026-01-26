@@ -39,6 +39,7 @@ class TrainDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
             num_proc=self.data_args.num_proc,
+            trust_remote_code=True,
         )
 
         # Load corpus if provided
@@ -52,6 +53,7 @@ class TrainDataset(Dataset):
                 split=self.data_args.corpus_split,
                 cache_dir=self.data_args.dataset_cache_dir,
                 num_proc=self.data_args.num_proc,
+                trust_remote_code=True,
             )
         
         # for video we use assets_path to load the video
@@ -272,6 +274,7 @@ class EncodeDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
             num_proc=self.data_args.num_proc,
+            trust_remote_code=True,
         )
         if self.data_args.dataset_number_of_shards > 1:
             self.encode_data = self.encode_data.shard(
