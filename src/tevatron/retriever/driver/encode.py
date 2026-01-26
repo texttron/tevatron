@@ -162,7 +162,6 @@ def main():
                         encoded.append(model_output.p_reps.cpu().detach().numpy())
     if use_pre_chunked or use_chunked or use_random_chunking:
         print("use_chunked: ", use_chunked)
-        print(f"encoded: {encoded}")
     # Combine encoded embeddings
         encoded = np.stack(encoded)
         logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} chunks")
