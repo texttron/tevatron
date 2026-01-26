@@ -213,7 +213,6 @@ class TrainCollator:
         
         # Check if we should use chunking (fixed or random)
         use_fixed_chunking = self.data_args.passage_chunk_size > 0
-        print(f"[DEBUG Collator] passage_chunk_size: {self.data_args.passage_chunk_size}, use_fixed_chunking: {use_fixed_chunking}")
         
         if self.data_args.passage_chunk_size_range is not None:
             # Parse range string (e.g., "64, 128" or "64,128")
@@ -245,7 +244,6 @@ class TrainCollator:
             return q_collated, d_collated, eos_positions
         elif use_fixed_chunking:
             d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
-            print(f"[DEBUG Collator] Returning with chunking - eos_positions length: {len(eos_positions) if eos_positions else 0}")
             return q_collated, d_collated, eos_positions
         else:
             d_collated = self.tokenizer(
