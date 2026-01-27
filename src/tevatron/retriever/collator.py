@@ -1,6 +1,7 @@
 import logging
 import random
 import torch
+import torch.distributed as dist
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
@@ -20,15 +21,17 @@ def _chunk_tokens(
     eos_token_id: int,
     max_length: int = None,
     chunk_size_range: Optional[Tuple[int, int]] = None,
+    passage_index: int = 0,
 ) -> Tuple[List[int], List[int]]:
     """
     Chunk tokens into chunks with EOS separators.
-    
+
     :param tokens: Token IDs to chunk
     :param chunk_size: Fixed chunk size (before EOS). Must be >= 2. Used when chunk_size_range is None.
     :param eos_token_id: EOS token ID to append after each chunk
     :param max_length: Optional max total length (including EOS). If None, no limit.
     :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes. If set, each chunk uses a random size in [min, max].
+    :param passage_index: Index of the passage in the batch (for DDP-consistent random seeds)
     :return: (chunked_ids, eos_positions) - token IDs with EOS separators and EOS positions
     """
     # Validate and set up chunk size parameters
@@ -39,17 +42,23 @@ def _chunk_tokens(
         if chunk_size < 2:
             return [], []
         use_variable_sizes = False
-    
+
     # Chunk tokens and add EOS after each chunk
     ids = []
     eos_pos = []
     i = 0
     total_length = 0
-    
+    chunk_index = 0
+
     while i < len(tokens):
         # Pick chunk size for this chunk
         if use_variable_sizes:
-            current_chunk_size = random.randint(chunk_size_min, chunk_size_max)
+            # DDP-safe: Use deterministic seed based on passage and chunk index
+            # This ensures all ranks generate the same chunk sizes for the same passage
+            seed = hash((passage_index, chunk_index)) & 0xFFFFFFFF
+            rng = random.Random(seed)
+            current_chunk_size = rng.randint(chunk_size_min, chunk_size_max)
+            chunk_index += 1
         else:
             current_chunk_size = chunk_size
         
@@ -156,6 +165,7 @@ def _tokenize_and_pad_chunked_passages(
             eos_token_id=eos_id,
             max_length=max_length,
             chunk_size_range=chunk_size_range,
+            passage_index=idx,
         )
         all_input_ids.append(ids)
         all_eos_positions.append(eos_pos)
@@ -244,8 +254,11 @@ class TrainCollator:
             return q_collated, d_collated, eos_positions
         elif use_fixed_chunking:
             d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
+            # DDP Safety: Ensure eos_positions is always returned when chunking is enabled
+            assert eos_positions is not None, "passage_chunk_size > 0 but eos_positions is None"
             return q_collated, d_collated, eos_positions
         else:
+            # No chunking - return without eos_positions
             d_collated = self.tokenizer(
                 all_passages,
                 padding=False, 

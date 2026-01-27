@@ -27,12 +27,43 @@ class TevatronTrainer(Trainer):
         return wrapped
 
     def _dist_gather_tensor(self, t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        """Gather tensor from all ranks, concatenating along dim 0 (batch dimension)."""
-        if t is None:
-            return None
-        t = t.contiguous()
+        """Gather tensor from all ranks, concatenating along dim 0 (batch dimension).
+        
+        CRITICAL: All ranks must call this with either ALL None or ALL non-None tensors.
+        Otherwise NCCL will deadlock!
+        """
+        if not self.is_ddp:
+            return t
+            
         world_size = dist.get_world_size()
         rank = dist.get_rank()
+        
+        # Check if this rank has None - need to sync this info across all ranks
+        has_tensor = torch.tensor([t is not None], dtype=torch.int, device='cuda')
+        has_tensor_list = [torch.zeros_like(has_tensor) for _ in range(world_size)]
+        dist.all_gather(has_tensor_list, has_tensor)
+        
+        # If ALL ranks have None, return None (no need to gather)
+        if not any(ht.item() for ht in has_tensor_list):
+            return None
+        
+        # If SOME ranks have None but others don't, this is a bug!
+        # But we need to handle it gracefully to avoid deadlock
+        all_have_tensor = all(ht.item() for ht in has_tensor_list)
+        
+        if not all_have_tensor:
+            # Inconsistent state detected - need to handle this
+            # For now, create a dummy tensor on ranks that have None
+            if t is None:
+                # Get expected shape from rank 0 (or first rank that has tensor)
+                # This is a workaround - ideally this should never happen
+                raise RuntimeError(
+                    f"Rank {rank} has None tensor but other ranks have non-None tensors. "
+                    "This causes NCCL deadlock. Ensure all ranks produce consistent outputs."
+                )
+        
+        # All ranks have non-None tensors - safe to gather
+        t = t.contiguous()
         
         # Create placeholders for gathering
         all_tensors = [torch.empty_like(t) for _ in range(world_size)]

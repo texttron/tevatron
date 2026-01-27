@@ -56,18 +56,35 @@ class EncoderModel(nn.Module):
             # into encode_passage() to actually get chunk reps/masks.
             eos_positions = getattr(self, "eos_positions", None)
             
-            if self.passage_chunk_size > 0 and eos_positions is not None:
-                try:
-                    p_reps = self.encode_passage(passage, eos_positions=eos_positions)
-                except TypeError:
-                    # Some models (e.g., multimodal) don't accept eos_positions.
-                    p_reps = self.encode_passage(passage)
+            # CRITICAL: For DDP consistency, passage_chunk_size > 0 must ALWAYS produce chunked output
+            # across ALL ranks. Otherwise NCCL will deadlock.
+            if self.passage_chunk_size > 0:
+                if eos_positions is not None:
+                    try:
+                        p_reps = self.encode_passage(passage, eos_positions=eos_positions)
+                    except TypeError:
+                        # Some models (e.g., multimodal) don't accept eos_positions.
+                        p_reps = self.encode_passage(passage)
+                else:
+                    # If passage_chunk_size > 0 but no eos_positions provided,
+                    # this is an error in data preprocessing
+                    raise RuntimeError(
+                        f"passage_chunk_size={self.passage_chunk_size} > 0 but eos_positions=None. "
+                        "This causes inconsistent outputs across DDP ranks. "
+                        "Either set passage_chunk_size=0 or ensure collator provides eos_positions."
+                    )
             else:
                 p_reps = self.encode_passage(passage)
             
             # Check if we got chunked output
             if self.passage_chunk_size > 0 and isinstance(p_reps, tuple):
                 p_reps, chunk_mask = p_reps
+            elif self.passage_chunk_size > 0:
+                # This shouldn't happen if encode_passage is implemented correctly
+                raise RuntimeError(
+                    f"passage_chunk_size={self.passage_chunk_size} > 0 but encode_passage "
+                    f"returned {type(p_reps)} instead of tuple (reps, mask)"
+                )
 
         # Return embeddings only during training - loss is computed in trainer
         if q_reps is None or p_reps is None or self.training:
