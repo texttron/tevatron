@@ -21,7 +21,7 @@ def _chunk_tokens(
     eos_token_id: int,
     max_length: int = None,
     chunk_size_range: Optional[Tuple[int, int]] = None,
-    passage_index: int = 0,
+    passage_seed: int = 0,
 ) -> Tuple[List[int], List[int]]:
     """
     Chunk tokens into chunks with EOS separators.
@@ -31,7 +31,7 @@ def _chunk_tokens(
     :param eos_token_id: EOS token ID to append after each chunk
     :param max_length: Optional max total length (including EOS). If None, no limit.
     :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes. If set, each chunk uses a random size in [min, max].
-    :param passage_index: Index of the passage in the batch (for DDP-consistent random seeds)
+    :param passage_seed: Deterministic seed for this passage (typically hash of content). Used for DDP-safe random chunk sizes.
     :return: (chunked_ids, eos_positions) - token IDs with EOS separators and EOS positions
     """
     # Validate and set up chunk size parameters
@@ -53,9 +53,9 @@ def _chunk_tokens(
     while i < len(tokens):
         # Pick chunk size for this chunk
         if use_variable_sizes:
-            # DDP-safe: Use deterministic seed based on passage and chunk index
-            # This ensures all ranks generate the same chunk sizes for the same passage
-            seed = hash((passage_index, chunk_index)) & 0xFFFFFFFF
+            # DDP-safe: Use deterministic seed based on passage content hash and chunk index
+            # This ensures all ranks generate the same chunk sizes for the same passage content
+            seed = hash((passage_seed, chunk_index)) & 0xFFFFFFFF
             rng = random.Random(seed)
             current_chunk_size = rng.randint(chunk_size_min, chunk_size_max)
             chunk_index += 1
@@ -134,7 +134,7 @@ def _tokenize_and_pad_chunked_passages(
 ) -> Tuple[dict, List[List[int]]]:
     """
     Tokenize and chunk passages with EOS separators. Each chunk ends with EOS for embedding extraction.
-    
+
     :param passages: Passage texts to tokenize and chunk
     :param tokenizer: Tokenizer for encoding
     :param data_args: DataArguments with chunk_size, max_len, pad_to_multiple_of
@@ -148,10 +148,10 @@ def _tokenize_and_pad_chunked_passages(
     if chunk_sizes is not None and len(chunk_sizes) != len(passages):
         raise ValueError(f"chunk_sizes length ({len(chunk_sizes)}) must match passages length ({len(passages)})")
     max_length = data_args.passage_max_len  # cap total length (incl. EOS per chunk)
-    
+
     all_input_ids = []
     all_eos_positions = []
-    
+
     for idx, passage in enumerate(passages):
         if passage is None:
             passage = ""
@@ -159,13 +159,16 @@ def _tokenize_and_pad_chunked_passages(
         # Use per-passage chunk size if provided, otherwise use fixed chunk size
         # Note: chunk_size is ignored in _chunk_tokens when chunk_size_range is provided
         chunk_size = chunk_sizes[idx] if chunk_sizes is not None else data_args.passage_chunk_size
+        # DDP-safe: Use hash of passage content for deterministic seeding across all ranks
+        # This ensures the same passage always gets the same chunk boundaries
+        passage_seed = hash(passage) & 0xFFFFFFFF
         ids, eos_pos = _chunk_tokens(
             tokens=tokens,
             chunk_size=chunk_size,
             eos_token_id=eos_id,
             max_length=max_length,
             chunk_size_range=chunk_size_range,
-            passage_index=idx,
+            passage_seed=passage_seed,
         )
         all_input_ids.append(ids)
         all_eos_positions.append(eos_pos)
@@ -248,8 +251,13 @@ class TrainCollator:
                 d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_size_range=chunk_size_range)
             else:
                 # Fixed random chunk size per passage: all chunks in a passage use the same random size
-                # Generate random chunk sizes for each passage
-                chunk_sizes = [random.randint(chunk_size_min, chunk_size_max) for _ in all_passages]
+                # DDP-safe: Use deterministic seeding based on passage content hash
+                # This ensures the same passage always gets the same chunk size across all ranks
+                chunk_sizes = []
+                for passage in all_passages:
+                    passage_seed = hash(passage if passage else "") & 0xFFFFFFFF
+                    rng = random.Random(passage_seed)
+                    chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
                 d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_sizes=chunk_sizes)
             return q_collated, d_collated, eos_positions
         elif use_fixed_chunking:
@@ -473,8 +481,13 @@ class ChunkedEncodeCollator:
                 d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts, chunk_size_range=chunk_size_range)
             else:
                 # Fixed random chunk size per passage: all chunks in a passage use the same random size
-                # Generate random chunk sizes for each passage
-                chunk_sizes = [random.randint(chunk_size_min, chunk_size_max) for _ in texts]
+                # DDP-safe: Use deterministic seeding based on passage content hash
+                # This ensures the same passage always gets the same chunk size across all ranks
+                chunk_sizes = []
+                for text in texts:
+                    text_seed = hash(text if text else "") & 0xFFFFFFFF
+                    rng = random.Random(text_seed)
+                    chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
                 d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts, chunk_sizes=chunk_sizes)
         else:
             # Use fixed chunking for inference

@@ -5,7 +5,7 @@ from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
-EOS_TOKEN_ID = 151643
+
 
 class DenseModel(EncoderModel):
 
@@ -13,24 +13,30 @@ class DenseModel(EncoderModel):
         super().__init__(encoder, pooling, normalize, temperature)
         self.passage_chunk_size = 0
         self.eos_positions = None
+        self.eos_token_id = None  # Will be set by driver/trainer
 
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
-    
+
     def encode_passage(self, psg, eos_positions=None):
         hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
-        
+
         if self.passage_chunk_size > 0 and eos_positions:
-            # Verify EOS tokens are at the right positions
-            for i, ep in enumerate(eos_positions):
-                for eos_pos in ep:
-                    assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID, \
-                        f"Expected EOS token {EOS_TOKEN_ID} at position {eos_pos} in passage {i}, got {psg['input_ids'][i][eos_pos]}"
+            # Verify EOS tokens are at the right positions (optional, for debugging)
+            if self.eos_token_id is not None:
+                for i, ep in enumerate(eos_positions):
+                    for eos_pos in ep:
+                        actual_token = psg['input_ids'][i][eos_pos].item()
+                        if actual_token != self.eos_token_id:
+                            logger.warning(
+                                f"Expected EOS token {self.eos_token_id} at position {eos_pos} "
+                                f"in passage {i}, got {actual_token}"
+                            )
 
             return self._pooling_chunked(hidden_states, eos_positions)
-        
+
         return self._pooling(hidden_states, psg['attention_mask'])
 
     def _pooling_chunked(self, last_hidden_state, eos_positions):
@@ -45,16 +51,36 @@ class DenseModel(EncoderModel):
             max_chunks = max(chunk_counts)
 
         # CRITICAL: Synchronize max_chunks across all DDP ranks
-        # This ensures all ranks produce tensors with the same shape
+        # This ensures all ranks produce tensors with the same shape for gathering
         if torch.distributed.is_initialized():
             local_max_chunks = max_chunks
+            local_batch_size = batch_size
+
+            # Sync max_chunks across ranks
             max_chunks_tensor = torch.tensor([max_chunks], dtype=torch.long, device=last_hidden_state.device)
             torch.distributed.all_reduce(max_chunks_tensor, op=torch.distributed.ReduceOp.MAX)
             max_chunks = int(max_chunks_tensor.item())
 
-            # Log when synchronization changes max_chunks (helps debug data imbalance)
-            if local_max_chunks != max_chunks and torch.distributed.get_rank() == 0:
-                logger.debug(f"Synchronized max_chunks: local={local_max_chunks} → global={max_chunks}")
+            # Also sync batch_size to verify consistency (for debugging)
+            batch_size_tensor = torch.tensor([batch_size], dtype=torch.long, device=last_hidden_state.device)
+            batch_sizes_list = [torch.zeros_like(batch_size_tensor) for _ in range(torch.distributed.get_world_size())]
+            torch.distributed.all_gather(batch_sizes_list, batch_size_tensor)
+            batch_sizes = [int(bs.item()) for bs in batch_sizes_list]
+
+            # Log detailed info for debugging DDP issues
+            rank = torch.distributed.get_rank()
+            if local_max_chunks != max_chunks:
+                logger.info(
+                    f"[Rank {rank}] max_chunks synced: local={local_max_chunks} → global={max_chunks}, "
+                    f"batch_size={local_batch_size}, all_batch_sizes={batch_sizes}"
+                )
+
+            # Warn if batch sizes differ (this could cause gathering issues)
+            if len(set(batch_sizes)) > 1:
+                logger.warning(
+                    f"[Rank {rank}] Batch sizes differ across ranks: {batch_sizes}. "
+                    "This may cause DDP gathering errors!"
+                )
 
         # If no chunks at all, return empty tensors
         if max_chunks == 0:

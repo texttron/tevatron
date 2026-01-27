@@ -99,6 +99,9 @@ def main():
     else:
         model.passage_chunk_size = 0
 
+    # Set eos_token_id for verification in encode_passage
+    model.eos_token_id = tokenizer.eos_token_id
+
     train_dataset = TrainDataset(data_args)
     collator = TrainCollator(data_args, tokenizer)
 

@@ -26,56 +26,78 @@ class TevatronTrainer(Trainer):
             logger.info("Enabled DDP static graph mode")
         return wrapped
 
-    def _dist_gather_tensor(self, t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+    def _dist_gather_tensor(self, t: Optional[torch.Tensor], name: str = "tensor") -> Optional[torch.Tensor]:
         """Gather tensor from all ranks, concatenating along dim 0 (batch dimension).
-        
+
         CRITICAL: All ranks must call this with either ALL None or ALL non-None tensors.
         Otherwise NCCL will deadlock!
+
+        Args:
+            t: Tensor to gather (or None)
+            name: Name of tensor for debugging
         """
         if not self.is_ddp:
             return t
-            
+
         world_size = dist.get_world_size()
         rank = dist.get_rank()
-        
+
         # Check if this rank has None - need to sync this info across all ranks
         has_tensor = torch.tensor([t is not None], dtype=torch.int, device='cuda')
         has_tensor_list = [torch.zeros_like(has_tensor) for _ in range(world_size)]
         dist.all_gather(has_tensor_list, has_tensor)
-        
+
         # If ALL ranks have None, return None (no need to gather)
         if not any(ht.item() for ht in has_tensor_list):
             return None
-        
+
         # If SOME ranks have None but others don't, this is a bug!
-        # But we need to handle it gracefully to avoid deadlock
         all_have_tensor = all(ht.item() for ht in has_tensor_list)
-        
+
         if not all_have_tensor:
-            # Inconsistent state detected - need to handle this
-            # For now, create a dummy tensor on ranks that have None
             if t is None:
-                # Get expected shape from rank 0 (or first rank that has tensor)
-                # This is a workaround - ideally this should never happen
                 raise RuntimeError(
-                    f"Rank {rank} has None tensor but other ranks have non-None tensors. "
+                    f"[Rank {rank}] {name} is None but other ranks have non-None tensors. "
                     "This causes NCCL deadlock. Ensure all ranks produce consistent outputs."
                 )
-        
+
         # All ranks have non-None tensors - safe to gather
         t = t.contiguous()
-        
+
+        # First, verify all ranks have the same shape (except dim 0)
+        # This is critical for all_gather to work correctly
+        shape_tensor = torch.tensor(list(t.shape), dtype=torch.long, device=t.device)
+        shape_list = [torch.zeros_like(shape_tensor) for _ in range(world_size)]
+        dist.all_gather(shape_list, shape_tensor)
+
+        # Check shape consistency (all dims except dim 0 must match)
+        local_shape = list(t.shape)
+        for other_rank, other_shape_tensor in enumerate(shape_list):
+            other_shape = other_shape_tensor.tolist()
+            if len(local_shape) != len(other_shape):
+                raise RuntimeError(
+                    f"[Rank {rank}] {name} has {len(local_shape)} dims but rank {other_rank} "
+                    f"has {len(other_shape)} dims. Shapes: local={local_shape}, other={other_shape}"
+                )
+            # Check all dims except dim 0
+            for dim_idx in range(1, len(local_shape)):
+                if local_shape[dim_idx] != other_shape[dim_idx]:
+                    raise RuntimeError(
+                        f"[Rank {rank}] {name} shape mismatch at dim {dim_idx}: "
+                        f"local={local_shape}, rank {other_rank}={other_shape}. "
+                        "All ranks must have the same shape except dim 0 for gathering."
+                    )
+
         # Create placeholders for gathering
         all_tensors = [torch.empty_like(t) for _ in range(world_size)]
         dist.all_gather(all_tensors, t)
-        
+
         # Keep local tensor for gradient flow (important for backprop!)
         all_tensors[rank] = t
-        
+
         # Concatenate along dim 0 (batch dimension)
-        # Works for 2D [B, H], 3D [B, C, H], etc.
         gathered = torch.cat(all_tensors, dim=0)
-        
+
         return gathered
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
@@ -108,33 +130,53 @@ class TevatronTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage, *rest = inputs
         eos_positions = rest[0] if rest else None
-        
+
         # Unwrap DDP model first (important for attribute access)
         unwrapped_model = model.module if hasattr(model, 'module') else model
-        
+
+        # Set eos_token_id from tokenizer if available (for EOS verification in encode_passage)
+        if self.tokenizer is not None and hasattr(self.tokenizer, 'eos_token_id'):
+            unwrapped_model.eos_token_id = self.tokenizer.eos_token_id
+
         # Attach eos_positions to the unwrapped model (for passage chunking)
         # This is critical: the forward() method reads this attribute via getattr(self, "eos_positions", None)
         if eos_positions is not None:
             unwrapped_model.eos_positions = eos_positions
-        
+
+            # Debug logging for DDP
+            if self.is_ddp:
+                chunk_counts = [len(ep) for ep in eos_positions]
+                max_local_chunks = max(chunk_counts) if chunk_counts else 0
+                logger.debug(
+                    f"[Rank {dist.get_rank()}] eos_positions: {len(eos_positions)} passages, "
+                    f"chunk_counts={chunk_counts}, max_local_chunks={max_local_chunks}"
+                )
+
         # Set static graph on first call if needed (for gradient_checkpointing + DDP)
         if self.is_ddp and self.args.gradient_checkpointing and not hasattr(self, '_static_graph_set'):
             if hasattr(model, '_set_static_graph'):
                 model._set_static_graph()
                 logger.info("Enabled DDP static graph mode in compute_loss")
             self._static_graph_set = True
-        
+
         # Get embeddings from model (forward() will read eos_positions from unwrapped_model)
         output = model(query=query, passage=passage)
         q_reps = output.q_reps
         p_reps = output.p_reps
         chunk_mask = output.chunk_mask
-        
+
+        # Debug logging for shapes before gathering
+        if self.is_ddp:
+            logger.debug(
+                f"[Rank {dist.get_rank()}] Before gather - q_reps: {q_reps.shape}, "
+                f"p_reps: {p_reps.shape}, chunk_mask: {chunk_mask.shape if chunk_mask is not None else None}"
+            )
+
         # Gather embeddings from all ranks for in-batch negatives
         if self.is_ddp:
-            q_reps = self._dist_gather_tensor(q_reps)
-            p_reps = self._dist_gather_tensor(p_reps)
-            chunk_mask = self._dist_gather_tensor(chunk_mask)
+            q_reps = self._dist_gather_tensor(q_reps, name="q_reps")
+            p_reps = self._dist_gather_tensor(p_reps, name="p_reps")
+            chunk_mask = self._dist_gather_tensor(chunk_mask, name="chunk_mask")
         
         # Compute similarity (use maxsim for chunked passages)
         # Note: unwrapped_model was already defined above
