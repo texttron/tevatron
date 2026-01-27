@@ -1,5 +1,6 @@
 import logging
 import random
+import hashlib
 import torch
 import torch.distributed as dist
 from typing import List, Tuple, Optional
@@ -13,6 +14,19 @@ from tevatron.retriever.arguments import DataArguments
 torch.set_printoptions(threshold=float('inf'), linewidth=10000)
 
 logger = logging.getLogger(__name__)
+
+
+def _deterministic_hash(s: str) -> int:
+    """
+    Compute a deterministic hash of a string that is consistent across Python processes.
+
+    Python's built-in hash() uses PYTHONHASHSEED randomization by default, which means
+    hash("text") returns different values in different Python processes. This causes
+    random chunking to produce different chunk boundaries during training vs inference.
+
+    This function uses MD5 (truncated to 32 bits) for a deterministic, reproducible hash.
+    """
+    return int(hashlib.md5(s.encode('utf-8')).hexdigest()[:8], 16)
 
 
 def _chunk_tokens(
@@ -55,7 +69,9 @@ def _chunk_tokens(
         if use_variable_sizes:
             # DDP-safe: Use deterministic seed based on passage content hash and chunk index
             # This ensures all ranks generate the same chunk sizes for the same passage content
-            seed = hash((passage_seed, chunk_index)) & 0xFFFFFFFF
+            # Note: We combine passage_seed with chunk_index using a simple formula instead of hash()
+            # because hash() is not deterministic across Python processes
+            seed = (passage_seed * 31 + chunk_index) & 0xFFFFFFFF
             rng = random.Random(seed)
             current_chunk_size = rng.randint(chunk_size_min, chunk_size_max)
             chunk_index += 1
@@ -159,9 +175,10 @@ def _tokenize_and_pad_chunked_passages(
         # Use per-passage chunk size if provided, otherwise use fixed chunk size
         # Note: chunk_size is ignored in _chunk_tokens when chunk_size_range is provided
         chunk_size = chunk_sizes[idx] if chunk_sizes is not None else data_args.passage_chunk_size
-        # DDP-safe: Use hash of passage content for deterministic seeding across all ranks
+        # DDP-safe: Use deterministic hash of passage content for consistent seeding across all ranks
         # This ensures the same passage always gets the same chunk boundaries
-        passage_seed = hash(passage) & 0xFFFFFFFF
+        # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
+        passage_seed = _deterministic_hash(passage)
         ids, eos_pos = _chunk_tokens(
             tokens=tokens,
             chunk_size=chunk_size,
@@ -253,9 +270,10 @@ class TrainCollator:
                 # Fixed random chunk size per passage: all chunks in a passage use the same random size
                 # DDP-safe: Use deterministic seeding based on passage content hash
                 # This ensures the same passage always gets the same chunk size across all ranks
+                # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
                 chunk_sizes = []
                 for passage in all_passages:
-                    passage_seed = hash(passage if passage else "") & 0xFFFFFFFF
+                    passage_seed = _deterministic_hash(passage if passage else "")
                     rng = random.Random(passage_seed)
                     chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
                 d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_sizes=chunk_sizes)
@@ -483,9 +501,10 @@ class ChunkedEncodeCollator:
                 # Fixed random chunk size per passage: all chunks in a passage use the same random size
                 # DDP-safe: Use deterministic seeding based on passage content hash
                 # This ensures the same passage always gets the same chunk size across all ranks
+                # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
                 chunk_sizes = []
                 for text in texts:
-                    text_seed = hash(text if text else "") & 0xFFFFFFFF
+                    text_seed = _deterministic_hash(text if text else "")
                     rng = random.Random(text_seed)
                     chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
                 d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts, chunk_sizes=chunk_sizes)
