@@ -10,8 +10,9 @@ PASSAGE_MAX_LEN=8192
 
 # Paths
 EXP_ROOT="/root/autodl-tmp/tevatron"
-MODELS_DIR="${EXP_ROOT}/models"        # default checkpoint dir (from generate_experiments.sh)
+MODELS_DIR="${EXP_ROOT}/models"        # default checkpoint dir (from generate_training.sh)
 DATA_DIR="${EXP_ROOT}/data"            # must contain queries.jsonl, qrels.tsv, and corpus file(s)
+LOGS_DIR="${EXP_ROOT}/logs/retrieval"
 
 # Corpus to encode — change this to point to a different corpus
 CORPUS_PATH="${DATA_DIR}/corpus.jsonl"
@@ -72,6 +73,14 @@ for TRAIN_NAME in "${TRAIN_NAMES[@]}"; do
 #!/bin/bash
 set -euo pipefail
 
+# Helper: echo a command then run it
+run_cmd() {
+  echo ""
+  echo "[CMD] $*"
+  echo ""
+  "$@"
+}
+
 # ── Override checkpoint path via CLI arg (optional) ──────────────────────────
 # Usage: bash eval_mldr-en_fixed-256.sh [/path/to/checkpoint]
 SCRIPT_HEAD
@@ -88,8 +97,11 @@ DEFAULT_MODEL_DIR="${MODELS_DIR}/\${TRAIN_NAME}"
 MODEL_DIR="\${1:-\${DEFAULT_MODEL_DIR}}"
 
 EXP_ROOT="${EXP_ROOT}"
+DATA_DIR="${DATA_DIR}"
 ENCODE_DIR="\${EXP_ROOT}/encode/\${EVAL_NAME}/\${TRAIN_NAME}"
 RESULTS_DIR="\${EXP_ROOT}/results/\${EVAL_NAME}/\${TRAIN_NAME}"
+LOG_DIR="${LOGS_DIR}"
+LOG_FILE="\${LOG_DIR}/eval_\${EVAL_NAME}_\${TRAIN_NAME}.log"
 QRELS="${QRELS}"
 
 CORPUS_PATH="${CORPUS_PATH}"
@@ -103,7 +115,10 @@ QUERY_PREFIX="${QUERY_PREFIX}"
 
 RET_CHUNKS=(${RET_CHUNKS_STR})
 
-mkdir -p "\${ENCODE_DIR}" "\${RESULTS_DIR}"
+mkdir -p "\${ENCODE_DIR}" "\${RESULTS_DIR}" "\${LOG_DIR}"
+
+# Tee all stdout and stderr to log file
+exec > >(tee -a "\${LOG_FILE}") 2>&1
 
 if [ ! -d "\${MODEL_DIR}" ]; then
   echo "ERROR: Checkpoint not found at \${MODEL_DIR}"
@@ -112,15 +127,17 @@ if [ ! -d "\${MODEL_DIR}" ]; then
   exit 1
 fi
 
-echo "=== Evaluating \${TRAIN_NAME} on \${EVAL_NAME} ==="
-echo "    Checkpoint: \${MODEL_DIR}"
-echo "    Corpus:     \${CORPUS_PATH}"
-echo ""
+echo "================================================================"
+echo "Evaluating: \${TRAIN_NAME} on \${EVAL_NAME}"
+echo "Started:    \$(date)"
+echo "Checkpoint: \${MODEL_DIR}"
+echo "Corpus:     \${CORPUS_PATH}"
+echo "Log file:   \${LOG_FILE}"
+echo "================================================================"
 
 # ── Encode queries (once) ────────────────────────────────────────────────────
 if [ ! -f "\${ENCODE_DIR}/queries.pkl" ]; then
-  echo "=== [\${TRAIN_NAME}] Encoding queries ==="
-  CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \\
+  run_cmd CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \\
     --output_dir temp \\
     \${MODEL_ARGS} \\
     --lora_name_or_path "\${MODEL_DIR}" \\
@@ -160,7 +177,10 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
   done
 
   if [ "\${all_shards_exist}" = false ]; then
+    echo ""
     echo "=== [\${TRAIN_NAME}] Encoding corpus (\${NUM_GPUS} shards, \${RET_NAME}) ==="
+    echo "[CMD] CUDA_VISIBLE_DEVICES={0..${NUM_GPUS}} python -m tevatron.retriever.driver.encode \${MODEL_ARGS} --lora_name_or_path \${MODEL_DIR} --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} --passage_prefix '${PASSAGE_PREFIX}' --passage_max_len \${PASSAGE_MAX_LEN} \${CHUNK_ARGS} --dataset_name json --dataset_path \${CORPUS_PATH} --dataset_number_of_shards \${NUM_GPUS} --dataset_shard_index {s} --encode_output_path \${CORPUS_PREFIX}.{s}.pkl"
+    echo ""
     pids=()
     for s in \$(seq 0 \$((NUM_GPUS-1))); do
       CUDA_VISIBLE_DEVICES=\${s} python -m tevatron.retriever.driver.encode \\
@@ -187,8 +207,7 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
 
   # ── Search ─────────────────────────────────────────────────────────────────
   if [ ! -f "\${RANK_FILE}" ]; then
-    echo "=== [\${TRAIN_NAME}] Searching (\${RET_NAME}) ==="
-    python -m tevatron.retriever.driver.search \\
+    run_cmd python -m tevatron.retriever.driver.search \\
       --query_reps "\${ENCODE_DIR}/queries.pkl" \\
       --passage_reps "\${CORPUS_PREFIX}.*.pkl" \\
       --depth ${SEARCH_DEPTH} --batch_size ${SEARCH_BATCH} --save_text \\
@@ -200,12 +219,12 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
 
   # ── Evaluate ───────────────────────────────────────────────────────────────
   echo "=== [\${TRAIN_NAME}] Evaluating (\${RET_NAME}) ==="
-  python -m tevatron.utils.format.convert_result_to_trec \\
+  run_cmd python -m tevatron.utils.format.convert_result_to_trec \\
     --input "\${RANK_FILE}" \\
     --output "\${TREC_FILE}" \\
     --remove_query
 
-  python -m pyserini.eval.trec_eval \\
+  run_cmd python -m pyserini.eval.trec_eval \\
     -m ndcg_cut.10 -m recall.100 \\
     "\${QRELS}" "\${TREC_FILE}"
 
@@ -228,7 +247,10 @@ if [ -f "\${PRECHUNKED_CORPUS_PATH}" ]; then
   done
 
   if [ "\${all_shards_exist}" = false ]; then
+    echo ""
     echo "=== [\${TRAIN_NAME}] Encoding pre-chunked corpus (\${NUM_GPUS} shards) ==="
+    echo "[CMD] CUDA_VISIBLE_DEVICES={0..${NUM_GPUS}} python -m tevatron.retriever.driver.encode \${MODEL_ARGS} --lora_name_or_path \${MODEL_DIR} --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} --passage_prefix '${PASSAGE_PREFIX}' --passage_max_len \${PASSAGE_MAX_LEN} --encode_use_pre_chunked --dataset_name json --dataset_path \${PRECHUNKED_CORPUS_PATH} --dataset_number_of_shards \${NUM_GPUS} --dataset_shard_index {s} --encode_output_path \${CORPUS_PREFIX}.{s}.pkl"
+    echo ""
     pids=()
     for s in \$(seq 0 \$((NUM_GPUS-1))); do
       CUDA_VISIBLE_DEVICES=\${s} python -m tevatron.retriever.driver.encode \\
@@ -254,8 +276,7 @@ if [ -f "\${PRECHUNKED_CORPUS_PATH}" ]; then
   fi
 
   if [ ! -f "\${RANK_FILE}" ]; then
-    echo "=== [\${TRAIN_NAME}] Searching (\${RET_NAME}) ==="
-    python -m tevatron.retriever.driver.search \\
+    run_cmd python -m tevatron.retriever.driver.search \\
       --query_reps "\${ENCODE_DIR}/queries.pkl" \\
       --passage_reps "\${CORPUS_PREFIX}.*.pkl" \\
       --depth ${SEARCH_DEPTH} --batch_size ${SEARCH_BATCH} --save_text \\
@@ -266,12 +287,12 @@ if [ -f "\${PRECHUNKED_CORPUS_PATH}" ]; then
   fi
 
   echo "=== [\${TRAIN_NAME}] Evaluating (\${RET_NAME}) ==="
-  python -m tevatron.utils.format.convert_result_to_trec \\
+  run_cmd python -m tevatron.utils.format.convert_result_to_trec \\
     --input "\${RANK_FILE}" \\
     --output "\${TREC_FILE}" \\
     --remove_query
 
-  python -m pyserini.eval.trec_eval \\
+  run_cmd python -m pyserini.eval.trec_eval \\
     -m ndcg_cut.10 -m recall.100 \\
     "\${QRELS}" "\${TREC_FILE}"
 
@@ -280,7 +301,8 @@ else
   echo "=== [\${TRAIN_NAME}] Skipping pre-chunked eval (\${PRECHUNKED_CORPUS_PATH} not found) ==="
 fi
 
-echo "=== All retrieval configs evaluated for \${TRAIN_NAME} on \${EVAL_NAME} ==="
+echo ""
+echo "=== All retrieval configs evaluated for \${TRAIN_NAME} on \${EVAL_NAME} at \$(date) ==="
 SCRIPT_BODY
 done
 
@@ -300,6 +322,8 @@ echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh"
 echo ""
 echo "  # With custom checkpoint path:"
 echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh /path/to/my/checkpoint"
+echo ""
+echo "Logs saved to: ${LOGS_DIR}/eval_{eval_name}_{train_name}.log"
 echo ""
 echo "To evaluate a different corpus, edit CORPUS_PATH, PRECHUNKED_CORPUS_PATH,"
 echo "EVAL_NAME, QUERY_PREFIX, and QRELS in this generator, then re-run."

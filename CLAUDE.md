@@ -99,30 +99,40 @@ exp/
 
 ### Script generation
 
-`scripts/generate_experiments.sh` generates all experiment scripts. Edit the config block at the top (paths, model, hyperparameters, dataset), then run:
+Two separate generators: one for training, one for retrieval. Edit the config block at the top of each, then run.
 
+**Training** — `scripts/generate_training.sh`:
 ```bash
-bash scripts/generate_experiments.sh
+bash scripts/generate_training.sh
+```
+Produces 16 scripts in `scripts/training/` (e.g. `train_fixed-256.sh`). Each runs torchrun multi-GPU training with the correct chunk args. Skips if `adapter_config.json` already exists.
+
+**Retrieval** — `scripts/generate_retrieval.sh`:
+```bash
+bash scripts/generate_retrieval.sh
+```
+Produces 16 scripts in `scripts/retrieval/` (e.g. `eval_mldr-en_fixed-256.sh`). Each encodes queries once, then for each retrieval chunk size (0, 32, 64, ..., 4096) plus pre-chunked: encodes corpus in parallel across GPUs, searches (with `--chunked` when chunk size > 0), converts to TREC, and runs pyserini eval.
+
+Retrieval scripts accept an optional checkpoint path argument:
+```bash
+bash scripts/retrieval/eval_mldr-en_fixed-256.sh                    # uses default MLDR checkpoint
+bash scripts/retrieval/eval_mldr-en_fixed-256.sh /path/to/checkpoint # uses custom checkpoint
 ```
 
-This produces 32 scripts in `scripts/experiments/`:
-- 16 **train scripts**: `train_{name}.sh` — one per training config
-- 16 **eval scripts**: `eval_{name}.sh` — one per training config, each loops over all 9 retrieval chunk sizes
+To evaluate a different corpus, edit `CORPUS_PATH`, `PRECHUNKED_CORPUS_PATH`, `EVAL_NAME`, `QUERY_PREFIX`, and `QRELS` in `generate_retrieval.sh`, then re-run. Results are separated by `EVAL_NAME` in the output paths (`encode/{eval_name}/{train_name}/`, `results/{eval_name}/{train_name}/`).
 
-Generated scripts are self-contained (all config baked in) and safe to re-run (skip-if-exists checks on every step).
+Pre-chunked corpus evaluation is included automatically if `prechunked-corpus.jsonl` exists in the data directory. Expected format: `{"docid": "...", "chunks": ["chunk1 text", "chunk2 text", ...]}` per line.
 
-**Train script** (`train_fixed-256.sh`): Runs torchrun multi-GPU training with the correct `--passage_chunk_size` or `--passage_chunk_size_range` for that config. Skips if `adapter_config.json` already exists.
-
-**Eval script** (`eval_fixed-256.sh`): Encodes queries once, then for each retrieval chunk size (0, 32, 64, ..., 4096): encodes corpus in parallel across GPUs (one shard per GPU, PIDs tracked individually for error handling), searches (with `--chunked` when chunk size > 0), converts to TREC, and runs pyserini eval. All shard files are checked before skipping.
-
-To add/remove training configs or retrieval chunk sizes, edit the arrays in `generate_experiments.sh`:
+To add/remove training or retrieval configs, edit the arrays in the respective generator:
 ```bash
+# In generate_training.sh:
 TRAIN_CONFIGS=(
   "nochunk|--passage_chunk_size 0"
   "fixed-256|--passage_chunk_size 256"
   "prand-32to256|--passage_chunk_size_range 32,256"
-  # add more here
 )
+
+# In generate_retrieval.sh:
 RET_CHUNKS=(0 32 64 128 256 512 1024 2048 4096)
 ```
 
