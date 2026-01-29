@@ -60,10 +60,24 @@ for entry in "${TRAIN_CONFIGS[@]}"; do
   TRAIN_NAME="${entry%%|*}"
   TRAIN_CHUNK_ARGS="${entry#*|}"
 
-  cat > "${OUT_DIR}/train_${TRAIN_NAME}.sh" <<SCRIPT
+  cat > "${OUT_DIR}/train_${TRAIN_NAME}.sh" <<'SCRIPT_HEAD'
 #!/bin/bash
 set -euo pipefail
 
+# Log a command and execute it (supports VAR=val cmd ... syntax)
+run_cmd() {
+  echo ""
+  echo "[CMD] $*"
+  echo ""
+  if [[ "$1" == *=* ]]; then
+    env "$@"
+  else
+    "$@"
+  fi
+}
+SCRIPT_HEAD
+
+  cat >> "${OUT_DIR}/train_${TRAIN_NAME}.sh" <<SCRIPT_BODY
 TRAIN_NAME="${TRAIN_NAME}"
 MODEL_DIR="${MODELS_DIR}/\${TRAIN_NAME}"
 LOG_DIR="${LOGS_DIR}"
@@ -81,62 +95,36 @@ echo "Log file: \${LOG_FILE}"
 echo "================================================================"
 
 if [ ! -f "\${MODEL_DIR}/adapter_config.json" ]; then
-  TRAIN_CMD="CUDA_VISIBLE_DEVICES=\$(seq -s, 0 $((NUM_GPUS-1))) \\\\
-  torchrun --nproc_per_node ${NUM_GPUS} --master_port ${MASTER_PORT} \\\\
-    -m tevatron.retriever.driver.train \\\\
-    --output_dir \${MODEL_DIR} \\\\
-    --model_name_or_path ${BASE_MODEL} \\\\
-    --bf16 --pooling last --padding_side right --normalize \\\\
-    --attn_implementation sdpa \\\\
-    --do_train --lora \\\\
-    --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \\\\
-    --save_steps ${SAVE_STEPS} \\\\
-    --dataset_name ${DATASET_NAME} --dataset_config ${DATASET_CONFIG} --dataset_split ${DATASET_SPLIT} \\\\
-    --query_prefix '${QUERY_PREFIX}' --passage_prefix '${PASSAGE_PREFIX}' \\\\
-    --temperature ${TEMPERATURE} \\\\
-    --per_device_train_batch_size ${PER_DEVICE_TRAIN_BATCH} --train_group_size ${TRAIN_GROUP_SIZE} \\\\
-    --learning_rate ${LEARNING_RATE} \\\\
-    --query_max_len ${QUERY_MAX_LEN} --passage_max_len ${PASSAGE_MAX_LEN} \\\\
-    ${TRAIN_CHUNK_ARGS} \\\\
-    --num_train_epochs ${NUM_TRAIN_EPOCHS} \\\\
-    --logging_steps 10 \\\\
-    --overwrite_output_dir \\\\
-    --gradient_checkpointing \\\\
-    --gradient_accumulation_steps 1"
-
-  echo ""
-  echo "[CMD] \${TRAIN_CMD}"
-  echo ""
-
-  CUDA_VISIBLE_DEVICES=\$(seq -s, 0 $((NUM_GPUS-1))) \\
-  torchrun --nproc_per_node ${NUM_GPUS} --master_port ${MASTER_PORT} \\
-    -m tevatron.retriever.driver.train \\
-    --output_dir "\${MODEL_DIR}" \\
-    --model_name_or_path ${BASE_MODEL} \\
-    --bf16 --pooling last --padding_side right --normalize \\
-    --attn_implementation sdpa \\
-    --do_train --lora \\
-    --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \\
-    --save_steps ${SAVE_STEPS} \\
-    --dataset_name ${DATASET_NAME} --dataset_config ${DATASET_CONFIG} --dataset_split ${DATASET_SPLIT} \\
-    --query_prefix "${QUERY_PREFIX}" --passage_prefix "${PASSAGE_PREFIX}" \\
-    --temperature ${TEMPERATURE} \\
-    --per_device_train_batch_size ${PER_DEVICE_TRAIN_BATCH} --train_group_size ${TRAIN_GROUP_SIZE} \\
-    --learning_rate ${LEARNING_RATE} \\
-    --query_max_len ${QUERY_MAX_LEN} --passage_max_len ${PASSAGE_MAX_LEN} \\
-    ${TRAIN_CHUNK_ARGS} \\
-    --num_train_epochs ${NUM_TRAIN_EPOCHS} \\
-    --logging_steps 10 \\
-    --overwrite_output_dir \\
-    --gradient_checkpointing \\
-    --gradient_accumulation_steps 1
+  run_cmd \\
+    CUDA_VISIBLE_DEVICES=\$(seq -s, 0 $((NUM_GPUS-1))) \\
+    torchrun --nproc_per_node ${NUM_GPUS} --master_port ${MASTER_PORT} \\
+      -m tevatron.retriever.driver.train \\
+      --output_dir "\${MODEL_DIR}" \\
+      --model_name_or_path ${BASE_MODEL} \\
+      --bf16 --pooling last --padding_side right --normalize \\
+      --attn_implementation sdpa \\
+      --do_train --lora \\
+      --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \\
+      --save_steps ${SAVE_STEPS} \\
+      --dataset_name ${DATASET_NAME} --dataset_config ${DATASET_CONFIG} --dataset_split ${DATASET_SPLIT} \\
+      --query_prefix "${QUERY_PREFIX}" --passage_prefix "${PASSAGE_PREFIX}" \\
+      --temperature ${TEMPERATURE} \\
+      --per_device_train_batch_size ${PER_DEVICE_TRAIN_BATCH} --train_group_size ${TRAIN_GROUP_SIZE} \\
+      --learning_rate ${LEARNING_RATE} \\
+      --query_max_len ${QUERY_MAX_LEN} --passage_max_len ${PASSAGE_MAX_LEN} \\
+      ${TRAIN_CHUNK_ARGS} \\
+      --num_train_epochs ${NUM_TRAIN_EPOCHS} \\
+      --logging_steps 10 \\
+      --overwrite_output_dir \\
+      --gradient_checkpointing \\
+      --gradient_accumulation_steps 1
 else
   echo "=== Skipping training (checkpoint exists at \${MODEL_DIR}) ==="
 fi
 
 echo ""
 echo "=== Training done (\${TRAIN_NAME}) at \$(date) ==="
-SCRIPT
+SCRIPT_BODY
 done
 
 # ── Make all scripts executable ──────────────────────────────────────────────

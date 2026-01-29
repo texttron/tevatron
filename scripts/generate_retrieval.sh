@@ -5,7 +5,7 @@ set -euo pipefail
 # Edit these before running the generator.
 
 BASE_MODEL="Qwen/Qwen3-Embedding-0.6B"
-NUM_GPUS=8
+DEFAULT_NUM_GPUS=8
 PASSAGE_MAX_LEN=8192
 
 # Paths
@@ -73,24 +73,40 @@ for TRAIN_NAME in "${TRAIN_NAMES[@]}"; do
 #!/bin/bash
 set -euo pipefail
 
-# Helper: echo a command then run it
+# Log a command and execute it (supports VAR=val cmd ... syntax)
 run_cmd() {
   echo ""
   echo "[CMD] $*"
   echo ""
-  "$@"
+  if [[ "$1" == *=* ]]; then
+    env "$@"
+  else
+    "$@"
+  fi
 }
 
-# ── Override checkpoint path via CLI arg (optional) ──────────────────────────
-# Usage: bash eval_mldr-en_fixed-256.sh [/path/to/checkpoint]
+# Log a command template for sharded parallel jobs
+log_shard_cmd() {
+  echo ""
+  echo "[CMD] (x${NUM_GPUS} shards) CUDA_VISIBLE_DEVICES={gpu} $*"
+  echo ""
+}
 SCRIPT_HEAD
 
   cat >> "${OUT_DIR}/eval_${EVAL_NAME}_${TRAIN_NAME}.sh" <<SCRIPT_BODY
+# ── Usage ────────────────────────────────────────────────────────────────────
+# bash eval_${EVAL_NAME}_${TRAIN_NAME}.sh [checkpoint_path] [num_gpus]
+#
+# Args:
+#   checkpoint_path  Path to LoRA checkpoint dir (default: ${MODELS_DIR}/${TRAIN_NAME})
+#   num_gpus         Number of GPUs for sharded corpus encoding (default: ${DEFAULT_NUM_GPUS})
+
 TRAIN_NAME="${TRAIN_NAME}"
 EVAL_NAME="${EVAL_NAME}"
 
 BASE_MODEL="${BASE_MODEL}"
-NUM_GPUS=${NUM_GPUS}
+DEFAULT_NUM_GPUS=${DEFAULT_NUM_GPUS}
+NUM_GPUS="\${2:-\${DEFAULT_NUM_GPUS}}"
 PASSAGE_MAX_LEN=${PASSAGE_MAX_LEN}
 
 DEFAULT_MODEL_DIR="${MODELS_DIR}/\${TRAIN_NAME}"
@@ -122,8 +138,7 @@ exec > >(tee -a "\${LOG_FILE}") 2>&1
 
 if [ ! -d "\${MODEL_DIR}" ]; then
   echo "ERROR: Checkpoint not found at \${MODEL_DIR}"
-  echo "  Either train first, copy checkpoints, or pass checkpoint path as argument:"
-  echo "  bash \$0 /path/to/checkpoint"
+  echo "  Usage: bash \$0 [checkpoint_path] [num_gpus]"
   exit 1
 fi
 
@@ -132,6 +147,7 @@ echo "Evaluating: \${TRAIN_NAME} on \${EVAL_NAME}"
 echo "Started:    \$(date)"
 echo "Checkpoint: \${MODEL_DIR}"
 echo "Corpus:     \${CORPUS_PATH}"
+echo "Num GPUs:   \${NUM_GPUS}"
 echo "Log file:   \${LOG_FILE}"
 echo "================================================================"
 
@@ -177,10 +193,18 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
   done
 
   if [ "\${all_shards_exist}" = false ]; then
-    echo ""
-    echo "=== [\${TRAIN_NAME}] Encoding corpus (\${NUM_GPUS} shards, \${RET_NAME}) ==="
-    echo "[CMD] CUDA_VISIBLE_DEVICES={0..${NUM_GPUS}} python -m tevatron.retriever.driver.encode \${MODEL_ARGS} --lora_name_or_path \${MODEL_DIR} --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} --passage_prefix '${PASSAGE_PREFIX}' --passage_max_len \${PASSAGE_MAX_LEN} \${CHUNK_ARGS} --dataset_name json --dataset_path \${CORPUS_PATH} --dataset_number_of_shards \${NUM_GPUS} --dataset_shard_index {s} --encode_output_path \${CORPUS_PREFIX}.{s}.pkl"
-    echo ""
+    log_shard_cmd python -m tevatron.retriever.driver.encode \\
+      --output_dir temp \\
+      \${MODEL_ARGS} \\
+      --lora_name_or_path "\${MODEL_DIR}" \\
+      --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} \\
+      --passage_prefix "'${PASSAGE_PREFIX}'" --passage_max_len \${PASSAGE_MAX_LEN} \\
+      \${CHUNK_ARGS} \\
+      --dataset_name json \\
+      --dataset_path "\${CORPUS_PATH}" \\
+      --dataset_number_of_shards \${NUM_GPUS} \\
+      --dataset_shard_index '{s}' \\
+      --encode_output_path "\${CORPUS_PREFIX}.{s}.pkl"
     pids=()
     for s in \$(seq 0 \$((NUM_GPUS-1))); do
       CUDA_VISIBLE_DEVICES=\${s} python -m tevatron.retriever.driver.encode \\
@@ -218,7 +242,6 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
   fi
 
   # ── Evaluate ───────────────────────────────────────────────────────────────
-  echo "=== [\${TRAIN_NAME}] Evaluating (\${RET_NAME}) ==="
   run_cmd python -m tevatron.utils.format.convert_result_to_trec \\
     --input "\${RANK_FILE}" \\
     --output "\${TREC_FILE}" \\
@@ -247,10 +270,18 @@ if [ -f "\${PRECHUNKED_CORPUS_PATH}" ]; then
   done
 
   if [ "\${all_shards_exist}" = false ]; then
-    echo ""
-    echo "=== [\${TRAIN_NAME}] Encoding pre-chunked corpus (\${NUM_GPUS} shards) ==="
-    echo "[CMD] CUDA_VISIBLE_DEVICES={0..${NUM_GPUS}} python -m tevatron.retriever.driver.encode \${MODEL_ARGS} --lora_name_or_path \${MODEL_DIR} --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} --passage_prefix '${PASSAGE_PREFIX}' --passage_max_len \${PASSAGE_MAX_LEN} --encode_use_pre_chunked --dataset_name json --dataset_path \${PRECHUNKED_CORPUS_PATH} --dataset_number_of_shards \${NUM_GPUS} --dataset_shard_index {s} --encode_output_path \${CORPUS_PREFIX}.{s}.pkl"
-    echo ""
+    log_shard_cmd python -m tevatron.retriever.driver.encode \\
+      --output_dir temp \\
+      \${MODEL_ARGS} \\
+      --lora_name_or_path "\${MODEL_DIR}" \\
+      --per_device_eval_batch_size ${PER_DEVICE_EVAL_BATCH_CORPUS} \\
+      --passage_prefix "'${PASSAGE_PREFIX}'" --passage_max_len \${PASSAGE_MAX_LEN} \\
+      --encode_use_pre_chunked \\
+      --dataset_name json \\
+      --dataset_path "\${PRECHUNKED_CORPUS_PATH}" \\
+      --dataset_number_of_shards \${NUM_GPUS} \\
+      --dataset_shard_index '{s}' \\
+      --encode_output_path "\${CORPUS_PREFIX}.{s}.pkl"
     pids=()
     for s in \$(seq 0 \$((NUM_GPUS-1))); do
       CUDA_VISIBLE_DEVICES=\${s} python -m tevatron.retriever.driver.encode \\
@@ -286,7 +317,6 @@ if [ -f "\${PRECHUNKED_CORPUS_PATH}" ]; then
     echo "=== [\${TRAIN_NAME}] Skipping search (\${RET_NAME}, exists) ==="
   fi
 
-  echo "=== [\${TRAIN_NAME}] Evaluating (\${RET_NAME}) ==="
   run_cmd python -m tevatron.utils.format.convert_result_to_trec \\
     --input "\${RANK_FILE}" \\
     --output "\${TREC_FILE}" \\
@@ -317,11 +347,14 @@ echo ""
 ls -1 "${OUT_DIR}"/eval_*.sh | sed 's/^/  /'
 echo ""
 echo "Usage:"
-echo "  # With default MLDR checkpoints:"
+echo "  # With default MLDR checkpoints and ${DEFAULT_NUM_GPUS} GPUs:"
 echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh"
 echo ""
 echo "  # With custom checkpoint path:"
-echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh /path/to/my/checkpoint"
+echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh /path/to/checkpoint"
+echo ""
+echo "  # With custom checkpoint and 4 GPUs:"
+echo "  bash ${OUT_DIR}/eval_${EVAL_NAME}_fixed-256.sh /path/to/checkpoint 4"
 echo ""
 echo "Logs saved to: ${LOGS_DIR}/eval_{eval_name}_{train_name}.log"
 echo ""

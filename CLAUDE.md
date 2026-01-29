@@ -113,15 +113,24 @@ bash scripts/generate_retrieval.sh
 ```
 Produces 16 scripts in `scripts/retrieval/` (e.g. `eval_mldr-en_fixed-256.sh`). Each encodes queries once, then for each retrieval chunk size (0, 32, 64, ..., 4096) plus pre-chunked: encodes corpus in parallel across GPUs, searches (with `--chunked` when chunk size > 0), converts to TREC, and runs pyserini eval.
 
-Retrieval scripts accept an optional checkpoint path argument:
+Retrieval scripts accept optional checkpoint path and GPU count arguments:
 ```bash
-bash scripts/retrieval/eval_mldr-en_fixed-256.sh                    # uses default MLDR checkpoint
-bash scripts/retrieval/eval_mldr-en_fixed-256.sh /path/to/checkpoint # uses custom checkpoint
+bash scripts/retrieval/eval_mldr-en_fixed-256.sh                              # default checkpoint, 8 GPUs
+bash scripts/retrieval/eval_mldr-en_fixed-256.sh /path/to/checkpoint           # custom checkpoint, 8 GPUs
+bash scripts/retrieval/eval_mldr-en_fixed-256.sh /path/to/checkpoint 4         # custom checkpoint, 4 GPUs
 ```
 
 To evaluate a different corpus, edit `CORPUS_PATH`, `PRECHUNKED_CORPUS_PATH`, `EVAL_NAME`, `QUERY_PREFIX`, and `QRELS` in `generate_retrieval.sh`, then re-run. Results are separated by `EVAL_NAME` in the output paths (`encode/{eval_name}/{train_name}/`, `results/{eval_name}/{train_name}/`).
 
 Pre-chunked corpus evaluation is included automatically if `prechunked-corpus.jsonl` exists in the data directory. Expected format: `{"docid": "...", "chunks": ["chunk1 text", "chunk2 text", ...]}` per line.
+
+### Logging
+
+Both training and retrieval scripts log all output (stdout + stderr) via `exec > >(tee -a LOG_FILE) 2>&1`. Logs are saved to:
+- **Training**: `${EXP_ROOT}/logs/training/train_{name}.log`
+- **Retrieval**: `${EXP_ROOT}/logs/retrieval/eval_{eval_name}_{train_name}.log`
+
+Every executed command is echoed before running via the `run_cmd()` helper, which prints `[CMD] <command>` before execution. For parallel sharded encoding, `log_shard_cmd()` prints a template showing the command that runs on each GPU.
 
 To add/remove training or retrieval configs, edit the arrays in the respective generator:
 ```bash
