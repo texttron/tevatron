@@ -117,7 +117,9 @@ if [ ! -f "\${MODEL_DIR}/adapter_config.json" ]; then
       --logging_steps 10 \\
       --overwrite_output_dir \\
       --gradient_checkpointing \\
-      --gradient_accumulation_steps 1
+      --gradient_accumulation_steps 1 \\
+      --run_name "\${TRAIN_NAME}" \\
+      --report_to wandb
 else
   echo "=== Skipping training (checkpoint exists at \${MODEL_DIR}) ==="
 fi
