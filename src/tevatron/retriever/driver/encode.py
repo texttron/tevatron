@@ -139,7 +139,9 @@ def main():
                     # batch_inputs: input_ids, attention_mask
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
-                    print(f"eos_positions: {eos_positions}")
+                    if not hasattr(model, '_logged_eos'):
+                        logger.info(f"eos_positions (first batch): {eos_positions}")
+                        model._logged_eos = True
                     chunk_embs, chunk_mask = model.encode_passage(batch_inputs, eos_positions)
                     batch_size, max_chunks, hidden_size = chunk_embs.shape
                     for i, doc_id in enumerate(doc_ids):

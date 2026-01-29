@@ -128,7 +128,11 @@ Pre-chunked corpus evaluation is included automatically if `prechunked-corpus.js
 
 Both training and retrieval scripts log all output (stdout + stderr) via `exec > >(tee -a LOG_FILE) 2>&1`. Logs are saved to:
 - **Training**: `${EXP_ROOT}/logs/training/train_{name}.log`
-- **Retrieval**: `${EXP_ROOT}/logs/retrieval/eval_{eval_name}_{train_name}.log`
+- **Retrieval**: `${EXP_ROOT}/logs/retrieval/{eval_name}/{train_name}/` with one log per step:
+  - `queries.log` — query encoding
+  - `ret-nochunk.log` — no-chunking encode + search + eval
+  - `ret-fixed-{N}.log` — per chunk size encode + search + eval
+  - `ret-prechunked.log` — pre-chunked corpus encode + search + eval
 
 Every executed command is echoed before running via the `run_cmd()` helper, which prints `[CMD] <command>` before execution. For parallel sharded encoding, `log_shard_cmd()` prints a template showing the command that runs on each GPU.
 

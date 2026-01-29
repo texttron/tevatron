@@ -116,8 +116,7 @@ EXP_ROOT="${EXP_ROOT}"
 DATA_DIR="${DATA_DIR}"
 ENCODE_DIR="\${EXP_ROOT}/encode/\${EVAL_NAME}/\${TRAIN_NAME}"
 RESULTS_DIR="\${EXP_ROOT}/results/\${EVAL_NAME}/\${TRAIN_NAME}"
-LOG_DIR="${LOGS_DIR}"
-LOG_FILE="\${LOG_DIR}/eval_\${EVAL_NAME}_\${TRAIN_NAME}.log"
+LOG_DIR="${LOGS_DIR}/\${EVAL_NAME}/\${TRAIN_NAME}"
 QRELS="${QRELS}"
 
 CORPUS_PATH="${CORPUS_PATH}"
@@ -133,8 +132,11 @@ RET_CHUNKS=(${RET_CHUNKS_STR})
 
 mkdir -p "\${ENCODE_DIR}" "\${RESULTS_DIR}" "\${LOG_DIR}"
 
-# Tee all stdout and stderr to log file
-exec > >(tee -a "\${LOG_FILE}") 2>&1
+# Helper: switch tee to a new per-chunk log file
+start_log() {
+  local log_file="\$1"
+  exec > >(tee -a "\${log_file}") 2>&1
+}
 
 if [ ! -d "\${MODEL_DIR}" ]; then
   echo "ERROR: Checkpoint not found at \${MODEL_DIR}"
@@ -148,10 +150,11 @@ echo "Started:    \$(date)"
 echo "Checkpoint: \${MODEL_DIR}"
 echo "Corpus:     \${CORPUS_PATH}"
 echo "Num GPUs:   \${NUM_GPUS}"
-echo "Log file:   \${LOG_FILE}"
+echo "Log dir:    \${LOG_DIR}"
 echo "================================================================"
 
 # ── Encode queries (once) ────────────────────────────────────────────────────
+start_log "\${LOG_DIR}/queries.log"
 if [ ! -f "\${ENCODE_DIR}/queries.pkl" ]; then
   run_cmd CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \\
     --output_dir temp \\
@@ -178,6 +181,8 @@ for RET_CHUNK in "\${RET_CHUNKS[@]}"; do
     CHUNK_ARGS="--passage_chunk_size \${RET_CHUNK}"
     SEARCH_ARGS="--chunked --chunk_multiplier ${CHUNK_MULTIPLIER}"
   fi
+
+  start_log "\${LOG_DIR}/\${RET_NAME}.log"
 
   CORPUS_PREFIX="\${ENCODE_DIR}/corpus-\${RET_NAME}"
   RANK_FILE="\${RESULTS_DIR}/\${RET_NAME}.txt"
@@ -256,6 +261,7 @@ done
 
 # ── Pre-chunked corpus evaluation ────────────────────────────────────────────
 RET_NAME="ret-prechunked"
+start_log "\${LOG_DIR}/\${RET_NAME}.log"
 CORPUS_PREFIX="\${ENCODE_DIR}/corpus-\${RET_NAME}"
 RANK_FILE="\${RESULTS_DIR}/\${RET_NAME}.txt"
 TREC_FILE="\${RESULTS_DIR}/\${RET_NAME}.trec"
