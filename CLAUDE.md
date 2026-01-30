@@ -304,16 +304,41 @@ Search: pickle.load → FAISS index → top-k → [MaxSim aggregation] → ranki
 
 ## Code Review Notes
 
-### Chunked training + DDP + MaxSim correctness (verified)
+### End-to-end chunking pipeline (verified)
 
-The full path — collator → trainer.compute_loss → model.forward → encode_passage → _pooling_chunked → DDP gather → compute_maxsim_similarity → loss — has been traced end-to-end and is correct:
+The full chunking flow has been traced across all files. Here is the exact path:
 
-- **DDP shape sync**: `_pooling_chunked` uses `all_reduce(MAX)` on `max_chunks` before creating output tensors, so all ranks produce `[B, max_chunks, H]` and `[B, max_chunks]`. The trainer's `_dist_gather_tensor` then concatenates along dim 0 safely.
-- **MaxSim**: `einsum('qh,pch->qpc')` computes per-chunk scores, padding chunks are masked to `-inf`, `max(dim=-1)` selects the best chunk. Gradients flow through `max` correctly.
-- **Normalization of zero-padded chunks**: `F.normalize` uses `eps=1e-12`, so zero vectors stay zero (no NaN). Masked to `-inf` in MaxSim, so they never affect ranking.
-- **Loss scaling**: `loss * world_size` in `compute_loss` then `/ world_size` in `training_step` correctly compensates for HF Trainer's gradient averaging.
-- **eos_positions attribute passing**: Trainer sets on `model.module` (unwrapped), `forward()` reads via `getattr(self, ...)` on the same DenseModel instance. Correct with DDP.
-- **eos_token_id == pad_token_id**: Both `train.py` and `encode.py` set `tokenizer.eos_token_id = tokenizer.pad_token_id`. Not a problem because `_pooling_chunked` uses explicit position indices, not token scanning. Attention mask correctly masks out padding.
+**Training:**
+1. `TrainCollator.__call__` → `tokenizer.encode(passage, add_special_tokens=False)` produces raw tokens
+2. `_chunk_tokens(tokens, chunk_size, eos_token_id, max_length)` splits tokens into chunks of `chunk_size - 1` content tokens + 1 EOS token, records EOS positions, respects `max_length` cap
+3. `_pad_and_adjust_eos_positions()` pads the batch and shifts EOS indices rightward for left-padding
+4. `TevatronTrainer.compute_loss()` attaches `eos_positions` to the unwrapped model as an attribute
+5. `DenseModel.encode_passage(psg, eos_positions)` runs the full sequence through the transformer, then calls `_pooling_chunked(hidden_states, eos_positions)`
+6. `_pooling_chunked()` extracts the hidden state at each EOS position → `chunk_reps [B, C, H]`, `chunk_mask [B, C]`. Syncs `max_chunks` across DDP ranks via `all_reduce(MAX)`.
+7. Trainer gathers `q_reps`, `p_reps`, `chunk_mask` across ranks via `_dist_gather_tensor()`
+8. `compute_maxsim_similarity()`: `einsum('qh,pch->qpc')` → mask padding to `-inf` → `max(dim=-1)` → `[Q, P]` scores
+9. Cross-entropy loss on MaxSim scores with contrastive targets
+
+**Inference encoding:**
+1. `ChunkedEncodeCollator` / `PreChunkedEncodeCollator` uses the same `_chunk_tokens()` and `_pad_and_adjust_eos_positions()` logic
+2. `encode.py` calls `model.encode_passage(batch_inputs, eos_positions)` directly (not through `forward()`)
+3. Each valid chunk is saved as a separate embedding with a `(doc_id, chunk_idx)` tuple in the lookup index
+
+**Search:**
+1. FAISS `IndexFlatIP` searches individual chunk embeddings (flat inner product)
+2. Searches `depth * chunk_multiplier` chunks to ensure coverage
+3. MaxSim aggregation in Python: group results by `doc_id`, keep `max(score)` per document
+4. Return top-`depth` documents
+
+**Training vs search MaxSim equivalence:** Training computes `einsum('qh,pch->qpc').max(dim=-1)` in one tensor op. Search computes `q · chunk_i` individually via FAISS, then `max` per doc in Python. Mathematically identical — both find the highest dot-product chunk per document.
+
+### DDP correctness (verified)
+
+- **Shape sync**: `_pooling_chunked` uses `all_reduce(MAX)` on `max_chunks` so all ranks produce `[B, max_chunks, H]`. Trainer's `_dist_gather_tensor` concatenates along dim 0.
+- **MaxSim masking**: Padding chunks get score `-inf`, never win in `max`. Zero vectors from `F.normalize` stay zero (eps=1e-12), no NaN.
+- **Loss scaling**: `loss * world_size` in `compute_loss` then `/ world_size` in `training_step` — compensates for HF Trainer's gradient averaging.
+- **eos_positions passing**: Trainer sets on `model.module` (unwrapped), `forward()` reads via `getattr(self, ...)` on the same DenseModel instance.
+- **eos_token_id == pad_token_id**: Not a problem — `_pooling_chunked` uses explicit position indices, not token scanning. Attention mask correctly handles padding.
 
 ### Random chunking consistency across GPUs/runs (verified)
 
@@ -324,8 +349,8 @@ The full path — collator → trainer.compute_loss → model.forward → encode
 
 ### Known minor issues (non-critical)
 
-- `encode.py:142` prints `eos_positions` on every batch — will spam stdout on large corpora. Should be `logger.debug` or removed.
 - `collator.py:14` sets `torch.set_printoptions(threshold=float('inf'))` at module level — globally changes torch print behavior for the entire process. Should be removed or guarded.
+- `encode.py:166` has a stray `print("use_chunked: ", use_chunked)`. Should be `logger.debug` or removed.
 - `encode.py:88-95` has six `print()` calls logging data_args on every run. Should be `logger.info` or removed.
-- `encode.py` uses inconsistent encoding paths: chunked calls `model.encode_passage()` directly (line 143), non-chunked goes through `model(passage=...)` → `forward()` (line 161). Both work but the chunked path skips `forward()`'s safety checks.
+- `encode.py` uses inconsistent encoding paths: chunked calls `model.encode_passage()` directly (line 145), non-chunked goes through `model(passage=...)` → `forward()` (line 163). Both work but the chunked path skips `forward()`'s safety checks.
 - `EncoderModel._dist_gather_tensor` (`encoder.py:186`) is a simple version without None-consistency or shape checks. Not used in the main training path (the trainer's safe version is used), but could cause NCCL deadlocks if called directly in other contexts.
