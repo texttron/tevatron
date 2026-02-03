@@ -27,6 +27,14 @@ class EncoderOutput(ModelOutput):
 
 class EncoderModel(nn.Module):
     TRANSFORMER_CLS = AutoModel
+    # change this to BiQwen3Model
+# from transformers import Qwen3Model, Qwen3Config
+
+# class BiQwen3Model(Qwen3Model):
+#     def __init__(self, config: Qwen3Config):
+#         super().__init__(config)
+#         for layer in self.layers:
+#             layer.self_attn.is_causal = False
 
     def __init__(self,
                  encoder: PreTrainedModel,

@@ -65,7 +65,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    dataset = load_dataset("Tevatron/browsecomp-plus", split="train")
+    dataset = load_dataset("Tevatron/browsecomp-plus", split="test")
     source_iter = (json.dumps(record, ensure_ascii=False) for record in dataset)
     skip_keys = {"query_id"}
 
