@@ -12,6 +12,7 @@ class DenseModel(EncoderModel):
     def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
         super().__init__(encoder, pooling, normalize, temperature)
         self.passage_chunk_size = 0
+        self.passage_chunk_independent = False
         self.eos_positions = None
         self.eos_token_id = None  # Will be set by driver/trainer
 
@@ -38,6 +39,50 @@ class DenseModel(EncoderModel):
             return self._pooling_chunked(hidden_states, eos_positions)
 
         return self._pooling(hidden_states, psg['attention_mask'])
+
+    def encode_passage_independent_chunks(self, psg, chunk_counts):
+        """Encode independently-chunked passages.
+
+        Each chunk is already a separate sequence in ``psg``.  We run them all
+        through the encoder with standard pooling, then reshape the flat
+        ``[total_chunks, H]`` tensor back to ``[num_passages, max_chunks, H]``
+        with the corresponding ``chunk_mask``.
+
+        :param psg: Dict with ``input_ids`` and ``attention_mask``, shape ``[total_chunks, seq_len]``
+        :param chunk_counts: List[int] — number of chunks per passage
+        :return: ``(chunk_reps [P, C, H], chunk_mask [P, C])``
+        """
+        # Standard forward + pooling (each chunk is an independent sequence)
+        hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+        flat_reps = self._pooling(hidden_states, psg['attention_mask'])  # [total_chunks, H]
+
+        num_passages = len(chunk_counts)
+        max_chunks = max(chunk_counts) if chunk_counts else 0
+
+        # Sync max_chunks across DDP ranks (same pattern as _pooling_chunked)
+        if torch.distributed.is_initialized():
+            max_chunks_tensor = torch.tensor([max_chunks], dtype=torch.long, device=flat_reps.device)
+            torch.distributed.all_reduce(max_chunks_tensor, op=torch.distributed.ReduceOp.MAX)
+            max_chunks = int(max_chunks_tensor.item())
+
+        if max_chunks == 0:
+            hidden_size = flat_reps.shape[-1]
+            return (
+                torch.zeros(num_passages, 0, hidden_size, device=flat_reps.device, dtype=flat_reps.dtype),
+                torch.zeros(num_passages, 0, device=flat_reps.device, dtype=torch.float),
+            )
+
+        hidden_size = flat_reps.shape[-1]
+        chunk_reps = torch.zeros(num_passages, max_chunks, hidden_size, device=flat_reps.device, dtype=flat_reps.dtype)
+        chunk_mask = torch.zeros(num_passages, max_chunks, device=flat_reps.device, dtype=torch.float)
+
+        offset = 0
+        for i, count in enumerate(chunk_counts):
+            chunk_reps[i, :count] = flat_reps[offset:offset + count]
+            chunk_mask[i, :count] = 1.0
+            offset += count
+
+        return chunk_reps, chunk_mask
 
     def _pooling_chunked(self, last_hidden_state, eos_positions):
         batch_size, seq_len, hidden_size = last_hidden_state.shape

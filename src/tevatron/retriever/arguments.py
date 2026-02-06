@@ -223,6 +223,11 @@ class DataArguments:
         metadata={"help": "If True, expects dataset with 'chunks' field (list of pre-chunked passage strings). EOS tokens will be added between chunks. If False, uses regular 'text' field. Only for encoding (not training)."}
     )
 
+    passage_chunk_independent: bool = field(
+        default=False,
+        metadata={"help": "If True, each chunk is encoded independently (no cross-chunk attention) instead of concatenating all chunks into one sequence. Chunks are scored via MaxSim. Works with passage_chunk_size and passage_chunk_size_range."}
+    )
+
 
 @dataclass
 class TevatronTrainingArguments(TrainingArguments):

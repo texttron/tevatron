@@ -51,31 +51,38 @@ class EncoderModel(nn.Module):
         q_reps = self.encode_query(query) if query else None
         p_reps, chunk_mask = None, None
         if passage:
-            # If training with chunked passages, eos_positions is produced by the collator and
-            # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
-            # into encode_passage() to actually get chunk reps/masks.
-            eos_positions = getattr(self, "eos_positions", None)
-            
-            # CRITICAL: For DDP consistency, passage_chunk_size > 0 must ALWAYS produce chunked output
-            # across ALL ranks. Otherwise NCCL will deadlock.
-            if self.passage_chunk_size > 0:
-                if eos_positions is not None:
-                    try:
-                        p_reps = self.encode_passage(passage, eos_positions=eos_positions)
-                    except TypeError:
-                        # Some models (e.g., multimodal) don't accept eos_positions.
-                        p_reps = self.encode_passage(passage)
-                else:
-                    # If passage_chunk_size > 0 but no eos_positions provided,
-                    # this is an error in data preprocessing
-                    raise RuntimeError(
-                        f"passage_chunk_size={self.passage_chunk_size} > 0 but eos_positions=None. "
-                        "This causes inconsistent outputs across DDP ranks. "
-                        "Either set passage_chunk_size=0 or ensure collator provides eos_positions."
-                    )
+            # Independent chunk mode: chunks are already separate sequences in the batch
+            chunk_independent = getattr(self, "passage_chunk_independent", False)
+            chunk_counts = getattr(self, "chunk_counts", None)
+
+            if chunk_independent and chunk_counts is not None and self.passage_chunk_size > 0:
+                p_reps = self.encode_passage_independent_chunks(passage, chunk_counts)
             else:
-                p_reps = self.encode_passage(passage)
-            
+                # If training with chunked passages, eos_positions is produced by the collator and
+                # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
+                # into encode_passage() to actually get chunk reps/masks.
+                eos_positions = getattr(self, "eos_positions", None)
+
+                # CRITICAL: For DDP consistency, passage_chunk_size > 0 must ALWAYS produce chunked output
+                # across ALL ranks. Otherwise NCCL will deadlock.
+                if self.passage_chunk_size > 0:
+                    if eos_positions is not None:
+                        try:
+                            p_reps = self.encode_passage(passage, eos_positions=eos_positions)
+                        except TypeError:
+                            # Some models (e.g., multimodal) don't accept eos_positions.
+                            p_reps = self.encode_passage(passage)
+                    else:
+                        # If passage_chunk_size > 0 but no eos_positions provided,
+                        # this is an error in data preprocessing
+                        raise RuntimeError(
+                            f"passage_chunk_size={self.passage_chunk_size} > 0 but eos_positions=None. "
+                            "This causes inconsistent outputs across DDP ranks. "
+                            "Either set passage_chunk_size=0 or ensure collator provides eos_positions."
+                        )
+                else:
+                    p_reps = self.encode_passage(passage)
+
             # Check if we got chunked output
             if self.passage_chunk_size > 0 and isinstance(p_reps, tuple):
                 p_reps, chunk_mask = p_reps

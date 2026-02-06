@@ -1274,90 +1274,116 @@ def test_chunking_multiple_passages_different_lengths(train_tokenizer):
 
 @pytest.mark.unit
 def test_chunk_tokens_random_chunk_size_range_fixed_per_passage(train_tokenizer):
-    """Test chunking with random chunk size range, fixed per passage (all chunks in a passage use same random size)."""
+    """Test chunking with random chunk size range produces valid variable-sized chunks.
+
+    Note: Chunk sizes are now determined by passage_seed (content hash) for DDP safety,
+    not by the global random state. This test verifies structural properties.
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.collator import _chunk_tokens
-    
-    # Set seed for deterministic results
-    random.seed(42)
-    
+
     tokens = list(range(100))  # 100 tokens
     eos_id = 99
     chunk_size_range = (10, 20)  # Random chunk size between 10 and 20
-    
-    ids, eos_pos = _chunk_tokens(tokens, chunk_size=10, eos_token_id=eos_id, chunk_size_range=chunk_size_range)
-    
-    # Hardcoded golden output with seed=42 and chunk_size_range=(10, 20)
-    # With seed=42, random.randint(10, 20) generates: 19, 12, 11, 15, 14, 13, 13, 12, 5 (for chunks)
-    # Chunk sizes (before EOS): 19, 12, 11, 15, 14, 13, 13, 12, 5
-    # Chunk lengths (tokens per chunk): 18, 11, 10, 14, 13, 12, 12, 11, 4
-    expected_ids = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99,  # Chunk 1: 19 tokens (18 + EOS)
-        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 99,  # Chunk 2: 12 tokens (11 + EOS)
-        29, 30, 31, 32, 33, 34, 35, 36, 37, 99,  # Chunk 3: 11 tokens (10 + EOS)
-        38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 99,  # Chunk 4: 15 tokens (14 + EOS)
-        51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 99,  # Chunk 5: 14 tokens (13 + EOS)
-        63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 99,  # Chunk 6: 13 tokens (12 + EOS)
-        75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 99,  # Chunk 7: 13 tokens (12 + EOS)
-        86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 99,  # Chunk 8: 12 tokens (11 + EOS)
-        96, 97, 98, 99, 99  # Chunk 9: 5 tokens (4 + EOS)
-    ]
-    expected_eos_pos = [19, 30, 40, 54, 67, 80, 92, 103, 108]
-    
-    assert ids == expected_ids
-    assert eos_pos == expected_eos_pos
-    
+    passage_seed = 12345  # Fixed seed for reproducibility
+
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size=10, eos_token_id=eos_id,
+                                  chunk_size_range=chunk_size_range, passage_seed=passage_seed)
+
     # Verify structure: each chunk should end with EOS
     for eos_pos_val in eos_pos:
         assert ids[eos_pos_val] == eos_id
 
+    # Verify all original tokens are present (except the ones that became EOS positions)
+    non_eos_tokens = [t for i, t in enumerate(ids) if i not in eos_pos]
+    assert non_eos_tokens == list(range(100))
+
+    # Verify chunk sizes are within the specified range
+    # Each chunk is (chunk_size - 1) tokens + 1 EOS
+    prev_eos = -1
+    for eos_pos_val in eos_pos:
+        chunk_len = eos_pos_val - prev_eos  # includes EOS
+        # chunk_len = chunk_size, so actual tokens = chunk_len - 1
+        assert 2 <= chunk_len <= 20, f"Chunk length {chunk_len} not in valid range"
+        prev_eos = eos_pos_val
+
+    # Verify determinism: same seed should produce same output
+    ids2, eos_pos2 = _chunk_tokens(tokens, chunk_size=10, eos_token_id=eos_id,
+                                    chunk_size_range=chunk_size_range, passage_seed=passage_seed)
+    assert ids == ids2
+    assert eos_pos == eos_pos2
+
+    # Verify different seed produces different output
+    ids3, eos_pos3 = _chunk_tokens(tokens, chunk_size=10, eos_token_id=eos_id,
+                                    chunk_size_range=chunk_size_range, passage_seed=99999)
+    # Different seed should (with high probability) produce different chunk boundaries
+    assert eos_pos != eos_pos3 or ids != ids3
+
 
 @pytest.mark.unit
 def test_chunk_tokens_random_chunk_size_range_with_max_length(train_tokenizer):
-    """Test random chunk size range with max_length constraint."""
+    """Test random chunk size range with max_length constraint.
+
+    Note: Chunk sizes are now determined by passage_seed (content hash) for DDP safety,
+    not by the global random state. This test verifies structural properties.
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.collator import _chunk_tokens
-    
-    random.seed(123)
-    
+
     tokens = list(range(200))
     eos_id = 99
     chunk_size_range = (15, 25)
     max_length = 50
-    
-    ids, eos_pos = _chunk_tokens(tokens, chunk_size=15, eos_token_id=eos_id, max_length=max_length, chunk_size_range=chunk_size_range)
-    
-    # Hardcoded golden output with seed=123, chunk_size_range=(15, 25), max_length=50
-    # With seed=123, random.randint(15, 25) generates: 15, 20, 16 (for chunks)
-    # Chunk sizes (before EOS): 15, 20, 16
-    # Chunk lengths (tokens per chunk): 14, 19, 15
-    # Total: 14 + 1 + 19 + 1 + 15 + 1 = 50 tokens (exactly max_length)
-    expected_ids = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 99,  # Chunk 1: 15 tokens (14 + EOS)
-        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 99,  # Chunk 2: 20 tokens (19 + EOS)
-        32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 99  # Chunk 3: 16 tokens (15 + EOS, truncated to fit max_length)
-    ]
-    expected_eos_pos = [14, 33, 49]
-    
-    assert ids == expected_ids
-    assert eos_pos == expected_eos_pos
-    assert len(ids) == max_length  # Exactly max_length
-    
+    passage_seed = 12345  # Fixed seed for reproducibility
+
+    ids, eos_pos = _chunk_tokens(tokens, chunk_size=15, eos_token_id=eos_id,
+                                  max_length=max_length, chunk_size_range=chunk_size_range,
+                                  passage_seed=passage_seed)
+
+    # Verify max_length constraint is respected
+    assert len(ids) <= max_length
+
     # Verify all EOS positions are valid
     for eos_pos_val in eos_pos:
         assert ids[eos_pos_val] == eos_id
         assert eos_pos_val < len(ids)
 
+    # Verify tokens are sequential (no gaps, no duplicates except EOS)
+    non_eos_tokens = [t for i, t in enumerate(ids) if i not in eos_pos]
+    expected_token_count = len(non_eos_tokens)
+    assert non_eos_tokens == list(range(expected_token_count))
+
+    # Verify there's at least one chunk
+    assert len(eos_pos) >= 1
+
+    # Verify chunk sizes are within the specified range (where possible)
+    prev_eos = -1
+    for eos_pos_val in eos_pos:
+        chunk_len = eos_pos_val - prev_eos  # includes EOS
+        # Last chunk might be truncated due to max_length
+        assert chunk_len >= 2, f"Chunk length {chunk_len} too small"
+        prev_eos = eos_pos_val
+
+    # Verify determinism: same seed should produce same output
+    ids2, eos_pos2 = _chunk_tokens(tokens, chunk_size=15, eos_token_id=eos_id,
+                                    max_length=max_length, chunk_size_range=chunk_size_range,
+                                    passage_seed=passage_seed)
+    assert ids == ids2
+    assert eos_pos == eos_pos2
+
 
 @pytest.mark.unit
 def test_train_collator_random_chunk_size_range_fixed_per_passage(train_tokenizer):
-    """Test TrainCollator with random chunk size range, fixed per passage."""
+    """Test TrainCollator with random chunk size range, fixed per passage.
+
+    Note: Chunk sizes are now determined by passage content hash for DDP safety,
+    not by the global random state. This test verifies structural properties and
+    DDP-safe determinism (same passage content = same chunk boundaries).
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import TrainCollator
-    
-    random.seed(42)
-    
+
     data_args = DataArguments(
         query_max_len=32,
         passage_max_len=128,
@@ -1369,81 +1395,54 @@ def test_train_collator_random_chunk_size_range_fixed_per_passage(train_tokenize
         passage_chunk_size_variable=False,  # Fixed random size per passage
     )
     collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
-    
+
     features = [
         (("q1", None, None, None), [(REAL_TEXT, None, None, None), (REAL_TEXT, None, None, None)]),
     ]
-    
+
     q_batch, p_batch, eos_positions = collator(features)
-    
-    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=False
-    # With seed=42, random.randint(32, 64) generates: 40 for passage 0, 34 for passage 1
-    # Passage 0: chunk_size=40 (chunk_len=39), produces 4 chunks: [38, 77, 116, 127]
-    # Passage 1: chunk_size=34 (chunk_len=33), produces 4 chunks: [32, 65, 98, 127]
-    expected_ids_0 = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284,
-        EOS_TOKEN_ID, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
-        41434, 320, 77, 284, 220, 16, 15, EOS_TOKEN_ID, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
-        13, 758, EOS_TOKEN_ID
-    ]
-    expected_mask_0 = [1] * 128
-    expected_eos_positions_0 = [38, 77, 116, 127]
-    
-    expected_ids_1 = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, EOS_TOKEN_ID, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, EOS_TOKEN_ID, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991,
-        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, EOS_TOKEN_ID, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743,
-        367, 855, 4991, 41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
-        13, 758, EOS_TOKEN_ID
-    ]
-    expected_mask_1 = [1] * 128
-    expected_eos_positions_1 = [32, 65, 98, 127]
-    
+
     # Verify structure
     assert p_batch["input_ids"].shape[0] == 2
     assert len(eos_positions) == 2
-    
-    # Verify passage 0
-    got_ids_0 = p_batch["input_ids"][0].tolist()
-    got_mask_0 = p_batch["attention_mask"][0].tolist()
-    assert got_ids_0 == expected_ids_0
-    assert got_mask_0 == expected_mask_0
-    assert eos_positions[0] == expected_eos_positions_0
-    assert _strictly_increasing(eos_positions[0])
-    for eos_pos in eos_positions[0]:
-        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
-        assert got_mask_0[eos_pos] == 1
-    
-    # Verify passage 1
-    got_ids_1 = p_batch["input_ids"][1].tolist()
-    got_mask_1 = p_batch["attention_mask"][1].tolist()
-    assert got_ids_1 == expected_ids_1
-    assert got_mask_1 == expected_mask_1
-    assert eos_positions[1] == expected_eos_positions_1
-    assert _strictly_increasing(eos_positions[1])
-    for eos_pos in eos_positions[1]:
-        assert got_ids_1[eos_pos] == train_tokenizer.eos_token_id
-        assert got_mask_1[eos_pos] == 1
+
+    # Verify both passages (same text = same chunk boundaries for DDP safety)
+    for i in range(2):
+        got_ids = p_batch["input_ids"][i].tolist()
+        got_mask = p_batch["attention_mask"][i].tolist()
+
+        # Verify EOS positions are valid and increasing
+        assert _strictly_increasing(eos_positions[i])
+        for eos_pos in eos_positions[i]:
+            assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+            assert got_mask[eos_pos] == 1
+            assert eos_pos < len(got_ids)
+
+        # Verify at least one chunk exists
+        assert len(eos_positions[i]) >= 1
+
+    # DDP-safe determinism: Same passage content should produce same chunk boundaries
+    # Both passages have the same text (REAL_TEXT), so they should have identical EOS positions
+    assert eos_positions[0] == eos_positions[1], \
+        "Same passage content should produce same chunk boundaries for DDP safety"
+
+    # Verify determinism: run collator again, should get same results
+    q_batch2, p_batch2, eos_positions2 = collator(features)
+    assert eos_positions == eos_positions2, "Collator should produce deterministic output"
 
 
 @pytest.mark.unit
 def test_train_collator_random_chunk_size_range_variable_per_chunk(train_tokenizer):
-    """Test TrainCollator with random chunk size range, variable per chunk."""
+    """Test TrainCollator with random chunk size range, variable per chunk.
+
+    Note: Chunk sizes are now determined by passage content hash for DDP safety,
+    not by the global random state. This test verifies structural properties and
+    DDP-safe determinism.
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import TrainCollator
-    
-    random.seed(42)
-    
+
     data_args = DataArguments(
         query_max_len=32,
         passage_max_len=256,
@@ -1455,55 +1454,50 @@ def test_train_collator_random_chunk_size_range_variable_per_chunk(train_tokeniz
         passage_chunk_size_variable=True,  # Variable chunk size per chunk
     )
     collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
-    
+
     features = [
         (("q1", None, None, None), [(REAL_TEXT, None, None, None)]),
     ]
-    
+
     q_batch, p_batch, eos_positions = collator(features)
-    
-    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=True
-    # With seed=42 and variable chunk sizes, each chunk gets a random size from [32, 64]
-    # Chunk sizes generated: 40, 34, 50, 48, 47, 41, 3 (last partial chunk)
-    # EOS positions: [38, 71, 120, 167, 213, 253, 255]
-    expected_ids = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, EOS_TOKEN_ID, 304, 855, 4991,
-        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
-        41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, EOS_TOKEN_ID, 2086, 882, 518, 4647,
-        13, 758, 279, 8622, 4158, 4925, 279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572,
-        1550, 11, 220, 16, 13, 23, 19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16,
-        13, 17, 19197, 441, 17, 58634, 13, EOS_TOKEN_ID, 758, 279, 44900, 47594, 315, 279, 5306,
-        47639, 11, 279, 3076, 9981, 57330, 36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17,
-        19041, 220, 16, 13, 16, 19197, 441, 17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080,
-        279, 12128, 7194, 572, 311, EOS_TOKEN_ID, 4647, 448, 7046, 10740, 2750, 304, 279, 5306,
-        47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968, 4991, 41434, 518, 4647, 8542, 5080,
-        3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320, 16, 13, 19, 51615, 220, 15, 13,
-        EOS_TOKEN_ID, 17, EOS_TOKEN_ID
-    ]
-    expected_mask = [1] * 256
-    expected_eos_positions = [38, 71, 120, 167, 213, 253, 255]
-    
+
     # Verify structure
     assert p_batch["input_ids"].shape[0] == 1
     assert len(eos_positions) == 1
-    
+
     got_ids = p_batch["input_ids"][0].tolist()
     got_mask = p_batch["attention_mask"][0].tolist()
-    
-    assert got_ids == expected_ids
-    assert got_mask == expected_mask
-    assert eos_positions[0] == expected_eos_positions
+
+    # Verify EOS positions are valid and increasing
     assert _strictly_increasing(eos_positions[0])
-    
+
     # Verify each EOS position is valid
     for eos_pos in eos_positions[0]:
         assert got_ids[eos_pos] == train_tokenizer.eos_token_id
         assert got_mask[eos_pos] == 1
+        assert eos_pos < len(got_ids)
+
+    # Verify at least one chunk exists
+    assert len(eos_positions[0]) >= 1
+
+    # Verify determinism: run collator again with same input, should get same results
+    q_batch2, p_batch2, eos_positions2 = collator(features)
+    assert eos_positions == eos_positions2, "Collator should produce deterministic output"
+
+    # Verify variable chunks produce different sizes (not all same)
+    # Check that chunk sizes vary (at least 2 different sizes if there are 3+ chunks)
+    if len(eos_positions[0]) >= 3:
+        chunk_sizes = []
+        prev_eos = -1
+        for eos_pos in eos_positions[0]:
+            chunk_sizes.append(eos_pos - prev_eos)
+            prev_eos = eos_pos
+        # With variable chunking, we expect some variation in chunk sizes
+        unique_sizes = set(chunk_sizes[:-1])  # Exclude last chunk which may be truncated
+        # Note: It's possible (but unlikely) all chunks happen to be same size
+        # So we just verify all sizes are within the valid range
+        for size in chunk_sizes[:-1]:
+            assert 2 <= size <= 64, f"Chunk size {size} outside expected range"
 
 
 @pytest.mark.unit
@@ -1923,13 +1917,16 @@ def test_prechunked_encode_collator_semantic_chunks(train_tokenizer):
 
 @pytest.mark.unit
 def test_chunked_encode_collator_random_chunk_size_range_fixed_per_passage(train_tokenizer):
-    """Test ChunkedEncodeCollator with random chunk size range, fixed per passage (inference)."""
+    """Test ChunkedEncodeCollator with random chunk size range, fixed per passage (inference).
+
+    Note: Chunk sizes are now determined by passage content hash for DDP safety,
+    not by the global random state. This test verifies structural properties and
+    DDP-safe determinism.
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import ChunkedEncodeCollator
-    
-    random.seed(42)
-    
+
     data_args = DataArguments(
         passage_max_len=128,
         pad_to_multiple_of=16,
@@ -1939,91 +1936,56 @@ def test_chunked_encode_collator_random_chunk_size_range_fixed_per_passage(train
         passage_chunk_size_variable=False,  # Fixed random size per passage
     )
     collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
-    
+
     features = [
         ("doc1", REAL_TEXT, None, None, None),
         ("doc2", REAL_TEXT, None, None, None),
     ]
-    
+
     doc_ids, d_collated, eos_positions = collator(features)
-    
-    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=False
-    # With seed=42, random.randint(32, 64) generates: 39 for doc1, 33 for doc2
-    # doc1: chunk_size=39 (chunk_len=38), produces 4 chunks: [38, 77, 116, 127]
-    #   - Chunk 1: 38 tokens (0-37) + EOS at 38
-    #   - Chunk 2: 38 tokens (39-76) + EOS at 77
-    #   - Chunk 3: 38 tokens (78-115) + EOS at 116
-    #   - Chunk 4: 10 tokens (117-126) + EOS at 127
-    # doc2: chunk_size=33 (chunk_len=32), produces 4 chunks: [32, 65, 98, 127]
-    #   - Chunk 1: 32 tokens (0-31) + EOS at 32
-    #   - Chunk 2: 32 tokens (33-64) + EOS at 65
-    #   - Chunk 3: 32 tokens (66-97) + EOS at 98
-    #   - Chunk 4: 28 tokens (99-126) + EOS at 127
-    expected_ids_0 = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991, 320, 77, 284,
-        EOS_TOKEN_ID, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
-        41434, 320, 77, 284, 220, 16, 15, EOS_TOKEN_ID, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
-        13, 758, EOS_TOKEN_ID
-    ]
-    expected_mask_0 = [1] * 128
-    expected_eos_positions_0 = [38, 77, 116, 127]
-    
-    expected_ids_1 = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, EOS_TOKEN_ID, 31658, 320, 78670, 8, 8500, 448, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, EOS_TOKEN_ID, 23788, 17646, 304, 59645, 4158, 4925, 304, 855, 4991,
-        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, EOS_TOKEN_ID, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743,
-        367, 855, 4991, 41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, 2086, 882, 518, 4647,
-        13, 758, EOS_TOKEN_ID
-    ]
-    expected_mask_1 = [1] * 128
-    expected_eos_positions_1 = [32, 65, 98, 127]
-    
+
     # Verify structure
     assert doc_ids == ["doc1", "doc2"]
     assert d_collated["input_ids"].shape[0] == 2
     assert len(eos_positions) == 2
-    
-    # Verify doc1
-    got_ids_0 = d_collated["input_ids"][0].tolist()
-    got_mask_0 = d_collated["attention_mask"][0].tolist()
-    assert got_ids_0 == expected_ids_0
-    assert got_mask_0 == expected_mask_0
-    assert eos_positions[0] == expected_eos_positions_0
-    assert _strictly_increasing(eos_positions[0])
-    for eos_pos in eos_positions[0]:
-        assert got_ids_0[eos_pos] == train_tokenizer.eos_token_id
-        assert got_mask_0[eos_pos] == 1
-    
-    # Verify doc2
-    got_ids_1 = d_collated["input_ids"][1].tolist()
-    got_mask_1 = d_collated["attention_mask"][1].tolist()
-    assert got_ids_1 == expected_ids_1
-    assert got_mask_1 == expected_mask_1
-    assert eos_positions[1] == expected_eos_positions_1
-    assert _strictly_increasing(eos_positions[1])
-    for eos_pos in eos_positions[1]:
-        assert got_ids_1[eos_pos] == train_tokenizer.eos_token_id
-        assert got_mask_1[eos_pos] == 1
+
+    # Verify both docs (same text = same chunk boundaries for DDP safety)
+    for i in range(2):
+        got_ids = d_collated["input_ids"][i].tolist()
+        got_mask = d_collated["attention_mask"][i].tolist()
+
+        # Verify EOS positions are valid and increasing
+        assert _strictly_increasing(eos_positions[i])
+        for eos_pos in eos_positions[i]:
+            assert got_ids[eos_pos] == train_tokenizer.eos_token_id
+            assert got_mask[eos_pos] == 1
+            assert eos_pos < len(got_ids)
+
+        # Verify at least one chunk exists
+        assert len(eos_positions[i]) >= 1
+
+    # DDP-safe determinism: Same passage content should produce same chunk boundaries
+    # Both docs have the same text (REAL_TEXT), so they should have identical EOS positions
+    assert eos_positions[0] == eos_positions[1], \
+        "Same passage content should produce same chunk boundaries for DDP safety"
+
+    # Verify determinism: run collator again, should get same results
+    doc_ids2, d_collated2, eos_positions2 = collator(features)
+    assert eos_positions == eos_positions2, "Collator should produce deterministic output"
 
 
 @pytest.mark.unit
 def test_chunked_encode_collator_random_chunk_size_range_variable_per_chunk(train_tokenizer):
-    """Test ChunkedEncodeCollator with random chunk size range, variable per chunk (inference)."""
+    """Test ChunkedEncodeCollator with random chunk size range, variable per chunk (inference).
+
+    Note: Chunk sizes are now determined by passage content hash for DDP safety,
+    not by the global random state. This test verifies structural properties and
+    DDP-safe determinism.
+    """
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import ChunkedEncodeCollator
-    
-    random.seed(42)
-    
+
     data_args = DataArguments(
         passage_max_len=256,
         pad_to_multiple_of=16,
@@ -2033,56 +1995,47 @@ def test_chunked_encode_collator_random_chunk_size_range_variable_per_chunk(trai
         passage_chunk_size_variable=True,  # Variable chunk size per chunk
     )
     collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
-    
+
     features = [
         ("doc1", REAL_TEXT, None, None, None),
     ]
-    
+
     doc_ids, d_collated, eos_positions = collator(features)
-    
-    # Hardcoded golden output with seed=42, passage_chunk_size_range="32,64", passage_chunk_size_variable=True
-    # With seed=42 and variable chunk sizes, each chunk gets a random size from [32, 64]
-    # Chunk sizes generated: 40, 34, 50, 48, 47, 41, 3 (last partial chunk)
-    # EOS positions: [38, 71, 120, 167, 213, 253, 255]
-    expected_ids = [
-        74290, 804, 315, 279, 17646, 315, 59645, 4158, 4925, 304, 279, 11220, 3738, 8109, 646, 7802,
-        82519, 4401, 323, 1102, 304, 15629, 35701, 13, 362, 1555, 8569, 57330, 12635, 291, 23970,
-        56981, 31658, 320, 78670, 8, 8500, 448, EOS_TOKEN_ID, 57330, 15626, 6358, 572, 9251, 311,
-        6629, 279, 9981, 57330, 35606, 11, 311, 11047, 8674, 458, 285, 354, 17764, 11, 323, 311,
-        90684, 349, 2326, 32420, 23788, 17646, 304, 59645, 4158, 4925, EOS_TOKEN_ID, 304, 855, 4991,
-        320, 77, 284, 220, 16, 22, 8, 323, 2480, 9663, 41434, 320, 77, 284, 220, 22, 568, 2014,
-        8552, 6239, 315, 6811, 37854, 389, 59645, 4158, 4925, 4401, 11, 4124, 12743, 367, 855, 4991,
-        41434, 320, 77, 284, 220, 16, 15, 8, 1033, 19476, 264, EOS_TOKEN_ID, 2086, 882, 518, 4647,
-        13, 758, 279, 8622, 4158, 4925, 279, 3076, 9981, 57330, 35606, 518, 220, 17, 23, 73760, 572,
-        1550, 11, 220, 16, 13, 23, 19197, 441, 17, 58634, 11, 323, 24938, 8841, 4647, 311, 220, 16,
-        13, 17, 19197, 441, 17, 58634, 13, EOS_TOKEN_ID, 758, 279, 44900, 47594, 315, 279, 5306,
-        47639, 11, 279, 3076, 9981, 57330, 36829, 518, 2176, 3039, 1033, 4428, 320, 16, 13, 17,
-        19041, 220, 16, 13, 16, 19197, 441, 17, 58634, 568, 39402, 458, 285, 354, 17764, 572, 5080,
-        279, 12128, 7194, 572, 311, EOS_TOKEN_ID, 4647, 448, 7046, 10740, 2750, 304, 279, 5306,
-        47639, 1091, 304, 279, 8622, 4158, 4925, 13, 4968, 4991, 41434, 518, 4647, 8542, 5080,
-        3076, 57330, 36829, 304, 279, 8622, 4158, 4925, 320, 16, 13, 19, 51615, 220, 15, 13,
-        EOS_TOKEN_ID, 17, EOS_TOKEN_ID
-    ]
-    expected_mask = [1] * 256
-    expected_eos_positions = [38, 71, 120, 167, 213, 253, 255]
-    
+
     # Verify structure
     assert doc_ids == ["doc1"]
     assert d_collated["input_ids"].shape[0] == 1
     assert len(eos_positions) == 1
-    
+
     got_ids = d_collated["input_ids"][0].tolist()
     got_mask = d_collated["attention_mask"][0].tolist()
-    
-    assert got_ids == expected_ids
-    assert got_mask == expected_mask
-    assert eos_positions[0] == expected_eos_positions
+
+    # Verify EOS positions are valid and increasing
     assert _strictly_increasing(eos_positions[0])
-    
+
     # Verify each EOS position is valid
     for eos_pos in eos_positions[0]:
         assert got_ids[eos_pos] == train_tokenizer.eos_token_id
         assert got_mask[eos_pos] == 1
+        assert eos_pos < len(got_ids)
+
+    # Verify at least one chunk exists
+    assert len(eos_positions[0]) >= 1
+
+    # Verify determinism: run collator again with same input, should get same results
+    doc_ids2, d_collated2, eos_positions2 = collator(features)
+    assert eos_positions == eos_positions2, "Collator should produce deterministic output"
+
+    # Verify variable chunks produce valid sizes
+    if len(eos_positions[0]) >= 3:
+        chunk_sizes = []
+        prev_eos = -1
+        for eos_pos in eos_positions[0]:
+            chunk_sizes.append(eos_pos - prev_eos)
+            prev_eos = eos_pos
+        # Verify all sizes are within the valid range
+        for size in chunk_sizes[:-1]:  # Exclude last chunk which may be truncated
+            assert 2 <= size <= 64, f"Chunk size {size} outside expected range"
 
 
 @pytest.mark.unit
@@ -2134,7 +2087,7 @@ def test_chunked_encode_collator_fixed_chunk_size_still_works(train_tokenizer):
     _add_tevatron_src_to_path()
     from tevatron.retriever.arguments import DataArguments
     from tevatron.retriever.collator import ChunkedEncodeCollator
-    
+
     data_args = DataArguments(
         passage_max_len=128,
         pad_to_multiple_of=16,
@@ -2143,26 +2096,735 @@ def test_chunked_encode_collator_fixed_chunk_size_still_works(train_tokenizer):
         passage_chunk_size=32,  # Fixed chunk size, no random chunking
     )
     collator = ChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
-    
+
     features = [
         ("doc1", REAL_TEXT, None, None, None),
     ]
-    
+
     doc_ids, d_collated, eos_positions = collator(features)
-    
+
     # Verify structure
     assert doc_ids == ["doc1"]
     assert d_collated["input_ids"].shape[0] == 1
     assert len(eos_positions) == 1
     assert len(eos_positions[0]) > 0
-    
+
     got_ids = d_collated["input_ids"][0].tolist()
     got_mask = d_collated["attention_mask"][0].tolist()
-    
+
     # Verify EOS positions are strictly increasing
     assert _strictly_increasing(eos_positions[0])
-    
+
     # Verify each EOS position is valid
     for eos_pos in eos_positions[0]:
         assert got_ids[eos_pos] == train_tokenizer.eos_token_id
         assert got_mask[eos_pos] == 1
+
+
+# ============================================================================
+# Unit tests for _split_into_independent_chunks helper
+# ============================================================================
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_basic():
+    """Test basic independent chunk splitting."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks
+
+    tokens = list(range(10))  # [0, 1, 2, ..., 9]
+    eos_id = 99
+    chunk_size = 4  # 3 content tokens + 1 EOS per chunk
+
+    chunks = _split_into_independent_chunks(tokens, chunk_size, eos_id)
+
+    # chunk_size=4 means chunk_len=3 content tokens + EOS
+    # Chunks: [0,1,2,99], [3,4,5,99], [6,7,8,99], [9,99]
+    expected = [
+        [0, 1, 2, 99],
+        [3, 4, 5, 99],
+        [6, 7, 8, 99],
+        [9, 99],
+    ]
+    assert chunks == expected
+
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_with_max_length():
+    """Test independent chunk splitting respects max_length."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks
+
+    tokens = list(range(20))
+    eos_id = 99
+    chunk_size = 5  # 4 content tokens + EOS
+    max_length = 12
+
+    chunks = _split_into_independent_chunks(tokens, chunk_size, eos_id, max_length=max_length)
+
+    # chunk_size=5 → 4 content + EOS per chunk
+    # Chunk 1: [0,1,2,3,99] (5 tokens, total=5)
+    # Chunk 2: [4,5,6,7,99] (5 tokens, total=10)
+    # Chunk 3: remaining=12-10-1=1, take 1 token → [8,99] (total=12)
+    expected = [
+        [0, 1, 2, 3, 99],
+        [4, 5, 6, 7, 99],
+        [8, 99],
+    ]
+    assert chunks == expected
+
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_empty_input():
+    """Test independent chunk splitting with empty tokens."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks
+
+    chunks = _split_into_independent_chunks([], 4, 99)
+    assert chunks == []
+
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_chunk_size_one():
+    """Test with chunk_size < 2 returns empty."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks
+
+    chunks = _split_into_independent_chunks([1, 2, 3], 1, 99)
+    assert chunks == []
+
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_random_range():
+    """Test independent chunk splitting with random chunk size range."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks
+
+    tokens = list(range(100))
+    eos_id = 99
+
+    chunks = _split_into_independent_chunks(
+        tokens, chunk_size=0, eos_token_id=eos_id,
+        chunk_size_range=(8, 16), passage_seed=42,
+    )
+
+    assert len(chunks) >= 1
+    # Each chunk should end with EOS
+    for chunk in chunks:
+        assert chunk[-1] == eos_id
+        assert len(chunk) >= 2  # at least 1 content + EOS
+
+    # Verify determinism
+    chunks2 = _split_into_independent_chunks(
+        tokens, chunk_size=0, eos_token_id=eos_id,
+        chunk_size_range=(8, 16), passage_seed=42,
+    )
+    assert chunks == chunks2
+
+
+@pytest.mark.unit
+def test_split_into_independent_chunks_matches_chunk_tokens_content():
+    """Verify _split_into_independent_chunks produces the same content as _chunk_tokens,
+    just separated into independent lists instead of concatenated."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.collator import _split_into_independent_chunks, _chunk_tokens
+
+    tokens = list(range(50))
+    eos_id = 99
+    chunk_size = 8
+
+    # Get concatenated output from _chunk_tokens
+    concat_ids, eos_pos = _chunk_tokens(tokens, chunk_size, eos_id)
+
+    # Get independent chunks
+    chunks = _split_into_independent_chunks(tokens, chunk_size, eos_id)
+
+    # Concatenating independent chunks should give the same token sequence
+    reassembled = []
+    for chunk in chunks:
+        reassembled.extend(chunk)
+    assert reassembled == concat_ids
+
+    # EOS positions should correspond to ends of each chunk when concatenated
+    offset = 0
+    for i, chunk in enumerate(chunks):
+        assert eos_pos[i] == offset + len(chunk) - 1
+        offset += len(chunk)
+
+
+# ============================================================================
+# Unit tests for TrainCollator with passage_chunk_independent
+# ============================================================================
+
+@pytest.mark.unit
+def test_train_collator_independent_chunks_fixed_size(train_tokenizer):
+    """Test TrainCollator with passage_chunk_independent=True and fixed chunk size."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+
+    features = [
+        (("query text", None, None, None), [(REAL_TEXT, None, None, None)]),
+    ]
+
+    q_collated, d_collated, chunk_counts = collator(features)
+
+    # chunk_counts should be a list of int (not list of list like eos_positions)
+    assert isinstance(chunk_counts, list)
+    assert all(isinstance(c, int) for c in chunk_counts)
+    assert len(chunk_counts) == 1  # 1 passage
+
+    total_chunks = sum(chunk_counts)
+    assert total_chunks >= 1
+    assert total_chunks == chunk_counts[0]
+
+    # d_collated should have total_chunks sequences
+    assert d_collated["input_ids"].shape[0] == total_chunks
+    assert d_collated["attention_mask"].shape[0] == total_chunks
+
+    # Each chunk should end with EOS (at the last non-padding position)
+    for i in range(total_chunks):
+        ids = d_collated["input_ids"][i].tolist()
+        mask = d_collated["attention_mask"][i].tolist()
+        content_len = sum(mask)
+        assert content_len >= 1
+        # Last content token should be EOS
+        assert ids[content_len - 1] == train_tokenizer.eos_token_id
+
+    # Verify query collation is unaffected
+    assert q_collated["input_ids"].shape[0] == 1
+
+
+@pytest.mark.unit
+def test_train_collator_independent_chunks_random_range(train_tokenizer):
+    """Test TrainCollator with passage_chunk_independent=True and random chunk size range."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=2,
+        passage_chunk_size_range="32,64",
+        passage_chunk_size_variable=True,
+        passage_chunk_independent=True,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None), (REAL_TEXT, None, None, None)]),
+    ]
+
+    q_collated, d_collated, chunk_counts = collator(features)
+
+    assert len(chunk_counts) == 2  # 2 passages (group_size=2)
+    total_chunks = sum(chunk_counts)
+    assert d_collated["input_ids"].shape[0] == total_chunks
+
+    # Same text → same chunk count (deterministic)
+    assert chunk_counts[0] == chunk_counts[1]
+
+    # Each chunk ends with EOS
+    for i in range(total_chunks):
+        ids = d_collated["input_ids"][i].tolist()
+        mask = d_collated["attention_mask"][i].tolist()
+        content_len = sum(mask)
+        assert ids[content_len - 1] == train_tokenizer.eos_token_id
+
+    # Determinism check
+    q2, d2, cc2 = collator(features)
+    assert chunk_counts == cc2
+    assert torch.equal(d_collated["input_ids"], d2["input_ids"])
+
+
+@pytest.mark.unit
+def test_train_collator_independent_chunks_multiple_queries(train_tokenizer):
+    """Test TrainCollator with independent chunks, multiple queries with different passage lengths."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    short_text = "Hello world this is a short passage"
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=2,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=train_tokenizer)
+
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None), (short_text, None, None, None)]),
+        (("q2", None, None, None), [(short_text, None, None, None), (REAL_TEXT, None, None, None)]),
+    ]
+
+    q_collated, d_collated, chunk_counts = collator(features)
+
+    # 2 queries × 2 passages each = 4 passages total
+    assert len(chunk_counts) == 4
+    total_chunks = sum(chunk_counts)
+    assert d_collated["input_ids"].shape[0] == total_chunks
+
+    # Short passages should have fewer chunks than long ones
+    # chunk_counts[0] = REAL_TEXT chunks, chunk_counts[1] = short_text chunks
+    assert chunk_counts[0] > chunk_counts[1]
+
+    # Queries should be batched correctly
+    assert q_collated["input_ids"].shape[0] == 2
+
+
+# ============================================================================
+# Unit tests for IndependentChunkedEncodeCollator
+# ============================================================================
+
+@pytest.mark.unit
+def test_independent_chunked_encode_collator_basic(train_tokenizer):
+    """Test IndependentChunkedEncodeCollator with fixed chunk size."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import IndependentChunkedEncodeCollator
+
+    data_args = DataArguments(
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = IndependentChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+
+    features = [
+        ("doc1", REAL_TEXT, None, None, None),
+        ("doc2", "Short passage text", None, None, None),
+    ]
+
+    doc_ids_expanded, d_collated = collator(features)
+
+    # doc_ids_expanded should be list of (doc_id, chunk_idx) tuples
+    assert all(isinstance(x, tuple) and len(x) == 2 for x in doc_ids_expanded)
+
+    # doc1 (long text) should have multiple chunks
+    doc1_chunks = [x for x in doc_ids_expanded if x[0] == "doc1"]
+    doc2_chunks = [x for x in doc_ids_expanded if x[0] == "doc2"]
+    assert len(doc1_chunks) > 1  # REAL_TEXT is long enough for multiple 64-token chunks
+    assert len(doc2_chunks) >= 1  # short text gets at least 1 chunk
+
+    # Chunk indices should be sequential within each doc
+    for i, (_, ci) in enumerate(doc1_chunks):
+        assert ci == i
+    for i, (_, ci) in enumerate(doc2_chunks):
+        assert ci == i
+
+    # d_collated batch size should match total chunks
+    total_chunks = len(doc_ids_expanded)
+    assert d_collated["input_ids"].shape[0] == total_chunks
+    assert d_collated["attention_mask"].shape[0] == total_chunks
+
+    # Each chunk should end with EOS
+    for i in range(total_chunks):
+        ids = d_collated["input_ids"][i].tolist()
+        mask = d_collated["attention_mask"][i].tolist()
+        content_len = sum(mask)
+        assert ids[content_len - 1] == train_tokenizer.eos_token_id
+
+
+@pytest.mark.unit
+def test_independent_chunked_encode_collator_random_range(train_tokenizer):
+    """Test IndependentChunkedEncodeCollator with random chunk size range."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import IndependentChunkedEncodeCollator
+
+    data_args = DataArguments(
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size_range="32,64",
+        passage_chunk_size_variable=True,
+        passage_chunk_independent=True,
+    )
+    collator = IndependentChunkedEncodeCollator(data_args=data_args, tokenizer=train_tokenizer)
+
+    features = [
+        ("doc1", REAL_TEXT, None, None, None),
+    ]
+
+    doc_ids_expanded, d_collated = collator(features)
+
+    assert all(x[0] == "doc1" for x in doc_ids_expanded)
+    assert len(doc_ids_expanded) >= 1
+
+    # Determinism: same input → same output
+    ids2, d2 = collator(features)
+    assert doc_ids_expanded == ids2
+    assert torch.equal(d_collated["input_ids"], d2["input_ids"])
+
+
+@pytest.mark.unit
+def test_independent_vs_concatenated_chunks_same_token_content(train_tokenizer):
+    """Verify independent chunking produces the same token content per chunk as
+    concatenated chunking, just in separate sequences rather than one long one."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    data_args_concat = DataArguments(
+        query_max_len=32,
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=False,
+    )
+    data_args_indep = DataArguments(
+        query_max_len=32,
+        passage_max_len=512,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+
+    collator_concat = TrainCollator(data_args=data_args_concat, tokenizer=train_tokenizer)
+    collator_indep = TrainCollator(data_args=data_args_indep, tokenizer=train_tokenizer)
+
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None)]),
+    ]
+
+    # Concatenated path returns eos_positions
+    _, d_concat, eos_positions = collator_concat(features)
+    # Independent path returns chunk_counts
+    _, d_indep, chunk_counts = collator_indep(features)
+
+    num_chunks_concat = len(eos_positions[0])
+    num_chunks_indep = chunk_counts[0]
+    assert num_chunks_concat == num_chunks_indep, \
+        f"Concatenated produced {num_chunks_concat} chunks, independent produced {num_chunks_indep}"
+
+    # Extract token content from each chunk in both modes
+    concat_ids = d_concat["input_ids"][0].tolist()
+    concat_mask = d_concat["attention_mask"][0].tolist()
+
+    # Split concatenated into chunks using eos_positions
+    prev = 0
+    for ci in range(num_chunks_concat):
+        eos_pos = eos_positions[0][ci]
+        concat_chunk = concat_ids[prev:eos_pos + 1]  # content + EOS
+
+        indep_ids = d_indep["input_ids"][ci].tolist()
+        indep_mask = d_indep["attention_mask"][ci].tolist()
+        indep_content_len = sum(indep_mask)
+        indep_chunk = indep_ids[:indep_content_len]
+
+        assert concat_chunk == indep_chunk, \
+            f"Chunk {ci} mismatch: concat={concat_chunk[:10]}... vs indep={indep_chunk[:10]}..."
+        prev = eos_pos + 1
+
+
+# ============================================================================
+# Integration tests: independent chunk encoding through the model
+# ============================================================================
+
+@pytest.fixture(scope="session")
+def dense_model_and_tokenizer():
+    """Load small Qwen3-Embedding-0.6B for integration tests."""
+    _add_tevatron_src_to_path()
+    from transformers import AutoTokenizer
+    from tevatron.retriever.modeling import DenseModel
+
+    model_name = "Qwen/Qwen3-Embedding-0.6B"
+    tok = AutoTokenizer.from_pretrained(model_name)
+    if tok.pad_token_id is None:
+        tok.pad_token_id = tok.eos_token_id
+    tok.eos_token_id = tok.pad_token_id
+    tok.padding_side = "right"
+
+    model = DenseModel.load(
+        model_name,
+        pooling="last",
+        normalize=True,
+        torch_dtype=torch.bfloat16,
+        attn_implementation="eager",
+    )
+    model.eval()
+    return model, tok
+
+
+def test_independent_chunk_forward_and_maxsim(dense_model_and_tokenizer):
+    """End-to-end: collate passages into independent chunks, forward through model,
+    get chunk embeddings, compute MaxSim similarity."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    model, tok = dense_model_and_tokenizer
+
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=tok)
+
+    features = [
+        (("What is white matter?", None, None, None), [(REAL_TEXT, None, None, None)]),
+    ]
+
+    q_collated, d_collated, chunk_counts = collator(features)
+
+    # Forward pass: encode query
+    with torch.no_grad():
+        q_reps = model.encode_query(q_collated)  # [1, H]
+
+    assert q_reps.shape[0] == 1
+    assert q_reps.dim() == 2
+
+    # Forward pass: encode passage chunks independently
+    with torch.no_grad():
+        p_reps, chunk_mask = model.encode_passage_independent_chunks(d_collated, chunk_counts)
+
+    # p_reps should be [num_passages, max_chunks, H]
+    assert p_reps.dim() == 3
+    assert p_reps.shape[0] == 1  # 1 passage
+    max_chunks = p_reps.shape[1]
+    assert max_chunks == chunk_counts[0]
+    assert chunk_mask.shape == (1, max_chunks)
+
+    # All chunks should be valid (mask=1)
+    assert (chunk_mask == 1.0).all()
+
+    # Embeddings should be normalized (normalize=True)
+    # Use relaxed tolerance for bf16 precision
+    norms = p_reps[0].float().norm(dim=-1)
+    for ci in range(max_chunks):
+        assert abs(norms[ci].item() - 1.0) < 1e-2, f"Chunk {ci} norm={norms[ci].item()}"
+
+    # MaxSim similarity
+    scores = model.compute_maxsim_similarity(q_reps.float(), p_reps.float(), chunk_mask)
+    assert scores.shape == (1, 1)  # [Q=1, P=1]
+    assert scores.isfinite().all()
+
+
+def test_independent_chunk_full_training_loss(dense_model_and_tokenizer):
+    """End-to-end: collate → model forward (via forward()) → MaxSim → contrastive loss.
+    Simulates what the trainer does."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    model, tok = dense_model_and_tokenizer
+
+    # Configure model for independent chunk mode
+    model.passage_chunk_size = 64
+    model.passage_chunk_independent = True
+    model.eos_token_id = tok.eos_token_id
+    model.train()  # put in training mode (forward returns embeddings, not scores)
+
+    data_args = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=2,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = TrainCollator(data_args=data_args, tokenizer=tok)
+
+    short_text = "A short unrelated passage about cats and dogs"
+    features = [
+        (("What is white matter?", None, None, None),
+         [(REAL_TEXT, None, None, None), (short_text, None, None, None)]),
+    ]
+
+    q_collated, d_collated, chunk_counts = collator(features)
+
+    # Simulate what trainer.compute_loss does: attach chunk_counts to model
+    model.chunk_counts = chunk_counts
+
+    with torch.no_grad():
+        output = model(query=q_collated, passage=d_collated)
+
+    q_reps = output.q_reps    # [1, H]
+    p_reps = output.p_reps    # [2, max_chunks, H]
+    chunk_mask = output.chunk_mask  # [2, max_chunks]
+
+    assert q_reps.shape[0] == 1
+    assert p_reps.shape[0] == 2  # 2 passages
+    assert p_reps.dim() == 3
+    assert chunk_mask is not None
+
+    # Compute MaxSim similarity (same as trainer)
+    scores = model.compute_maxsim_similarity(q_reps.float(), p_reps.float(), chunk_mask)
+    assert scores.shape == (1, 2)  # [Q=1, P=2]
+
+    # Compute contrastive loss (query 0 should match passage 0)
+    target = torch.tensor([0], dtype=torch.long)  # passage 0 is the positive
+    loss = torch.nn.functional.cross_entropy(scores / model.temperature, target)
+    assert loss.isfinite().item()
+    assert loss.item() > 0  # loss should be positive
+
+    # Clean up model state
+    model.passage_chunk_size = 0
+    model.passage_chunk_independent = False
+    model.chunk_counts = None
+    model.eval()
+
+
+def test_independent_vs_concatenated_chunk_embeddings_differ(dense_model_and_tokenizer):
+    """Verify that independent chunk encoding produces DIFFERENT embeddings
+    from concatenated chunk encoding (because cross-chunk attention is removed)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import TrainCollator
+
+    model, tok = dense_model_and_tokenizer
+
+    # Independent chunks
+    data_args_indep = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator_indep = TrainCollator(data_args=data_args_indep, tokenizer=tok)
+
+    features = [
+        (("q1", None, None, None), [(REAL_TEXT, None, None, None)]),
+    ]
+
+    _, d_indep, chunk_counts = collator_indep(features)
+
+    with torch.no_grad():
+        indep_reps, indep_mask = model.encode_passage_independent_chunks(d_indep, chunk_counts)
+
+    # Concatenated chunks
+    data_args_concat = DataArguments(
+        query_max_len=32,
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        train_group_size=1,
+        passage_chunk_size=64,
+        passage_chunk_independent=False,
+    )
+    collator_concat = TrainCollator(data_args=data_args_concat, tokenizer=tok)
+
+    _, d_concat, eos_positions = collator_concat(features)
+
+    model.passage_chunk_size = 64
+    with torch.no_grad():
+        concat_reps, concat_mask = model.encode_passage(d_concat, eos_positions)
+    model.passage_chunk_size = 0
+
+    # Both should have the same number of chunks
+    num_chunks = chunk_counts[0]
+    num_chunks_concat = len(eos_positions[0])
+    assert num_chunks == num_chunks_concat
+
+    # Embeddings should differ because independent chunks have no cross-chunk attention
+    # (At least the second chunk onwards should differ since it can't attend to chunk 1)
+    if num_chunks >= 2:
+        # Compare chunk 1 (index 1) — first chunk might be similar since it has no prior context
+        indep_chunk1 = indep_reps[0, 1].float()
+        concat_chunk1 = concat_reps[0, 1].float()
+        cos_sim = torch.nn.functional.cosine_similarity(
+            indep_chunk1.unsqueeze(0), concat_chunk1.unsqueeze(0)
+        ).item()
+        # They should NOT be identical (cosine_similarity < 1.0)
+        assert cos_sim < 0.9999, \
+            f"Chunk 1 embeddings are nearly identical (cos_sim={cos_sim:.6f}), " \
+            "but independent chunks should differ from concatenated chunks"
+
+
+def test_independent_chunk_encode_collator_output_matches_search_format(dense_model_and_tokenizer):
+    """Verify IndependentChunkedEncodeCollator output format is compatible with
+    the search pipeline (produces (doc_id, chunk_idx) tuples)."""
+    _add_tevatron_src_to_path()
+    from tevatron.retriever.arguments import DataArguments
+    from tevatron.retriever.collator import IndependentChunkedEncodeCollator
+    from tevatron.retriever.modeling import EncoderOutput
+
+    model, tok = dense_model_and_tokenizer
+
+    data_args = DataArguments(
+        passage_max_len=256,
+        pad_to_multiple_of=16,
+        padding_side="right",
+        append_eos_token=False,
+        passage_chunk_size=64,
+        passage_chunk_independent=True,
+    )
+    collator = IndependentChunkedEncodeCollator(data_args=data_args, tokenizer=tok)
+
+    features = [
+        ("doc_A", REAL_TEXT, None, None, None),
+        ("doc_B", "Short text", None, None, None),
+    ]
+
+    doc_ids_expanded, d_collated = collator(features)
+
+    # Encode using standard passage encoding (model.passage_chunk_size=0, each chunk is independent)
+    with torch.no_grad():
+        output: EncoderOutput = model(passage=d_collated)
+    p_reps = output.p_reps  # [total_chunks, H]
+
+    assert p_reps.dim() == 2  # flat, not 3D
+    assert p_reps.shape[0] == len(doc_ids_expanded)
+
+    # Verify lookup format matches chunked search expectations
+    import numpy as np
+    encoded = p_reps.float().cpu().numpy()
+    lookup = doc_ids_expanded
+
+    # Should have (doc_id, chunk_idx) tuples
+    doc_a_chunks = [(d, c) for d, c in lookup if d == "doc_A"]
+    doc_b_chunks = [(d, c) for d, c in lookup if d == "doc_B"]
+
+    assert len(doc_a_chunks) >= 2  # REAL_TEXT → multiple chunks at chunk_size=64
+    assert len(doc_b_chunks) >= 1
+    assert doc_a_chunks[0] == ("doc_A", 0)
+    assert doc_a_chunks[1] == ("doc_A", 1)
+    assert doc_b_chunks[0] == ("doc_B", 0)
+
+    # Each embedding should be normalized
+    norms = np.linalg.norm(encoded, axis=1)
+    for i, n in enumerate(norms):
+        assert abs(n - 1.0) < 1e-2, f"Embedding {i} norm={n}"

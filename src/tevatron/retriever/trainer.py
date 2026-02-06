@@ -129,7 +129,6 @@ class TevatronTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage, *rest = inputs
-        eos_positions = rest[0] if rest else None
 
         # Unwrap DDP model first (important for attribute access)
         unwrapped_model = model.module if hasattr(model, 'module') else model
@@ -138,9 +137,20 @@ class TevatronTrainer(Trainer):
         if self.tokenizer is not None and hasattr(self.tokenizer, 'eos_token_id'):
             unwrapped_model.eos_token_id = self.tokenizer.eos_token_id
 
-        # Attach eos_positions to the unwrapped model (for passage chunking)
-        # This is critical: the forward() method reads this attribute via getattr(self, "eos_positions", None)
-        if eos_positions is not None:
+        # Determine whether rest[0] is eos_positions or chunk_counts
+        extra = rest[0] if rest else None
+        if extra is not None and getattr(unwrapped_model, 'passage_chunk_independent', False):
+            # Independent chunk mode: rest[0] is chunk_counts (List[int])
+            unwrapped_model.chunk_counts = extra
+
+            if self.is_ddp:
+                logger.debug(
+                    f"[Rank {dist.get_rank()}] chunk_counts: {extra}, "
+                    f"total_chunks={sum(extra)}, max_chunks={max(extra) if extra else 0}"
+                )
+        elif extra is not None:
+            # Standard chunked mode: rest[0] is eos_positions
+            eos_positions = extra
             unwrapped_model.eos_positions = eos_positions
 
             # Debug logging for DDP

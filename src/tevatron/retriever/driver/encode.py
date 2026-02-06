@@ -21,7 +21,7 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
-from tevatron.retriever.collator import EncodeCollator, ChunkedEncodeCollator, PreChunkedEncodeCollator
+from tevatron.retriever.collator import EncodeCollator, ChunkedEncodeCollator, PreChunkedEncodeCollator, IndependentChunkedEncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, DenseModel
 
 logger = logging.getLogger(__name__)
@@ -85,16 +85,22 @@ def main():
     use_chunked = not data_args.encode_is_query and data_args.passage_chunk_size > 0
     use_pre_chunked = not data_args.encode_is_query and data_args.encode_use_pre_chunked
     use_random_chunking = not data_args.encode_is_query and data_args.passage_chunk_size_range is not None
+    use_independent_chunking = not data_args.encode_is_query and data_args.passage_chunk_independent and (use_chunked or use_random_chunking)
     print("data_args.encode_is_query: ", data_args.encode_is_query)
     print("data_args.passage_chunk_size: ", data_args.passage_chunk_size)
     print("data_args.passage_chunk_size_range: ", data_args.passage_chunk_size_range)
     print("data_args.passage_chunk_size_variable: ", data_args.passage_chunk_size_variable)
     print("data_args.encode_use_pre_chunked: ", data_args.encode_use_pre_chunked)
+    print("data_args.passage_chunk_independent: ", data_args.passage_chunk_independent)
     print("use_chunked: ", use_chunked)
     print("use_pre_chunked: ", use_pre_chunked)
     print("use_random_chunking: ", use_random_chunking)
-    
-    if use_pre_chunked:
+    print("use_independent_chunking: ", use_independent_chunking)
+
+    if use_independent_chunking:
+        logger.info("Using independent chunk encoding (no cross-chunk attention)")
+        encode_collator = IndependentChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
+    elif use_pre_chunked:
         logger.info("Using pre-chunked passage encoding (custom EOS positions from pre-chunked data)")
         model.passage_chunk_size = 1  # Signal to use chunked encoding
         encode_collator = PreChunkedEncodeCollator(data_args=data_args, tokenizer=tokenizer)
@@ -134,7 +140,20 @@ def main():
     for batch in tqdm(encode_loader):
         with torch.amp.autocast('cuda') if training_args.fp16 or training_args.bf16 else nullcontext():
             with torch.no_grad():
-                if use_pre_chunked or use_chunked or use_random_chunking:
+                if use_independent_chunking:
+                    # Independent chunks: each chunk is a separate sequence
+                    # Collator returns (doc_ids_expanded, d_collated) where
+                    # doc_ids_expanded are (doc_id, chunk_idx) tuples
+                    batch_ids, batch_inputs = batch
+                    lookup_indices.extend(batch_ids)
+
+                    for k, v in batch_inputs.items():
+                        batch_inputs[k] = v.to(training_args.device)
+
+                    # Use standard passage encoding (each chunk is independent)
+                    model_output: EncoderOutput = model(passage=batch_inputs)
+                    encoded.append(model_output.p_reps.cpu().detach().numpy())
+                elif use_pre_chunked or use_chunked or use_random_chunking:
                     doc_ids, batch_inputs, eos_positions = batch
                     # batch_inputs: input_ids, attention_mask
                     for k, v in batch_inputs.items():
@@ -152,17 +171,21 @@ def main():
                 else:
                     batch_ids, batch_inputs = batch
                     lookup_indices.extend(batch_ids)
-                    
+
                     for k, v in batch_inputs.items():
                         batch_inputs[k] = v.to(training_args.device)
-                    
+
                     if data_args.encode_is_query:
                         model_output: EncoderOutput = model(query=batch_inputs)
                         encoded.append(model_output.q_reps.cpu().detach().numpy())
                     else:
                         model_output: EncoderOutput = model(passage=batch_inputs)
                         encoded.append(model_output.p_reps.cpu().detach().numpy())
-    if use_pre_chunked or use_chunked or use_random_chunking:
+    if use_independent_chunking:
+        # Independent chunks: lookup_indices are already (doc_id, chunk_idx) tuples
+        encoded = np.concatenate(encoded)
+        logger.info(f"Encoded {len(set(d for d, c in lookup_indices))} docs into {len(lookup_indices)} independent chunks")
+    elif use_pre_chunked or use_chunked or use_random_chunking:
         print("use_chunked: ", use_chunked)
     # Combine encoded embeddings
         encoded = np.stack(encoded)

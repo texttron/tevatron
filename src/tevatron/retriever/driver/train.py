@@ -102,6 +102,9 @@ def main():
     # Set eos_token_id for verification in encode_passage
     model.eos_token_id = tokenizer.eos_token_id
 
+    # Set independent chunk mode
+    model.passage_chunk_independent = data_args.passage_chunk_independent
+
     train_dataset = TrainDataset(data_args)
     collator = TrainCollator(data_args, tokenizer)
 
