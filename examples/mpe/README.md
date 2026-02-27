@@ -15,7 +15,7 @@ Benchmarks: MLDR-EN, BrowseComp-Plus, and 4 LongEmbed datasets (NarrativeQA, 2Wi
 ## Requirements
 
 ```bash
-pip install transformers "datasets==2.21.0" peft faiss-cpu pyserini
+pip install -r examples/mpe/requirements.txt
 pip install -e .  # install tevatron from repo root
 ```
 

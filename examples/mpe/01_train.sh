@@ -92,7 +92,6 @@ train_model() {
       --gradient_checkpointing \
       --gradient_accumulation_steps 1 \
       --run_name "${train_name}" \
-      --report_to wandb \
     2>&1 | tee -a "${log_file}"
 
   echo ""
