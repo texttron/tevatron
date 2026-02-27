@@ -12,7 +12,7 @@ run_cmd() {
     "$@"
   fi
 }
-TRAIN_NAME="fixed-64-independent"
+TRAIN_NAME="nochunk"
 MODEL_DIR="/root/autodl-tmp/tevatron/models/${TRAIN_NAME}"
 LOG_DIR="/root/autodl-tmp/tevatron/logs/training"
 LOG_FILE="${LOG_DIR}/train_${TRAIN_NAME}.log"
@@ -46,8 +46,7 @@ if [ ! -f "${MODEL_DIR}/adapter_config.json" ]; then
       --per_device_train_batch_size 2 --train_group_size 4 \
       --learning_rate 1e-4 \
       --query_max_len 512 --passage_max_len 8192 \
-      --passage_chunk_size 64 \
-      --passage_chunk_independent \
+      --passage_chunk_size 0 \
       --num_train_epochs 2 \
       --logging_steps 10 \
       --overwrite_output_dir \
