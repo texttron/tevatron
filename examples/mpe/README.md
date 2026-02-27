@@ -2,20 +2,20 @@
 
 Scripts to reproduce all results from the paper. Five methods are compared:
 
-| Config | Training | Eval chunking |
-|--------|----------|---------------|
-| Single-Vector | `--passage_chunk_size 0` | None |
-| MaxP | `--passage_chunk_size 0` | Independent chunk 64 |
-| MaxP-Train | `--passage_chunk_size 64 --passage_chunk_independent` | Independent chunk 64 |
-| MPE Fixed-64 | `--passage_chunk_size 64` | Chunk 64 |
-| MPE-Rand | `--passage_chunk_size_range 32,1024` | Chunk 64 |
+| Config        | Training                                                | Eval chunking        |
+| ------------- | ------------------------------------------------------- | -------------------- |
+| Single-Vector | `--passage_chunk_size 0`                              | None                 |
+| MaxP          | `--passage_chunk_size 0`                              | Independent chunk 64 |
+| MaxP-Train    | `--passage_chunk_size 64 --passage_chunk_independent` | Independent chunk 64 |
+| MPE Fixed-64  | `--passage_chunk_size 64`                             | Chunk 64             |
+| MPE-Rand      | `--passage_chunk_size_range 32,1024`                  | Chunk 64             |
 
 Benchmarks: MLDR-EN, BrowseComp-Plus, and 4 LongEmbed datasets (NarrativeQA, 2WikiMQA, SummScreen, QMSum).
 
 ## Requirements
 
 ```bash
-pip install transformers datasets peft faiss-cpu pyserini
+pip install transformers "datasets==2.21.0" peft faiss-cpu pyserini
 pip install -e .  # install tevatron from repo root
 ```
 
@@ -24,6 +24,7 @@ Hardware: 8 GPUs recommended. Training uses `torchrun`; corpus encoding is shard
 ## Quick Start
 
 Run all steps end-to-end from the repo root:
+
 ```bash
 cd examples/mpe
 python 00_prepare_data.py
@@ -35,6 +36,7 @@ python 05_collect_results.py
 ```
 
 Or with a custom output directory:
+
 ```bash
 export EXP_ROOT=/path/to/experiment/dir
 cd examples/mpe
@@ -57,6 +59,7 @@ python 00_prepare_data.py --exp_root /path/to/root  # custom experiment root
 LongEmbed data is prepared automatically by `04_eval_longembed.sh` via `prepare_longembed.py`.
 
 **Outputs:**
+
 - MLDR-EN: `data/queries.jsonl`, `data/corpus.jsonl`, `data/qrels.tsv`
 - BrowseComp-Plus: `examples/BrowseComp-Plus/data/browsecomp_plus_decrypted.jsonl`
 
@@ -68,12 +71,12 @@ Trains 4 LoRA adapters on MLDR-EN (1 epoch each) using Qwen3-Embedding-0.6B as t
 bash 01_train.sh
 ```
 
-| Model | Args |
-|-------|------|
-| `nochunk-epoch1` | `--passage_chunk_size 0` |
-| `maxp-train-epoch1` | `--passage_chunk_size 64 --passage_chunk_independent` |
-| `fixed-64-epoch1` | `--passage_chunk_size 64` |
-| `prand-32to1024-epoch1` | `--passage_chunk_size_range 32,1024` |
+| Model                     | Args                                                    |
+| ------------------------- | ------------------------------------------------------- |
+| `nochunk-epoch1`        | `--passage_chunk_size 0`                              |
+| `maxp-train-epoch1`     | `--passage_chunk_size 64 --passage_chunk_independent` |
+| `fixed-64-epoch1`       | `--passage_chunk_size 64`                             |
+| `prand-32to1024-epoch1` | `--passage_chunk_size_range 32,1024`                  |
 
 Training is skipped if `adapter_config.json` already exists in the model directory. Checkpoints are saved to `models/`.
 
@@ -115,6 +118,7 @@ python 05_collect_results.py --latex   # also print LaTeX
 ## Configuration
 
 All scripts default `EXP_ROOT` to the repo root (auto-detected from script location). Override via environment variable:
+
 ```bash
 export EXP_ROOT=/my/experiment/dir
 ```
