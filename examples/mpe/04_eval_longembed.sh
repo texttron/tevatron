@@ -118,6 +118,7 @@ eval_longembed() {
     --dataset_name json \
     --dataset_path "${data_dir}/queries.jsonl" \
     --dataset_split train \
+     --attn_implementation sdpa \
     --encode_is_query \
     --encode_output_path "${encode_dir}/queries.pkl"
 
@@ -139,6 +140,7 @@ eval_longembed() {
       --dataset_split train \
       --dataset_number_of_shards ${NUM_GPUS} \
       --dataset_shard_index ${s} \
+      --attn_implementation sdpa \
       --encode_output_path "${encode_dir}/corpus.${s}.pkl" &
     pids+=($!)
   done
