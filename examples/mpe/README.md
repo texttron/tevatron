@@ -115,6 +115,18 @@ python 05_collect_results.py           # ASCII table
 python 05_collect_results.py --latex   # also print LaTeX
 ```
 
+## Results
+
+NDCG@10 across all benchmarks (Qwen3-Embedding-0.6B + LoRA, 1 epoch on MLDR-EN):
+
+| Method            | MLDR-en | BrowseComp-Plus | NarrativeQA | 2WikiMQA | SummScreen | QMSum |
+| ----------------- | ------- | --------------- | ----------- | -------- | ---------- | ----- |
+| Single-Vector     | 0.548   | 0.132           | 0.543       | 0.863    | 0.981      | 0.565 |
+| MaxP              | 0.758   | 0.103           | 0.604       | 0.944    | 0.906      | 0.550 |
+| MaxP-Train        | 0.776   | 0.104           | 0.557       | 0.945    | 0.903      | 0.570 |
+| MPE Fixed-64      | 0.783   | 0.122           | 0.580       | 0.948    | 0.928      | 0.652 |
+| MPE-Rand-32to1024 | 0.760   | 0.153           | 0.579       | 0.945    | 0.949      | 0.705 |
+
 ## Configuration
 
 All scripts default `EXP_ROOT` to the repo root (auto-detected from script location). Override via environment variable:
