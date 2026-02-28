@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # ══════════════════════════════════════════════════════════════════════════════
-# Click 1 of 2 — Train All Models
+# Click 1 of 4 — Train All Models
 #
 # Trains 4 models on MLDR-EN (Shitao/MLDR, en split) with 1 epoch:
 #
@@ -12,7 +12,7 @@ set -euo pipefail
 #   fixed-64-epoch1     │ --passage_chunk_size 64
 #   prand-32to1024-epoch1│ --passage_chunk_size_range 32,1024
 #
-# These 4 models support the 5 evaluation configs in 02_eval.sh:
+# These 4 models support the 5 evaluation configs in 02–04_eval_*.sh:
 #   Single-Vector  → nochunk-epoch1      (eval: no chunking)
 #   MaxP           → nochunk-epoch1      (eval: independent chunk 64)
 #   MaxP-Train     → maxp-train-epoch1   (eval: independent chunk 64)
@@ -100,7 +100,7 @@ train_model() {
 
 # ══════════════════════════════════════════════════════════════════════════════
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  Paper Reproduction — Step 1/2: Train All Models               ║"
+echo "║  Paper Reproduction — Step 1/4: Train All Models               ║"
 echo "║  Started: $(date)                                    ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
@@ -122,8 +122,8 @@ train_model "prand-32to1024-epoch1" \
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  Step 1/2 complete — all 4 models trained.                     ║"
+echo "║  Step 1/4 complete — all 4 models trained.                     ║"
 echo "║  Finished: $(date)                                   ║"
 echo "║                                                                ║"
-echo "║  Next: bash 02_eval.sh                                        ║"
+echo "║  Next: bash 02_eval_mldr_en.sh                                ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # ══════════════════════════════════════════════════════════════════════════════
-# Click 3 of 3 — Evaluate All Configs on BrowseComp-Plus
+# Click 3 of 4 — Evaluate All Configs on BrowseComp-Plus
 #
 # 5 evaluation configurations:
 #
