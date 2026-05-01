@@ -11,54 +11,54 @@ The dataset name is `Tevatron/scifact`, see below for details.
 
 ## Train
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_scifact \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
   --dataset_name Tevatron/scifact \
   --fp16 \
   --per_device_train_batch_size 64 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 64 \
-  --p_max_len 512 \
+  --query_max_len 64 \
+  --passage_max_len 512 \
   --num_train_epochs 80 \
   --grad_cache \
   --gc_p_chunk_size 8 \
   --logging_steps 10 \
-  --overwrite_output_dir
 ```
 
 ## Encode Corpus
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_scifact \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/scifact-corpus \
-  --p_max_len 512 \
-  --encoded_save_path corpus_emb.pt 
+  --passage_max_len 512 \
+  --encode_output_path corpus_emb.pt 
 ```
 
 ## Encode Query
 ```bash
-CUDA_VISIBLE_DEVICES=0 python run.py \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_scifact \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/scifact/dev \
-  --encode_is_qry \
-  --q_max_len 64 \
-  --encoded_save_path queries_emb.pt 
+  --dataset_name Tevatron/scifact \
+  --dataset_split dev \
+  --encode_is_query \
+  --query_max_len 64 \
+  --encode_output_path queries_emb.pt 
 ```
 
 ## Search
 ```bash
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
 --query_reps queries_emb.pt \
---passage_reps docs_emb.pt \
+--passage_reps corpus_emb.pt \
 --depth 20 \
 --batch_size -1 \
 --save_text \
