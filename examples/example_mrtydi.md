@@ -14,52 +14,51 @@ See below for details.
 In the example below, we use language `bengali` as example.
 ## Train
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_mrtydi_bengali \
   --model_name_or_path bert-base-multilingual-cased \
   --save_steps 20000 \
   --dataset_name castorini/mr-tydi:bengali \
   --fp16 \
   --per_device_train_batch_size 64 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 256 \
+  --query_max_len 32 \
+  --passage_max_len 256 \
   --num_train_epochs 40 \
   --grad_cache \
   --gc_p_chunk_size 8 \
-  --logging_steps 10 \
-  --overwrite_output_dir
+  --logging_steps 10
 ```
 
 ## Encode Corpus
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 256 \
   --dataset_name castorini/mr-tydi-corpus:bengali \
-  --p_max_len 256 \
-  --encoded_save_path corpus_emb.pt 
+  --passage_max_len 256 \
+  --encode_output_path corpus_emb.pt 
 ```
 
 ## Encode Query
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp_out \
   --model_name_or_path model_mrtydi_bengali \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name castorini/mr-tydi:bengali/test \
-  --encode_is_qry \
-  --q_max_len 64 \
-  --encoded_save_path queries_emb.pt 
+  --encode_is_query \
+  --query_max_len 64 \
+  --encode_output_path queries_emb.pt 
 ```
 
 ## Search
 ```bash
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
 --query_reps queries_emb.pt \
 --passage_reps corpus_emb.pt \
 --depth 100 \

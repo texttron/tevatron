@@ -41,7 +41,7 @@ done
 
 ### Encode Queries
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
   --model_name_or_path model_msmarco \
   --fp16 \
@@ -55,7 +55,7 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.encode \
 
 ## Search the Corpus
 ```bash
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
 --query_reps query_emb.pkl \
 --passage_reps 'corpus_emb.*.pkl' \
 --depth 100 \
