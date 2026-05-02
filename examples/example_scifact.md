@@ -77,7 +77,7 @@ python -m tevatron.utils.format.convert_result_to_trec --input run.scifact.dev.t
 python -m pyserini.eval.trec_eval -c -mrecip_rank -mndcg_cut.10 dev_qrels.txt run.scifact.dev.trec
 ```
 
-Following results can be reproduced by following the instructions above:
+The following results can be reproduced by following the instructions above:
 ```
 recip_rank              all     0.7322
 ndcg_cut_10             all     0.7473
@@ -93,3 +93,5 @@ recip_rank              all     0.7679
 ndcg_cut_10             all     0.7841
 ```
 
+## Reproduction Log
++ Results reproduced by [@nli33](https://github.com/nli33) on 2026-05-01 (commit [`6555f12`](https://github.com/texttron/tevatron/commit/6555f12c844c64f020f5762096405a7ce5148b77))
