@@ -35,10 +35,10 @@ class TevatronTrainer(Trainer):
             assert all(k.startswith(prefix) for k in state_dict.keys()), list(state_dict.keys())
             state_dict = {k[len(prefix):]: v for k, v in state_dict.items()}
             self.model.encoder.save_pretrained(
-                output_dir, state_dict=state_dict, safe_serialization=self.args.save_safetensors
+                output_dir, state_dict=state_dict, safe_serialization=getattr(self.args, "save_safetensors", False)
             )
 
-        if self.tokenizer is not None:
+        if getattr(self, "tokenizer", None) is not None:
             self.tokenizer.save_pretrained(output_dir)
 
         # Good practice: save your training arguments together with the trained model

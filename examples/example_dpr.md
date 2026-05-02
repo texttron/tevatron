@@ -4,7 +4,7 @@ In this doc, we use NQ as an example to show the replication of [DPR](https://gi
 
 ## Training
 ```bash
-python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 -m tevatron.retriever.driver.train \
   --output_dir model_nq \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
@@ -12,14 +12,12 @@ python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
   --fp16 \
   --per_device_train_batch_size 32 \
   --positive_passage_no_shuffle \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 156 \
+  --query_max_len 32 \
+  --passage_max_len 156 \
   --num_train_epochs 40 \
   --logging_steps 500 \
-  --negatives_x_device \
-  --overwrite_output_dir
 ```
 
 The above command train DPR with 4 GPUs.
@@ -27,7 +25,7 @@ If GPU memory is limited, you can train using [gradient cache]((../gradient-cach
 
 The command below train DPR on single GPU with gradient cache:
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_nq \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
@@ -35,14 +33,13 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
   --fp16 \
   --per_device_train_batch_size 128 \
   --positive_passage_no_shuffle \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 156 \
+  --query_max_len 32 \
+  --passage_max_len 156 \
   --num_train_epochs 40 \
   --logging_steps 500 \
-  --grad_cache \
-  --overwrite_output_dir
+  --grad_cache
 ```
 
 ### Un-tie model
@@ -56,7 +53,7 @@ To train untie models, simply add `--untie_encoder` option to the training comma
 mkdir $ENCODE_DIR
 for s in $(seq -f "%02g" 0 19)
 do
-python -m tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
   --model_name_or_path model_nq \
   --fp16 \
@@ -70,19 +67,19 @@ done
 
 ### Encode Queries
 ```bash
-python -m tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   --output_dir=temp \
   --model_name_or_path model_nq \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/wikipedia-nq/test \
   --encoded_save_path query_emb.pkl \
-  --encode_is_qry
+  --encode_is_query
 ```
 
 ### Search
 ```bash
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
 --query_reps query_emb.pkl \
 --passage_reps 'corpus_emb.*.pkl' \
 --depth 100 \

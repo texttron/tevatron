@@ -29,9 +29,11 @@ Tevatron: Unified Document Retrieval Toolkit across Scale, Language, and Modalit
 1. Install PyTorch based on your CUDA version from [PyTorch](https://pytorch.org/get-started/locally/).
 2. Install dependencies and Tevatron.
 ```bash
+pip install git+https://github.com/luyug/GradCache.git
 pip install transformers datasets peft
 pip install deepspeed accelerate
 pip install faiss-cpu
+pip install pillow qwen-omni-utils
 pip install -e .
 ```
 
