@@ -39,6 +39,7 @@ class TrainDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
             num_proc=self.data_args.num_proc,
+            trust_remote_code=True,
         )
 
         # Load corpus if provided
@@ -52,6 +53,7 @@ class TrainDataset(Dataset):
                 split=self.data_args.corpus_split,
                 cache_dir=self.data_args.dataset_cache_dir,
                 num_proc=self.data_args.num_proc,
+                trust_remote_code=True,
             )
         
         # for video we use assets_path to load the video
@@ -271,6 +273,7 @@ class EncodeDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
             num_proc=self.data_args.num_proc,
+            trust_remote_code=True,
         )
         if self.data_args.dataset_number_of_shards > 1:
             self.encode_data = self.encode_data.shard(
@@ -292,10 +295,22 @@ class EncodeDataset(Dataset):
             content_audio = content.get('query_audio', None)
         else:
             content_id = content['docid']
-            content_text = content.get('text', '')
-            if 'title' in content:
-                content_text = content['title'] + ' ' + content_text
-            content_text = self.data_args.passage_prefix + content_text.strip()
+            # Support pre-chunked passages (for custom chunking with ChatGPT, etc.)
+            if self.data_args.encode_use_pre_chunked and 'chunks' in content:
+                # Pre-chunked: return chunks as a list
+                chunks = content['chunks']
+                if not isinstance(chunks, list):
+                    raise ValueError(f"Expected 'chunks' to be a list, got {type(chunks)}")
+                # Apply prefix to each chunk if needed
+                if self.data_args.passage_prefix:
+                    chunks = [self.data_args.passage_prefix + chunk if chunk else chunk for chunk in chunks]
+                content_text = chunks  # Return as list for pre-chunked collator
+            else:
+                # Regular text field
+                content_text = content.get('text', '')
+                if 'title' in content:
+                    content_text = content['title'] + ' ' + content_text
+                content_text = self.data_args.passage_prefix + content_text.strip()
             content_image = content.get('image', None)
             content_video = content.get('video', None)
             content_audio = content.get('audio', None)
@@ -320,7 +335,11 @@ class EncodeDataset(Dataset):
                     content_audio = None
 
         if not self.data_args.encode_text:
-            content_text = None
+            # For pre-chunked mode, set to empty list instead of None
+            if self.data_args.encode_use_pre_chunked and isinstance(content_text, list):
+                content_text = []
+            else:
+                content_text = None
         if not self.data_args.encode_image:
             content_image = None
         if not self.data_args.encode_video:

@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import logging
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
@@ -8,14 +9,145 @@ logger = logging.getLogger(__name__)
 
 class DenseModel(EncoderModel):
 
+    def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
+        super().__init__(encoder, pooling, normalize, temperature)
+        self.passage_chunk_size = 0
+        self.passage_chunk_independent = False
+        self.eos_positions = None
+        self.eos_token_id = None  # Will be set by driver/trainer
+
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
-    
-    def encode_passage(self, psg):
-        # encode passage is the same as encode query
-        return self.encode_query(psg)
+
+    def encode_passage(self, psg, eos_positions=None):
+        hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+
+        if self.passage_chunk_size > 0 and eos_positions:
+            # Verify EOS tokens are at the right positions (optional, for debugging)
+            if self.eos_token_id is not None:
+                for i, ep in enumerate(eos_positions):
+                    for eos_pos in ep:
+                        actual_token = psg['input_ids'][i][eos_pos].item()
+                        if actual_token != self.eos_token_id:
+                            logger.warning(
+                                f"Expected EOS token {self.eos_token_id} at position {eos_pos} "
+                                f"in passage {i}, got {actual_token}"
+                            )
+
+            return self._pooling_chunked(hidden_states, eos_positions)
+
+        return self._pooling(hidden_states, psg['attention_mask'])
+
+    def encode_passage_independent_chunks(self, psg, chunk_counts):
+        """Encode independently-chunked passages.
+
+        Each chunk is already a separate sequence in ``psg``.  We run them all
+        through the encoder with standard pooling, then reshape the flat
+        ``[total_chunks, H]`` tensor back to ``[num_passages, max_chunks, H]``
+        with the corresponding ``chunk_mask``.
+
+        :param psg: Dict with ``input_ids`` and ``attention_mask``, shape ``[total_chunks, seq_len]``
+        :param chunk_counts: List[int] — number of chunks per passage
+        :return: ``(chunk_reps [P, C, H], chunk_mask [P, C])``
+        """
+        # Standard forward + pooling (each chunk is an independent sequence)
+        hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+        flat_reps = self._pooling(hidden_states, psg['attention_mask'])  # [total_chunks, H]
+
+        num_passages = len(chunk_counts)
+        max_chunks = max(chunk_counts) if chunk_counts else 0
+
+        # Sync max_chunks across DDP ranks (same pattern as _pooling_chunked)
+        if torch.distributed.is_initialized():
+            max_chunks_tensor = torch.tensor([max_chunks], dtype=torch.long, device=flat_reps.device)
+            torch.distributed.all_reduce(max_chunks_tensor, op=torch.distributed.ReduceOp.MAX)
+            max_chunks = int(max_chunks_tensor.item())
+
+        if max_chunks == 0:
+            hidden_size = flat_reps.shape[-1]
+            return (
+                torch.zeros(num_passages, 0, hidden_size, device=flat_reps.device, dtype=flat_reps.dtype),
+                torch.zeros(num_passages, 0, device=flat_reps.device, dtype=torch.float),
+            )
+
+        hidden_size = flat_reps.shape[-1]
+        chunk_reps = torch.zeros(num_passages, max_chunks, hidden_size, device=flat_reps.device, dtype=flat_reps.dtype)
+        chunk_mask = torch.zeros(num_passages, max_chunks, device=flat_reps.device, dtype=torch.float)
+
+        offset = 0
+        for i, count in enumerate(chunk_counts):
+            chunk_reps[i, :count] = flat_reps[offset:offset + count]
+            chunk_mask[i, :count] = 1.0
+            offset += count
+
+        return chunk_reps, chunk_mask
+
+    def _pooling_chunked(self, last_hidden_state, eos_positions):
+        batch_size, seq_len, hidden_size = last_hidden_state.shape
+
+        # Handle empty or all-empty eos_positions
+        if not eos_positions or all(len(ep) == 0 for ep in eos_positions):
+            max_chunks = 0
+        else:
+            # Find max number of chunks across all passages in this batch
+            chunk_counts = [len(pos_list) for pos_list in eos_positions]
+            max_chunks = max(chunk_counts)
+
+        # CRITICAL: Synchronize max_chunks across all DDP ranks
+        # This ensures all ranks produce tensors with the same shape for gathering
+        if torch.distributed.is_initialized():
+            local_max_chunks = max_chunks
+            local_batch_size = batch_size
+
+            # Sync max_chunks across ranks
+            max_chunks_tensor = torch.tensor([max_chunks], dtype=torch.long, device=last_hidden_state.device)
+            torch.distributed.all_reduce(max_chunks_tensor, op=torch.distributed.ReduceOp.MAX)
+            max_chunks = int(max_chunks_tensor.item())
+
+            # Also sync batch_size to verify consistency (for debugging)
+            batch_size_tensor = torch.tensor([batch_size], dtype=torch.long, device=last_hidden_state.device)
+            batch_sizes_list = [torch.zeros_like(batch_size_tensor) for _ in range(torch.distributed.get_world_size())]
+            torch.distributed.all_gather(batch_sizes_list, batch_size_tensor)
+            batch_sizes = [int(bs.item()) for bs in batch_sizes_list]
+
+            # Log detailed info for debugging DDP issues
+            rank = torch.distributed.get_rank()
+            if local_max_chunks != max_chunks:
+                logger.info(
+                    f"[Rank {rank}] max_chunks synced: local={local_max_chunks} → global={max_chunks}, "
+                    f"batch_size={local_batch_size}, all_batch_sizes={batch_sizes}"
+                )
+
+            # Warn if batch sizes differ (this could cause gathering issues)
+            if len(set(batch_sizes)) > 1:
+                logger.warning(
+                    f"[Rank {rank}] Batch sizes differ across ranks: {batch_sizes}. "
+                    "This may cause DDP gathering errors!"
+                )
+
+        # If no chunks at all, return empty tensors
+        if max_chunks == 0:
+            return torch.zeros(batch_size, 0, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype), \
+                   torch.zeros(batch_size, 0, device=last_hidden_state.device, dtype=torch.float)
+
+        chunk_reps = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)
+        chunk_mask = torch.zeros(batch_size, max_chunks, device=last_hidden_state.device, dtype=torch.float)
+
+        # Extract embeddings at eos_positions (this is the pooling operation for chunked passages)
+        for i, positions in enumerate(eos_positions):
+            for j, pos in enumerate(positions):
+                if 0 <= pos < seq_len:
+                    # i is the batch index, j is the chunk index, pos is the eos position
+                    chunk_reps[i, j] = last_hidden_state[i, pos]
+                    # chunk_mask is 1.0 for valid chunks, 0.0 for padding chunks
+                    chunk_mask[i, j] = 1.0
+
+        if self.normalize:
+            chunk_reps = F.normalize(chunk_reps, p=2, dim=-1)
+
+        return chunk_reps, chunk_mask
         
 
     def _pooling(self, last_hidden_state, attention_mask):

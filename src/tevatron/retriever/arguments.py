@@ -203,6 +203,30 @@ class DataArguments:
         metadata={"help": "padding side for the tokenizer, can be 'left' or 'right'"}
     )
 
+    passage_chunk_size: int = field(
+        default=0,
+        metadata={"help": "Chunk size for chunked passage encoding with MaxSim. 0=disabled, >0=chunk size in tokens"}
+    )
+
+    passage_chunk_size_range: Optional[str] = field(
+        default=None,
+        metadata={"help": "Chunk size range for random chunking (e.g., '64,128'). Randomly selects chunk size in [min, max] range per passage. Works for both training and inference."}
+    )
+
+    passage_chunk_size_variable: bool = field(
+        default=False,
+        metadata={"help": "If True and passage_chunk_size_range is set, each chunk within a passage gets a random size from the range. If False, all chunks in a passage use the same random size. Works for both training and inference."}
+    )
+
+    encode_use_pre_chunked: bool = field(
+        default=False,
+        metadata={"help": "If True, expects dataset with 'chunks' field (list of pre-chunked passage strings). EOS tokens will be added between chunks. If False, uses regular 'text' field. Only for encoding (not training)."}
+    )
+
+    passage_chunk_independent: bool = field(
+        default=False,
+        metadata={"help": "If True, each chunk is encoded independently (no cross-chunk attention) instead of concatenating all chunks into one sequence. Chunks are scored via MaxSim. Works with passage_chunk_size and passage_chunk_size_range."}
+    )
 
 
 @dataclass

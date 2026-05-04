@@ -1,15 +1,267 @@
 import logging
+import random
+import hashlib
 import torch
-from typing import List, Tuple
+import torch.distributed as dist
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
 from qwen_omni_utils import process_mm_info
 from PIL import Image
+from rich import print
 
 from tevatron.retriever.arguments import DataArguments
-
+torch.set_printoptions(threshold=float('inf'), linewidth=10000)
 
 logger = logging.getLogger(__name__)
+
+
+def _deterministic_hash(s: str) -> int:
+    """
+    Compute a deterministic hash of a string that is consistent across Python processes.
+
+    Python's built-in hash() uses PYTHONHASHSEED randomization by default, which means
+    hash("text") returns different values in different Python processes. This causes
+    random chunking to produce different chunk boundaries during training vs inference.
+
+    This function uses MD5 (truncated to 32 bits) for a deterministic, reproducible hash.
+    """
+    return int(hashlib.md5(s.encode('utf-8')).hexdigest()[:8], 16)
+
+
+def _chunk_tokens(
+    tokens: List[int],
+    chunk_size: int,
+    eos_token_id: int,
+    max_length: int = None,
+    chunk_size_range: Optional[Tuple[int, int]] = None,
+    passage_seed: int = 0,
+) -> Tuple[List[int], List[int]]:
+    """
+    Chunk tokens into chunks with EOS separators.
+
+    :param tokens: Token IDs to chunk
+    :param chunk_size: Fixed chunk size (before EOS). Must be >= 2. Used when chunk_size_range is None.
+    :param eos_token_id: EOS token ID to append after each chunk
+    :param max_length: Optional max total length (including EOS). If None, no limit.
+    :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes. If set, each chunk uses a random size in [min, max].
+    :param passage_seed: Deterministic seed for this passage (typically hash of content). Used for DDP-safe random chunk sizes.
+    :return: (chunked_ids, eos_positions) - token IDs with EOS separators and EOS positions
+    """
+    # Validate and set up chunk size parameters
+    if chunk_size_range:
+        chunk_size_min, chunk_size_max = chunk_size_range
+        use_variable_sizes = True
+    else:
+        if chunk_size < 2:
+            return [], []
+        use_variable_sizes = False
+
+    # Chunk tokens and add EOS after each chunk
+    ids = []
+    eos_pos = []
+    i = 0
+    total_length = 0
+    chunk_index = 0
+
+    while i < len(tokens):
+        # Pick chunk size for this chunk
+        if use_variable_sizes:
+            # DDP-safe: Use deterministic seed based on passage content hash and chunk index
+            # This ensures all ranks generate the same chunk sizes for the same passage content
+            # Note: We combine passage_seed with chunk_index using a simple formula instead of hash()
+            # because hash() is not deterministic across Python processes
+            seed = (passage_seed * 31 + chunk_index) & 0xFFFFFFFF
+            rng = random.Random(seed)
+            current_chunk_size = rng.randint(chunk_size_min, chunk_size_max)
+            chunk_index += 1
+        else:
+            current_chunk_size = chunk_size
+        
+        # Check if we would exceed max_length with this chunk
+        if max_length and total_length + current_chunk_size > max_length:
+            # Use remaining space (leave 1 for EOS if possible)
+            remaining = max_length - total_length - 1
+            if remaining > 0:
+                take = min(remaining, len(tokens) - i)
+                ids.extend(tokens[i:i + take])
+                ids.append(eos_token_id)
+                eos_pos.append(len(ids) - 1)
+            break
+        
+        # Take tokens for this chunk (reserve 1 slot for EOS)
+        current_chunk_len = current_chunk_size - 1
+        take = min(current_chunk_len, len(tokens) - i)
+        ids.extend(tokens[i:i + take])
+        ids.append(eos_token_id)
+        eos_pos.append(len(ids) - 1)
+        
+        total_length += take + 1  # +1 for EOS
+        i += take
+    
+    return ids, eos_pos
+
+def _pad_and_adjust_eos_positions(
+    all_input_ids: List[List[int]],
+    all_eos_positions: List[List[int]],
+    tokenizer: PreTrainedTokenizer,
+    padding_side: str,
+    pad_to_multiple_of: int,
+) -> Tuple[dict, List[List[int]]]:
+    """
+    Pad input IDs and adjust EOS positions for left padding.
+    
+    :param all_input_ids: List of token ID lists (one per passage)
+    :param all_eos_positions: List of EOS position lists (one per passage)
+    :param tokenizer: Tokenizer for padding
+    :param padding_side: 'left' or 'right'
+    :param pad_to_multiple_of: Pad to multiple of this value
+    :return: (padded_dict, adjusted_eos_positions) - padded tensors and adjusted EOS positions
+    """
+    d_collated = {'input_ids': all_input_ids}
+    original_lengths = [len(ids) for ids in all_input_ids]
+    tokenizer.padding_side = padding_side
+    
+    d_collated = tokenizer.pad(
+        d_collated,
+        padding=True,
+        pad_to_multiple_of=pad_to_multiple_of,
+        return_attention_mask=True,
+        return_tensors='pt',
+    )
+    
+    # Shift EOS positions for left padding
+    adjusted_eos_positions = [list(eos_pos_list) for eos_pos_list in all_eos_positions]
+    if padding_side == 'left':
+        padded_lengths = d_collated['input_ids'].shape[1]
+        for i, eos_pos_list in enumerate(adjusted_eos_positions):
+            padding_length = padded_lengths - original_lengths[i]
+            adjusted_eos_positions[i] = [pos + padding_length for pos in eos_pos_list]
+    
+    return d_collated, adjusted_eos_positions
+
+
+def _split_into_independent_chunks(
+    tokens: List[int],
+    chunk_size: int,
+    eos_token_id: int,
+    max_length: int = None,
+    chunk_size_range: Optional[Tuple[int, int]] = None,
+    passage_seed: int = 0,
+) -> List[List[int]]:
+    """
+    Split tokens into independent chunk sequences, each ending with EOS.
+
+    Unlike _chunk_tokens which concatenates all chunks into one sequence,
+    this returns separate token lists for each chunk, suitable for independent encoding.
+
+    :param tokens: Token IDs to chunk
+    :param chunk_size: Fixed chunk size (including EOS). Must be >= 2. Used when chunk_size_range is None.
+    :param eos_token_id: EOS token ID to append after each chunk
+    :param max_length: Optional max total length across all chunks. If None, no limit.
+    :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes.
+    :param passage_seed: Deterministic seed for random chunk sizes.
+    :return: List of token lists, each representing one independent chunk (content + EOS)
+    """
+    if chunk_size_range:
+        chunk_size_min, chunk_size_max = chunk_size_range
+        use_variable_sizes = True
+    else:
+        if chunk_size < 2:
+            return []
+        use_variable_sizes = False
+
+    chunks = []
+    i = 0
+    total_length = 0
+    chunk_index = 0
+
+    while i < len(tokens):
+        if use_variable_sizes:
+            seed = (passage_seed * 31 + chunk_index) & 0xFFFFFFFF
+            rng = random.Random(seed)
+            current_chunk_size = rng.randint(chunk_size_min, chunk_size_max)
+            chunk_index += 1
+        else:
+            current_chunk_size = chunk_size
+
+        if max_length and total_length + current_chunk_size > max_length:
+            remaining = max_length - total_length - 1
+            if remaining > 0:
+                take = min(remaining, len(tokens) - i)
+                chunk_tokens = tokens[i:i + take] + [eos_token_id]
+                chunks.append(chunk_tokens)
+            break
+
+        current_chunk_len = current_chunk_size - 1
+        take = min(current_chunk_len, len(tokens) - i)
+        chunk_tokens = tokens[i:i + take] + [eos_token_id]
+        chunks.append(chunk_tokens)
+
+        total_length += take + 1
+        i += take
+
+    return chunks
+
+
+def _tokenize_and_pad_chunked_passages(
+    passages: List[str],
+    tokenizer: PreTrainedTokenizer,
+    data_args: DataArguments,
+    chunk_sizes: Optional[List[int]] = None,
+    chunk_size_range: Optional[Tuple[int, int]] = None,
+) -> Tuple[dict, List[List[int]]]:
+    """
+    Tokenize and chunk passages with EOS separators. Each chunk ends with EOS for embedding extraction.
+
+    :param passages: Passage texts to tokenize and chunk
+    :param tokenizer: Tokenizer for encoding
+    :param data_args: DataArguments with chunk_size, max_len, pad_to_multiple_of
+    :param chunk_sizes: Optional list of chunk sizes (one per passage). If None, uses data_args.passage_chunk_size
+    :param chunk_size_range: Optional (min, max) tuple for variable chunk sizes per chunk. If set, each chunk within a passage uses a random size.
+    :return: (collated_dict, eos_positions) - padded tensors and EOS positions per passage
+    """
+    eos_id = tokenizer.eos_token_id
+    if eos_id is None:
+        raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+    if chunk_sizes is not None and len(chunk_sizes) != len(passages):
+        raise ValueError(f"chunk_sizes length ({len(chunk_sizes)}) must match passages length ({len(passages)})")
+    max_length = data_args.passage_max_len  # cap total length (incl. EOS per chunk)
+
+    all_input_ids = []
+    all_eos_positions = []
+
+    for idx, passage in enumerate(passages):
+        if passage is None:
+            passage = ""
+        tokens = tokenizer.encode(passage, add_special_tokens=False)
+        # Use per-passage chunk size if provided, otherwise use fixed chunk size
+        # Note: chunk_size is ignored in _chunk_tokens when chunk_size_range is provided
+        chunk_size = chunk_sizes[idx] if chunk_sizes is not None else data_args.passage_chunk_size
+        # DDP-safe: Use deterministic hash of passage content for consistent seeding across all ranks
+        # This ensures the same passage always gets the same chunk boundaries
+        # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
+        passage_seed = _deterministic_hash(passage)
+        ids, eos_pos = _chunk_tokens(
+            tokens=tokens,
+            chunk_size=chunk_size,
+            eos_token_id=eos_id,
+            max_length=max_length,
+            chunk_size_range=chunk_size_range,
+            passage_seed=passage_seed,
+        )
+        all_input_ids.append(ids)
+        all_eos_positions.append(eos_pos)
+    
+    d_collated, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+        all_input_ids=all_input_ids,
+        all_eos_positions=all_eos_positions,
+        tokenizer=tokenizer,
+        padding_side=data_args.padding_side,
+        pad_to_multiple_of=data_args.pad_to_multiple_of,
+    )
+    
+    return d_collated, adjusted_eos_positions
 
 
 @dataclass
@@ -24,7 +276,7 @@ class TrainCollator:
         """
         Collate function for training.
         :param features: list of (query, passages) tuples
-        :return: tokenized query_ids, passage_ids
+        :return: tokenized query_ids, passage_ids, [eos_positions if chunked]
         """
         all_queries = [f[0] for f in features]
         all_passages = []
@@ -32,6 +284,7 @@ class TrainCollator:
             all_passages.extend(f[1])
         all_queries = [q[0] for q in all_queries]
         all_passages = [p[0] for p in all_passages]
+        
         q_collated = self.tokenizer(
             all_queries,
             padding=False, 
@@ -41,20 +294,8 @@ class TrainCollator:
             return_token_type_ids=False,
             add_special_tokens=True,
         )
-        d_collated = self.tokenizer(
-            all_passages,
-            padding=False, 
-            truncation=True,
-            max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
-            return_attention_mask=False,
-            return_token_type_ids=False,
-            add_special_tokens=True,
-        )
-
         if self.data_args.append_eos_token:
             q_collated['input_ids'] = [q + [self.tokenizer.eos_token_id] for q in q_collated['input_ids']]
-            d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
-        
         q_collated = self.tokenizer.pad(
             q_collated,
             padding=True, 
@@ -62,14 +303,157 @@ class TrainCollator:
             return_attention_mask=True,
             return_tensors='pt',
         )
+        
+        # Check if we should use chunking (fixed or random)
+        use_fixed_chunking = self.data_args.passage_chunk_size > 0
+        use_independent = self.data_args.passage_chunk_independent
+
+        if use_independent and (use_fixed_chunking or self.data_args.passage_chunk_size_range is not None):
+            # Independent chunk mode: each chunk is encoded as a separate sequence
+            return self._collate_independent_chunks(q_collated, all_passages)
+        elif self.data_args.passage_chunk_size_range is not None:
+            # Parse range string (e.g., "64, 128" or "64,128")
+            try:
+                parts = [p.strip() for p in self.data_args.passage_chunk_size_range.split(',')]
+                if len(parts) != 2:
+                    raise ValueError(f"passage_chunk_size_range must contain exactly 2 values separated by comma, got: {self.data_args.passage_chunk_size_range}")
+                chunk_size_min = int(parts[0])
+                chunk_size_max = int(parts[1])
+            except ValueError as e:
+                raise ValueError(f"Invalid passage_chunk_size_range format '{self.data_args.passage_chunk_size_range}'. Expected format: 'min,max' (e.g., '64,128')") from e
+
+            # Validate range
+            if chunk_size_min < 2:
+                raise ValueError(f"Minimum chunk size must be >= 2, got {chunk_size_min}")
+            if chunk_size_max < chunk_size_min:
+                raise ValueError(f"Maximum chunk size ({chunk_size_max}) must be >= minimum chunk size ({chunk_size_min})")
+
+            if self.data_args.passage_chunk_size_variable:
+                # Variable chunk sizes: each chunk within a passage gets a random size
+                # Pass the range to _chunk_tokens, which will randomly pick a size for each chunk
+                chunk_size_range = (chunk_size_min, chunk_size_max)
+                d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_size_range=chunk_size_range)
+            else:
+                # Fixed random chunk size per passage: all chunks in a passage use the same random size
+                # DDP-safe: Use deterministic seeding based on passage content hash
+                # This ensures the same passage always gets the same chunk size across all ranks
+                # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
+                chunk_sizes = []
+                for passage in all_passages:
+                    passage_seed = _deterministic_hash(passage if passage else "")
+                    rng = random.Random(passage_seed)
+                    chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
+                d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages, chunk_sizes=chunk_sizes)
+            return q_collated, d_collated, eos_positions
+        elif use_fixed_chunking:
+            d_collated, eos_positions = self._tokenize_and_pad_chunked_passages(all_passages)
+            # DDP Safety: Ensure eos_positions is always returned when chunking is enabled
+            assert eos_positions is not None, "passage_chunk_size > 0 but eos_positions is None"
+            return q_collated, d_collated, eos_positions
+        else:
+            # No chunking - return without eos_positions
+            d_collated = self.tokenizer(
+                all_passages,
+                padding=False,
+                truncation=True,
+                max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
+                return_attention_mask=False,
+                return_token_type_ids=False,
+                add_special_tokens=True,
+            )
+            if self.data_args.append_eos_token:
+                d_collated['input_ids'] = [d + [self.tokenizer.eos_token_id] for d in d_collated['input_ids']]
+            d_collated = self.tokenizer.pad(
+                d_collated,
+                padding=True,
+                pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+                return_attention_mask=True,
+                return_tensors='pt',
+            )
+            return q_collated, d_collated
+
+    def _collate_independent_chunks(self, q_collated, all_passages):
+        """Collate passages into independent chunks for chunk-independent encoding.
+
+        Each chunk becomes a separate sequence in the batch. Returns chunk_counts
+        so the model knows how to group chunks back into passages.
+
+        Returns: (q_collated, d_collated, chunk_counts)
+            d_collated: padded batch of all chunks [total_chunks, padded_chunk_len]
+            chunk_counts: list of int, number of chunks per passage
+        """
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+
+        # Determine chunk parameters
+        chunk_size_range = None
+        chunk_size = self.data_args.passage_chunk_size
+
+        if self.data_args.passage_chunk_size_range is not None:
+            parts = [p.strip() for p in self.data_args.passage_chunk_size_range.split(',')]
+            chunk_size_min = int(parts[0])
+            chunk_size_max = int(parts[1])
+            if self.data_args.passage_chunk_size_variable:
+                chunk_size_range = (chunk_size_min, chunk_size_max)
+            # else: per-passage random size handled below
+
+        all_chunk_ids = []  # flat list of all chunk token lists
+        chunk_counts = []   # number of chunks per passage
+
+        for passage in all_passages:
+            if passage is None:
+                passage = ""
+            tokens = self.tokenizer.encode(passage, add_special_tokens=False)
+            passage_seed = _deterministic_hash(passage)
+
+            if chunk_size_range is not None:
+                # Variable chunk sizes per chunk
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=0, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    chunk_size_range=chunk_size_range,
+                    passage_seed=passage_seed,
+                )
+            elif self.data_args.passage_chunk_size_range is not None:
+                # Per-passage random size
+                rng = random.Random(passage_seed)
+                per_passage_size = rng.randint(chunk_size_min, chunk_size_max)
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=per_passage_size, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    passage_seed=passage_seed,
+                )
+            else:
+                # Fixed chunk size
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=chunk_size, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    passage_seed=passage_seed,
+                )
+
+            if len(chunks) == 0:
+                # Ensure at least one chunk (empty passage → just EOS)
+                chunks = [[eos_id]]
+
+            all_chunk_ids.extend(chunks)
+            chunk_counts.append(len(chunks))
+
+        # Pad all chunks as independent sequences
+        d_collated = {'input_ids': all_chunk_ids}
+        self.tokenizer.padding_side = self.data_args.padding_side
         d_collated = self.tokenizer.pad(
             d_collated,
-            padding=True, 
+            padding=True,
             pad_to_multiple_of=self.data_args.pad_to_multiple_of,
             return_attention_mask=True,
             return_tensors='pt',
         )
-        return q_collated, d_collated
+
+        return q_collated, d_collated, chunk_counts
+
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str], chunk_sizes: Optional[List[int]] = None, chunk_size_range: Optional[Tuple[int, int]] = None):
+        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args, chunk_sizes=chunk_sizes, chunk_size_range=chunk_size_range)
 
 
 @dataclass
@@ -221,6 +605,246 @@ class EncodeCollator:
             return_tensors='pt',
         )
         return content_ids, collated_inputs
+
+
+@dataclass
+class ChunkedEncodeCollator:
+    """Collator for chunked passage encoding (inference/search). Supports fixed or random chunk sizes."""
+    data_args: DataArguments
+    tokenizer: PreTrainedTokenizer
+
+    def __call__(self, features):
+        """
+        Collate chunked passage encoding features.
+        :param features: List of (doc_id, text, image, video, audio) tuples
+        :return: (doc_ids, collated_inputs, eos_positions)
+        """
+        doc_ids = [x[0] for x in features]
+        texts = [x[1] for x in features]
+        
+        # Check if we should use random chunking
+        if self.data_args.passage_chunk_size_range is not None:
+            # Parse range string (e.g., "64, 128" or "64,128")
+            try:
+                parts = [p.strip() for p in self.data_args.passage_chunk_size_range.split(',')]
+                if len(parts) != 2:
+                    raise ValueError(f"passage_chunk_size_range must contain exactly 2 values separated by comma, got: {self.data_args.passage_chunk_size_range}")
+                chunk_size_min = int(parts[0])
+                chunk_size_max = int(parts[1])
+            except ValueError as e:
+                raise ValueError(f"Invalid passage_chunk_size_range format '{self.data_args.passage_chunk_size_range}'. Expected format: 'min,max' (e.g., '64,128')") from e
+            
+            # Validate range
+            if chunk_size_min < 2:
+                raise ValueError(f"Minimum chunk size must be >= 2, got {chunk_size_min}")
+            if chunk_size_max < chunk_size_min:
+                raise ValueError(f"Maximum chunk size ({chunk_size_max}) must be >= minimum chunk size ({chunk_size_min})")
+            
+            if self.data_args.passage_chunk_size_variable:
+                # Variable chunk sizes: each chunk within a passage gets a random size
+                chunk_size_range = (chunk_size_min, chunk_size_max)
+                d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts, chunk_size_range=chunk_size_range)
+            else:
+                # Fixed random chunk size per passage: all chunks in a passage use the same random size
+                # DDP-safe: Use deterministic seeding based on passage content hash
+                # This ensures the same passage always gets the same chunk size across all ranks
+                # Note: We use _deterministic_hash instead of hash() because Python's hash() is randomized
+                chunk_sizes = []
+                for text in texts:
+                    text_seed = _deterministic_hash(text if text else "")
+                    rng = random.Random(text_seed)
+                    chunk_sizes.append(rng.randint(chunk_size_min, chunk_size_max))
+                d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts, chunk_sizes=chunk_sizes)
+        else:
+            # Use fixed chunking for inference
+            d_collated, all_eos_positions = self._tokenize_and_pad_chunked_passages(texts)
+        
+        return doc_ids, d_collated, all_eos_positions
+
+    def _tokenize_and_pad_chunked_passages(self, passages: List[str], chunk_sizes: Optional[List[int]] = None, chunk_size_range: Optional[Tuple[int, int]] = None):
+        return _tokenize_and_pad_chunked_passages(passages, self.tokenizer, self.data_args, chunk_sizes=chunk_sizes, chunk_size_range=chunk_size_range)
+
+
+@dataclass
+class IndependentChunkedEncodeCollator:
+    """Collator for independent chunk encoding (inference). Each chunk is encoded as a separate sequence."""
+    data_args: DataArguments
+    tokenizer: PreTrainedTokenizer
+
+    def __call__(self, features):
+        """
+        Collate features into independent chunks for encoding.
+        :param features: List of (doc_id, text, image, video, audio) tuples
+        :return: (doc_ids_expanded, d_collated) where doc_ids_expanded are (doc_id, chunk_idx) tuples
+        """
+        doc_ids = [x[0] for x in features]
+        texts = [x[1] for x in features]
+
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("tokenizer.eos_token_id is None; cannot chunk passages with EOS separators.")
+
+        # Determine chunk parameters
+        chunk_size_range = None
+        chunk_size = self.data_args.passage_chunk_size
+        chunk_size_min = chunk_size_max = 0
+
+        if self.data_args.passage_chunk_size_range is not None:
+            parts = [p.strip() for p in self.data_args.passage_chunk_size_range.split(',')]
+            chunk_size_min = int(parts[0])
+            chunk_size_max = int(parts[1])
+            if self.data_args.passage_chunk_size_variable:
+                chunk_size_range = (chunk_size_min, chunk_size_max)
+
+        all_chunk_ids = []
+        doc_ids_expanded = []
+
+        for doc_id, text in zip(doc_ids, texts):
+            if text is None:
+                text = ""
+            tokens = self.tokenizer.encode(text, add_special_tokens=False)
+            passage_seed = _deterministic_hash(text)
+
+            if chunk_size_range is not None:
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=0, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    chunk_size_range=chunk_size_range,
+                    passage_seed=passage_seed,
+                )
+            elif self.data_args.passage_chunk_size_range is not None:
+                rng = random.Random(passage_seed)
+                per_passage_size = rng.randint(chunk_size_min, chunk_size_max)
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=per_passage_size, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    passage_seed=passage_seed,
+                )
+            else:
+                chunks = _split_into_independent_chunks(
+                    tokens, chunk_size=chunk_size, eos_token_id=eos_id,
+                    max_length=self.data_args.passage_max_len,
+                    passage_seed=passage_seed,
+                )
+
+            if len(chunks) == 0:
+                chunks = [[eos_id]]
+
+            for chunk_idx, chunk_tokens in enumerate(chunks):
+                all_chunk_ids.append(chunk_tokens)
+                doc_ids_expanded.append((doc_id, chunk_idx))
+
+        # Pad all chunks as independent sequences
+        d_collated = {'input_ids': all_chunk_ids}
+        self.tokenizer.padding_side = self.data_args.padding_side
+        d_collated = self.tokenizer.pad(
+            d_collated,
+            padding=True,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors='pt',
+        )
+
+        return doc_ids_expanded, d_collated
+
+
+@dataclass
+class PreChunkedEncodeCollator:
+    """
+    Collator for pre-chunked passage encoding (inference/search).
+    Expects passages as lists of pre-chunked strings and adds EOS tokens between chunks.
+    """
+    data_args: DataArguments
+    tokenizer: PreTrainedTokenizer
+
+    def __call__(self, features):
+        """
+        Collate pre-chunked passage encoding features.
+        :param features: List of (doc_id, chunks_list, image, video, audio) tuples
+                        where chunks_list is a list of pre-chunked passage strings
+        :return: (doc_ids, collated_inputs, eos_positions)
+        """
+        doc_ids = [x[0] for x in features]
+        chunks_lists = [x[1] for x in features]  # List of lists of strings
+        
+        # Process pre-chunked passages: tokenize each chunk and add EOS between them
+        d_collated, all_eos_positions = self._tokenize_and_pad_pre_chunked_passages(chunks_lists)
+        
+        return doc_ids, d_collated, all_eos_positions
+
+    def _tokenize_and_pad_pre_chunked_passages(self, chunks_lists: List[List[str]]):
+        """
+        Tokenize pre-chunked passages and add EOS tokens between chunks.
+        
+        This is used when you have pre-chunked passages (e.g., from ChatGPT or manual chunking).
+        Each chunk is tokenized separately, and EOS tokens are inserted between chunks.
+        
+        :param chunks_lists: List of lists, where each inner list contains pre-chunked passage strings
+                            Example: [["chunk1", "chunk2"], ["chunk3"]] for 2 passages
+        :return: (collated_dict, eos_positions) - padded tensors and EOS positions per passage
+        """
+        eos_id = self.tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("tokenizer.eos_token_id is None; cannot add EOS tokens between chunks.")
+        
+        max_length = self.data_args.passage_max_len
+        all_input_ids = []
+        all_eos_positions = []
+        
+        for chunks in chunks_lists:
+            if chunks is None:
+                chunks = []
+            if not isinstance(chunks, list):
+                raise ValueError(f"Expected list of chunks, got {type(chunks)}")
+            if len(chunks) == 0:
+                # Empty chunks list - create empty passage with no EOS positions
+                all_input_ids.append([])
+                all_eos_positions.append([])
+                continue
+            
+            # Tokenize each chunk and concatenate with EOS between them
+            ids = []
+            eos_pos = []
+            total_length = 0
+            
+            for chunk_idx, chunk in enumerate(chunks):
+                if chunk is None:
+                    chunk = ""
+                # Tokenize this chunk (without special tokens, we'll add EOS manually)
+                chunk_tokens = self.tokenizer.encode(chunk, add_special_tokens=False)
+                
+                # Check if adding this chunk + EOS would exceed max_length
+                chunk_size = len(chunk_tokens)
+                if max_length and total_length + chunk_size + 1 > max_length:
+                    # Use remaining space (leave 1 for EOS if possible)
+                    remaining = max_length - total_length - 1
+                    if remaining > 0:
+                        chunk_tokens = chunk_tokens[:remaining]
+                        ids.extend(chunk_tokens)
+                        ids.append(eos_id)
+                        eos_pos.append(len(ids) - 1)
+                    break
+                
+                # Add chunk tokens
+                ids.extend(chunk_tokens)
+                # Add EOS after each chunk
+                ids.append(eos_id)
+                eos_pos.append(len(ids) - 1)
+                total_length += chunk_size + 1
+            
+            all_input_ids.append(ids)
+            all_eos_positions.append(eos_pos)
+        
+        d_collated, adjusted_eos_positions = _pad_and_adjust_eos_positions(
+            all_input_ids=all_input_ids,
+            all_eos_positions=all_eos_positions,
+            tokenizer=self.tokenizer,
+            padding_side=self.data_args.padding_side,
+            pad_to_multiple_of=self.data_args.pad_to_multiple_of,
+        )
+        
+        return d_collated, adjusted_eos_positions
+
 
 @dataclass
 class MultiModalEncodeCollator:
