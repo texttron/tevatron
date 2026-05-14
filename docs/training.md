@@ -1,14 +1,15 @@
 # Training
 
 ## Basic Training
-To train a simple dense retriever, call the `tevatron.driver.train` module.
 
-Here we use Natural Questions as example.
+To train a dense retriever, run the module `tevatron.retriever.driver.train`.
 
-We train on a machine with 4xV100 GPU, if the GPU resources are limited for you, please train with gradient cache.
+Here we use Natural Questions (nq) as an example.
+
+We train on a machine with 4× V100 GPUs. If GPU memory is limited, use [GradCache](#gradcache).
 
 ```bash
-python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
+torchrun --nproc_per_node=4 -m tevatron.retriever.driver.train \
   --output_dir model_nq \
   --dataset_name Tevatron/wikipedia-nq \
   --model_name_or_path bert-base-uncased \
@@ -16,41 +17,33 @@ python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
   --save_steps 20000 \
   --fp16 \
   --per_device_train_batch_size 32 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 156 \
-  --num_train_epochs 40 \
-  --negatives_x_device
+  --query_max_len 32 \
+  --passage_max_len 156 \
+  --num_train_epochs 40
 ```
 
+Here we are using our self-contained datasets to train, using Hugging Face `datasets` loading: `--dataset_name` selects a hub dataset. For local JSON/JSONL, set `--dataset_name json` (or the default) and pass files via `--dataset_path` (see [datasets.md](datasets.md)).
 
-Here we are using our self-contained datasets to train. 
-To use custom dataset, replace `--dataset_name Tevatron/wikipedia-nq` by 
-`--train_dir <train data dir>`, (see here for details).
-
->Here we picked `bert-base-uncased` BERT weight from Huggingface Hub and turned 
-> on AMP with `--fp16` to speed up training. Several command flags are provided 
-> in addition to configure the learned model, e.g. `--add_pooler` which adds an 
-> linear projection. A full list command line arguments can be found in 
-> `tevatron.arguments`.
-
+> We use `bert-base-uncased` from the Hugging Face Hub and `--fp16` AMP where appropriate. Extra model options live on `ModelArguments` (for example `--pooling`, `--normalize`, `--lora`). The full CLI is `python -m tevatron.retriever.driver.train --help`. Shared dataclasses are defined in [`tevatron.retriever.arguments`](../src/tevatron/retriever/arguments.py).
 
 ## GradCache
-Tevatron adopts gradient cache technique to allow large batch training of dense retriever on memory limited GPU.
 
-> Details is described in paper [Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup
-](https://arxiv.org/abs/2101.06983).
+Tevatron can use gradient caching to train with a large effective batch on limited GPU memory.
 
-Adding following three flags to training command to enable gradient cache:
-- `--grad_cache`: enable gradient caching
-- `--gc_q_chunk_size`: sub-batch size for query 
-- `--gc_p_chunk_size`: sub-batch size for passage
+> Described in [Scaling Deep Contrastive Learning Batch Size under Memory Limited Setup](https://arxiv.org/abs/2101.06983).
 
-For example, the following command can train dense retrieval model for Natural Question in 128 batch size
-but only with one GPU.
+Enable it with:
+
+- `--grad_cache`
+- `--gc_q_chunk_size`: sub-batch size for queries
+- `--gc_p_chunk_size`: sub-batch size for passages
+
+Example (single GPU, large batch):
+
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
   --output_dir model_nq \
   --dataset_name Tevatron/wikipedia-nq \
   --model_name_or_path bert-base-uncased \
@@ -58,16 +51,17 @@ CUDA_VISIBLE_DEVICES=0 python -m tevatron.driver.train \
   --save_steps 20000 \
   --fp16 \
   --per_device_train_batch_size 128 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 156 \
+  --query_max_len 32 \
+  --passage_max_len 156 \
   --num_train_epochs 40 \
   --grad_cache \
   --gc_q_chunk_size 32 \
   --gc_p_chunk_size 16
 ```
-> Notice that GradCache also support multi-GPU setting.
+
+GradCache also works with multi-GPU `torchrun` setups.
 
 ## Training with TPU
 Tevatron implements TPU training via Jax/Flax.
@@ -82,7 +76,7 @@ python -m tevatron.driver.jax_train \
   --model_name_or_path bert-base-uncased \
   --do_train \
   --per_device_train_batch_size 16 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 1e-5 \
   --q_max_len 32 \
   --p_max_len 156 \
@@ -95,7 +89,7 @@ Our Argument parser inherits from `TrainingArguments` from HuggingFace's `transf
 For the common use training arguments such as learning rate and batch size configuration, 
 please check [document](https://huggingface.co/docs/transformers/main_classes/trainer#transformers.TrainingArguments) from HuggingFace for details.
 
-Here we describe the details of the arguments additionally defined for Tevaron's CLI
+Here we describe the details of the arguments additionally defined for Tevatron's CLI
 
 | name                      | description                                                                                                                                                          | type   | default                      | supported driver |
 |---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------------------|------------------|
@@ -110,11 +104,10 @@ Here we describe the details of the arguments additionally defined for Tevaron's
 | `dataset_name`            | Dataset name that avaliable on HuggingFace                                                                                                                           | `str`  | `json`                       | pytorch, jax     |
 | `train_dir`               | Directory that stores custom training data                                                                                                                           | `str`  | `None`                       | pytorch, jax     |
 | `dataset_proc_num`        | Number of threads to use to preprocess/tokenize data                                                                                                                 | `int`  | `12`                         | pytorch, jax     |
-| `train_n_passages`        | Number of passages for each anchor query during training. It will load 1 positive passage + (`train_n_passages`-1) negative passage for each example during training | `int`  | `8`                          | pytorch, jax     |
+| `train_group_size`        | Number of passages for each anchor query during training. It will load 1 positive passage + (`train_group_size`-1) negative passages for each example during training | `int`  | `8`                          | pytorch, jax     |
 | `passage_field_separator` | The token to seperate `title` and `text` field for passages                                                                                                          | `str`  | `" "`                        | pytorch          |
-| `q_max_len`               | Maximum query length                                                                                                                                                 | `int`  | `32`                         | pytorch, jax     |
-| `p_max_len`               | Maximum passage length                                                                                                                                               | `int`  | `128`                        | pytorch, jax     |
-| `negative_x_device`       | Whether gather in-batch negative passages cross devices                                                                                                              | `bool` | `False`                      | pytorch          |
+| `query_max_len`               | Maximum query length                                                                                                                                                 | `int`  | `32`                         | pytorch, jax     |
+| `passage_max_len`               | Maximum passage length                                                                                                                                               | `int`  | `128`                        | pytorch, jax     |
 | `grad_cache`              | Whether use gradient cache feature. This can be used to support large batch size while GPU/TPU memory are limited.                                                   | `bool` | `False`                      | pytorch, jax     |
 | `gc_q_chunk_size`         | Sub-batch size for queries with `grad_cache`                                                                                                                         | `int`  | `4`                          | pytorch, jax     |
 | `gc_p_chunk_size`         | Sub-batch size for passages with  `grad_cache`                                                                                                                       | `int`  | `32`                         | pytorch, jax     |
