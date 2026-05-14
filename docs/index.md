@@ -1,5 +1,5 @@
 # Tevatron
-Tevatron is a simple and efficient toolkit for training and running dense retrievers with deep language models. The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast development and testing. A set of easy-to-use interfaces to Huggingfac's state-of-the-art pre-trained transformers ensures Tevatron's superior performance.
+Tevatron is a simple and efficient toolkit for training and running dense retrievers with deep language models. The toolkit has a modularized design for easy research; a set of command line tools are also provided for fast development and testing. A set of easy-to-use interfaces to Hugging Face's state-of-the-art pre-trained transformers ensures Tevatron's superior performance.
 
 *Tevatron is currently under initial development stage. We will be actively adding new features and API changes may happen. Suggestions, feature requests and PRs are welcomed.*
 
@@ -24,7 +24,7 @@ pip install tevatron
 
 Or typically for development and research, clone this repo and install as editable,
 ```
-git https://github.com/texttron/tevatron
+git clone https://github.com/texttron/tevatron
 cd tevatron
 pip install --editable .
 ```
