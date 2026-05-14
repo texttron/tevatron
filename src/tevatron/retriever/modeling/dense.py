@@ -1,21 +1,70 @@
 import torch
+import torch.nn.functional as F
 import logging
 from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
-
+EOS_TOKEN_ID = 151643
 
 class DenseModel(EncoderModel):
+
+    def __init__(self, encoder, pooling='cls', normalize=False, temperature=1.0):
+        super().__init__(encoder, pooling, normalize, temperature)
+        self.passage_chunk_size = 0
+        self.eos_positions = None
 
     def encode_query(self, qry):
         query_hidden_states = self.encoder(**qry, return_dict=True)
         query_hidden_states = query_hidden_states.last_hidden_state
         return self._pooling(query_hidden_states, qry['attention_mask'])
     
-    def encode_passage(self, psg):
-        # encode passage is the same as encode query
-        return self.encode_query(psg)
+    def encode_passage(self, psg, eos_positions=None):
+        print(f"eos_positions: {eos_positions}")
+        hidden_states = self.encoder(**psg, return_dict=True).last_hidden_state
+        if self.passage_chunk_size > 0 and eos_positions:
+            for i, ep in enumerate(eos_positions):
+                for eos_pos in ep:
+                    assert psg['input_ids'][i][eos_pos] == EOS_TOKEN_ID
+
+            return self._pooling_chunked(hidden_states, eos_positions)
+        
+        return self._pooling(hidden_states, psg['attention_mask'])
+
+    def _pooling_chunked(self, last_hidden_state, eos_positions):
+        batch_size, seq_len, hidden_size = last_hidden_state.shape
+        print(f"last_hidden_state.shape: {last_hidden_state.shape}")
+        print(f"eos_positions: {eos_positions}")
+        
+        if not eos_positions:
+            # No chunks, return empty
+            return torch.zeros(batch_size, 0, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype), \
+                   torch.zeros(batch_size, 0, device=last_hidden_state.device)
+        
+        # Find max number of chunks across all passages
+        for eos_pos in eos_positions:
+            print(f"eos_pos: {eos_pos}")
+            print(f"type(eos_pos): {type(eos_pos)}")
+        max_chunks = max(len(pos_list) for pos_list in eos_positions)
+        
+        chunk_reps = torch.zeros(batch_size, max_chunks, hidden_size, device=last_hidden_state.device, dtype=last_hidden_state.dtype)
+        chunk_mask = torch.zeros(batch_size, max_chunks, device=last_hidden_state.device, dtype=torch.float)
+        
+        # Extract embeddings at eos_positions (this is the pooling operation for chunked passages)
+        for i, positions in enumerate(eos_positions):
+            for j, pos in enumerate(positions):
+                if 0 <= pos < seq_len:
+                    # i is the batch index, j is the chunk index, pos is the eos position
+                    chunk_reps[i, j] = last_hidden_state[i, pos]
+                    # chunk_mask is 1.0 for valid chunks, 0.0 for padding chunks
+                    chunk_mask[i, j] = 1.0
+                else:
+                    logger.warning(f"Position {pos} out of bounds for sequence length {seq_len} in batch {i}, chunk {j}")
+        
+        if self.normalize:
+            chunk_reps = F.normalize(chunk_reps, p=2, dim=-1)
+        
+        return chunk_reps, chunk_mask
         
 
     def _pooling(self, last_hidden_state, attention_mask):

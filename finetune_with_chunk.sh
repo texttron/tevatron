@@ -1,0 +1,27 @@
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.train \
+  --output_dir retriever-qwen3-emb-ft-chunk-1219-1 \
+  --model_name_or_path Qwen/Qwen3-Embedding-0.6B \
+  --do_train \
+  --lora \
+  --lora_target_modules q_proj,k_proj,v_proj,o_proj,down_proj,up_proj,gate_proj \
+  --save_steps 50 \
+  --dataset_name Tevatron/scifact \
+  --dataset_split train \
+  --query_prefix "Instruct: Given a scientific claim, retrieve documents that support or refute the claim.\nQuery:" \
+  --passage_prefix "" \
+  --bf16 \
+  --pooling last \
+  --padding_side right \
+  --normalize \
+  --temperature 0.01 \
+  --per_device_train_batch_size 4 \
+  --gradient_checkpointing \
+  --train_group_size 16 \
+  --learning_rate 1e-4 \
+  --query_max_len 32 \
+  --passage_max_len 512 \
+  --num_train_epochs 10 \
+  --logging_steps 10 \
+  --overwrite_output_dir \
+  --gradient_accumulation_steps 1 \
+  --passage_chunk_size 256

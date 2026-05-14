@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+import os
 import torch
 import torch.distributed as dist
 from torch import nn, Tensor
@@ -38,6 +39,7 @@ class EncoderModel(nn.Module):
         self.pooling = pooling
         self.normalize = normalize
         self.temperature = temperature
+        self.passage_chunk_size = 0
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.is_ddp = dist.is_initialized()
         if self.is_ddp:
@@ -46,7 +48,25 @@ class EncoderModel(nn.Module):
 
     def forward(self, query: Dict[str, Tensor] = None, passage: Dict[str, Tensor] = None):
         q_reps = self.encode_query(query) if query else None
-        p_reps = self.encode_passage(passage) if passage else None
+        p_reps, chunk_mask = None, None
+        if passage:
+            # If training with chunked passages, eos_positions is produced by the collator and
+            # attached to the model by TevatronTrainer.compute_loss(). Forward() needs to pass it
+            # into encode_passage() to actually get chunk reps/masks.
+            eos_positions = getattr(self, "eos_positions", None)
+            if self.passage_chunk_size > 0 and eos_positions is not None:
+                # print(f"eos_positions: {eos_positions}")
+                try:
+                    p_reps = self.encode_passage(passage, eos_positions=eos_positions)
+                except TypeError:
+                    # Some models (e.g., multimodal) don't accept eos_positions.
+                    p_reps = self.encode_passage(passage)
+            else:
+                p_reps = self.encode_passage(passage)
+            # print(f"p_reps: {p_reps}")
+            # print(f"type(p_reps): {type(p_reps)}")
+            if self.passage_chunk_size > 0 and isinstance(p_reps, tuple):
+                p_reps, chunk_mask = p_reps
 
         # for inference
         if q_reps is None or p_reps is None:
@@ -60,19 +80,34 @@ class EncoderModel(nn.Module):
             if self.is_ddp:
                 q_reps = self._dist_gather_tensor(q_reps)
                 p_reps = self._dist_gather_tensor(p_reps)
-
-            scores = self.compute_similarity(q_reps, p_reps)
+            # print(f"passage_chunk_size: {self.passage_chunk_size}")
+            # print(f"chunk_mask: {chunk_mask}")
+            if self.passage_chunk_size > 0 and chunk_mask is not None:
+                # print(f"start compute maxsim similarity==========================")
+                scores = self.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+                # print(f"end compute maxsim similarity==========================")
+            else:
+                # print(f"start compute similarity==========================")
+                scores = self.compute_similarity(q_reps, p_reps)
+            # view the scores as [Q, P] where Q is the number of queries and P is the number of passages
             scores = scores.view(q_reps.size(0), -1)
 
-            target = torch.arange(scores.size(0), device=scores.device, dtype=torch.long)
-            target = target * (p_reps.size(0) // q_reps.size(0))
-
+            num_psg_per_query = scores.size(1) // q_reps.size(0)
+            target = torch.arange(q_reps.size(0), device=scores.device, dtype=torch.long)
+            target = target * num_psg_per_query
+            # target contains the indices of the positive passages in this batch target.shape = [Q]
+            # so the target is [0, 4, 8, 12] for batch_size = 2, group_size = 4, chunk_size = 64
+            print(f"target: {target}")
+            print(f"target.shape: {target.shape}")
             loss = self.compute_loss(scores / self.temperature, target)
             if self.is_ddp:
-                loss = loss * self.world_size  # counter average weight reduction
+                loss = loss * self.world_size # counter average weight reduction
         # for eval
         else:
-            scores = self.compute_similarity(q_reps, p_reps)
+            if self.passage_chunk_size > 0 and chunk_mask is not None:
+                scores = self.compute_maxsim_similarity(q_reps, p_reps, chunk_mask)
+            else:
+                scores = self.compute_similarity(q_reps, p_reps)
             loss = None
         return EncoderOutput(
             loss=loss,
@@ -89,6 +124,60 @@ class EncoderModel(nn.Module):
 
     def compute_similarity(self, q_reps, p_reps):
         return torch.matmul(q_reps, p_reps.transpose(0, 1))
+
+    def compute_maxsim_similarity(self, q_reps, p_reps, chunk_mask):
+        """
+        MaxSim: max similarity between query and passage chunks.
+        q_reps: [Q, H], p_reps: [P, C, H], chunk_mask: [P, C]
+        Q: number of queries
+        P: number of passages
+        C: number of chunks per passage
+        H: dimension of the embeddings
+        Returns: [Q, P]
+        """
+        chunk_scores = torch.einsum('qh,pch->qpc', q_reps, p_reps) # 第 q 个 query 和第 p 个 passage 的第 c 个 chunk 的相似度
+        if chunk_mask is not None:
+            padding_mask = ~chunk_mask.unsqueeze(0).bool()
+            chunk_scores = chunk_scores.masked_fill(padding_mask, float('-inf'))
+        max_vals, max_idx = chunk_scores.max(dim=-1)  # [Q, P], [Q, P]
+
+        # Log maxsim info: read chunk indices directly from max_idx
+        if True:
+            # only log from rank-0 if DDP
+            if (not getattr(self, "is_ddp", False)) or getattr(self, "process_rank", 0) == 0:
+                eos_positions = getattr(self, "eos_positions", None)
+                eos_ok = (
+                    isinstance(eos_positions, (list, tuple))
+                    and len(eos_positions) == p_reps.size(0)
+                )
+                
+                # Compute last valid chunk indices for all passages
+                if chunk_mask is not None:
+                    last_ci_per_passage = (chunk_mask.sum(dim=1) - 1).clamp(min=0)  # [P]
+                else:
+                    last_ci_per_passage = torch.full((p_reps.size(0),), p_reps.size(1) - 1, dtype=torch.long)
+                
+                # Log for each query-passage pair
+                for qi in range(max_idx.size(0)):
+                    for pi in range(max_idx.size(1)):
+                        ci = int(max_idx[qi, pi].item())  # best chunk index from max_idx
+                        last_ci = int(last_ci_per_passage[pi].item())
+                        score = float(max_vals[qi, pi].item())
+                        
+                        if eos_ok and eos_positions[pi] and ci < len(eos_positions[pi]):
+                            best_pos = eos_positions[pi][ci]
+                            last_pos = eos_positions[pi][-1]
+                            logger.info(
+                                f"[maxsim] q={qi} p={pi} best_chunk={ci} best_pos={best_pos} "
+                                f"last_chunk={last_ci} last_pos={last_pos} best_score={score:.6f}"
+                            )
+                        else:
+                            logger.info(
+                                f"[maxsim] q={qi} p={pi} best_chunk={ci} last_chunk={last_ci} "
+                                f"best_score={score:.6f}"
+                            )
+
+        return max_vals
 
     def compute_loss(self, scores, target):
         return self.cross_entropy(scores, target)
