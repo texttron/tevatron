@@ -142,8 +142,8 @@ def main():
         def get_batch(self, indices, epoch):
             qq, dd = zip(*[self.get_example(i, epoch) for i in map(int, indices)])
             dd = sum(dd, [])
-            return dict(tokenizer.pad(qq, max_length=data_args.query_max_len, padding='max_length', return_tensors='np')), dict(
-                tokenizer.pad(dd, max_length=data_args.passage_max_len, padding='max_length', return_tensors='np'))
+            return dict(self.tokenizer.pad(qq, max_length=data_args.query_max_len, padding='max_length', return_tensors='np')), dict(
+                self.tokenizer.pad(dd, max_length=data_args.passage_max_len, padding='max_length', return_tensors='np'))
 
     train_dataset = TrainDataset(train_data, data_args.train_group_size, tokenizer)
 
