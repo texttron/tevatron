@@ -8,9 +8,9 @@ import jax
 import numpy as np
 from flax.training.common_utils import shard
 from jax import pmap
-from tevatron.arguments import DataArguments
-from tevatron.arguments import TevatronTrainingArguments as TrainingArguments
-from tevatron.arguments import ModelArguments
+from tevatron.retriever.arguments import DataArguments
+from tevatron.retriever.arguments import TevatronTrainingArguments as TrainingArguments
+from tevatron.retriever.arguments import ModelArguments
 from tevatron.data import EncodeCollator, EncodeDataset
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 from torch.utils.data import DataLoader
@@ -55,14 +55,14 @@ def main():
 
     model = FlaxAutoModel.from_pretrained(model_args.model_name_or_path, config=config, from_pt=False)
 
-    text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_is_qry:
+    text_max_length = data_args.query_max_len if data_args.encode_is_query else data_args.passage_max_len
+    if data_args.encode_is_query:
         encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args,
-                                        cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+                                        cache_dir=data_args.dataset_cache_dir or model_args.cache_dir)
     else:
         encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args,
-                                         cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
+                                         cache_dir=data_args.dataset_cache_dir or model_args.cache_dir)
+    encode_dataset = EncodeDataset(encode_dataset.process(data_args.dataset_number_of_shards, data_args.dataset_shard_index),
                                    tokenizer, max_len=text_max_length)
 
     # prepare padding batch (for last nonfull batch)
@@ -110,7 +110,7 @@ def main():
         lookup_indices.extend(batch_ids)
         batch_embeddings = p_encode_step(shard(batch.data), state)
         encoded.extend(np.concatenate(batch_embeddings, axis=0))
-    with open(data_args.encoded_save_path, 'wb') as f:
+    with open(data_args.encode_output_path, 'wb') as f:
         pickle.dump((encoded[:dataset_size], lookup_indices[:dataset_size]), f)
 
 
