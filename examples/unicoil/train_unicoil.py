@@ -8,7 +8,7 @@ from transformers import (
     set_seed,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, \
+from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, QPCollator
 from tevatron.modeling import UniCoilModel
@@ -77,7 +77,7 @@ def main():
     )
 
     train_dataset = HFTrainDataset(tokenizer=tokenizer, data_args=data_args,
-                                   cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+                                   cache_dir=data_args.dataset_cache_dir or model_args.cache_dir)
     train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
 
     trainer = TevatronTrainer(
@@ -86,8 +86,8 @@ def main():
         train_dataset=train_dataset,
         data_collator=QPCollator(
             tokenizer,
-            max_p_len=data_args.p_max_len,
-            max_q_len=data_args.q_max_len
+            max_p_len=data_args.passage_max_len,
+            max_q_len=data_args.query_max_len
         ),
     )
     train_dataset.trainer = trainer

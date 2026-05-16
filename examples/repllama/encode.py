@@ -15,7 +15,7 @@ from transformers import (
     HfArgumentParser,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, \
+from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from data import HFQueryDataset, HFCorpusDataset
 
@@ -60,14 +60,14 @@ def main():
         cache_dir=model_args.cache_dir,
     )
 
-    text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
-    if data_args.encode_is_qry:
+    text_max_length = data_args.query_max_len if data_args.encode_is_query else data_args.passage_max_len
+    if data_args.encode_is_query:
         encode_dataset = HFQueryDataset(tokenizer=tokenizer, data_args=data_args,
-                                        cache_dir=data_args.data_cache_dir or model_args.cache_dir)
+                                        cache_dir=data_args.dataset_cache_dir or model_args.cache_dir)
     else:
         encode_dataset = HFCorpusDataset(tokenizer=tokenizer, data_args=data_args,
-                                         cache_dir=data_args.data_cache_dir or model_args.cache_dir)
-    encode_dataset = EncodeDataset(encode_dataset.process(data_args.encode_num_shard, data_args.encode_shard_index),
+                                         cache_dir=data_args.dataset_cache_dir or model_args.cache_dir)
+    encode_dataset = EncodeDataset(encode_dataset.process(data_args.dataset_number_of_shards, data_args.dataset_shard_index),
                                    tokenizer, max_len=text_max_length)
 
     encode_loader = DataLoader(
@@ -93,7 +93,7 @@ def main():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
-                if data_args.encode_is_qry:
+                if data_args.encode_is_query:
                     model_output = model(query=batch)
                     encoded.append(model_output.q_reps.cpu().detach().numpy())
                 else:
@@ -102,7 +102,7 @@ def main():
 
     encoded = np.concatenate(encoded)
 
-    with open(data_args.encoded_save_path, 'wb') as f:
+    with open(data_args.encode_output_path, 'wb') as f:
         pickle.dump((encoded, lookup_indices), f)
 
 

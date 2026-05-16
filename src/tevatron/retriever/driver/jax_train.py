@@ -18,8 +18,8 @@ from transformers import (
     set_seed,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
-from tevatron.tevax.training import TiedParams, RetrieverTrainState, retriever_train_step, grad_cache_train_step, \
+from tevatron.retriever.arguments import ModelArguments, DataArguments, TevatronTrainingArguments
+from tevatron.retriever.tevax.training import TiedParams, RetrieverTrainState, retriever_train_step, grad_cache_train_step, \
     DualParams
 
 logger = logging.getLogger(__name__)
@@ -83,15 +83,13 @@ def main():
             from_pt=True
         )
 
-    if data_args.train_dir:
-        data_files = {
-            'train': data_args.train_path
-        }
+    if data_args.dataset_path:
+        data_files = {data_args.dataset_split: data_args.dataset_path}
     else:
         data_files = None
 
     train_dataset = \
-        datasets.load_dataset(data_args.dataset_name, data_args.dataset_language, cache_dir=model_args.cache_dir,
+        datasets.load_dataset(data_args.dataset_name, data_args.dataset_config, cache_dir=data_args.dataset_cache_dir or model_args.cache_dir,
                               data_files=data_files)[data_args.dataset_split]
 
     def tokenize_train(example):
@@ -101,21 +99,21 @@ def main():
         pos_psgs = [p['title'] + " " + p['text'] for p in example['positive_passages']]
         neg_psgs = [p['title'] + " " + p['text'] for p in example['negative_passages']]
 
-        example['query_input_ids'] = dict(tokenize(query, max_length=data_args.q_max_len))
-        example['pos_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.p_max_len)) for x in pos_psgs]
-        example['neg_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.p_max_len)) for x in neg_psgs]
+        example['query_input_ids'] = dict(tokenize(query, max_length=data_args.query_max_len))
+        example['pos_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.passage_max_len)) for x in pos_psgs]
+        example['neg_psgs_input_ids'] = [dict(tokenize(x, max_length=data_args.passage_max_len)) for x in neg_psgs]
 
         return example
 
     train_data = train_dataset.map(
         tokenize_train,
         batched=False,
-        num_proc=data_args.dataset_proc_num,
+        num_proc=data_args.num_proc,
         desc="Running tokenizer on train dataset",
     )
     train_data = train_data.filter(
         function=lambda data: len(data["pos_psgs_input_ids"]) >= 1 and \
-                              len(data["neg_psgs_input_ids"]) >= data_args.train_n_passages-1, num_proc=64
+                              len(data["neg_psgs_input_ids"]) >= data_args.train_group_size-1, num_proc=64
     )
 
     class TrainDataset:
@@ -144,10 +142,10 @@ def main():
         def get_batch(self, indices, epoch):
             qq, dd = zip(*[self.get_example(i, epoch) for i in map(int, indices)])
             dd = sum(dd, [])
-            return dict(tokenizer.pad(qq, max_length=32, padding='max_length', return_tensors='np')), dict(
-                tokenizer.pad(dd, max_length=data_args.p_max_len, padding='max_length', return_tensors='np'))
+            return dict(self.tokenizer.pad(qq, max_length=data_args.query_max_len, padding='max_length', return_tensors='np')), dict(
+                self.tokenizer.pad(dd, max_length=data_args.passage_max_len, padding='max_length', return_tensors='np'))
 
-    train_dataset = TrainDataset(train_data, data_args.train_n_passages, tokenizer)
+    train_dataset = TrainDataset(train_data, data_args.train_group_size, tokenizer)
 
     def create_learning_rate_fn(
             train_ds_size: int, train_batch_size: int, num_train_epochs: int, num_warmup_steps: int,
@@ -206,7 +204,7 @@ def main():
 
     if training_args.grad_cache:
         q_n_subbatch = train_batch_size // training_args.gc_q_chunk_size
-        p_n_subbatch = train_batch_size * data_args.train_n_passages // training_args.gc_p_chunk_size
+        p_n_subbatch = train_batch_size * data_args.train_group_size // training_args.gc_p_chunk_size
         p_train_step = jax.pmap(
             partial(grad_cache_train_step, q_n_subbatch=q_n_subbatch, p_n_subbatch=p_n_subbatch),
             "device"
