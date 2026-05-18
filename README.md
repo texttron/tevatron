@@ -181,8 +181,8 @@ Equivalent training tooks about 110 hours on 1xA100 GPU.
 #### Query Encoding
 ```bash
 EMBEDDING_OUTPUT_DIR=<folder to save query embedding>
-CUDA_VISIBLE_DEVICES=4 python -m tevatron.retriever.driver.encode \
-  --output_dir=temp \
+CUDA_VISIBLE_DEVICES=0 python -m tevatron.retriever.driver.encode \
+  --output_dir temp \
   --model_name_or_path mistralai/Mistral-7B-v0.1 \
   --lora_name_or_path retriever-mistral \
   --lora \

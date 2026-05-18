@@ -78,6 +78,11 @@ class ModelArguments:
         },
     )
 
+    untie_encoder: bool = field(
+        default=False,
+        metadata={"help": "Use separate query/passage parameters (JAX dual-encoder training)."},
+    )
+
 
 @dataclass
 class DataArguments:
@@ -167,6 +172,14 @@ class DataArguments:
 
     passage_prefix: str = field(
         default='', metadata={"help": "prefix or instruction for passage"}
+    )
+
+    passage_field_separator: str = field(
+        default=' ',
+        metadata={
+            "help": "Separator between passage title and body in legacy example loaders; "
+            "may be a tokenizer attribute name or a literal string."
+        },
     )
 
     append_eos_token: bool = field(

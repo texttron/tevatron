@@ -1,12 +1,13 @@
 # Datasets
 
 ## Dataset types
-There are usually two types of dataset format for dense retrieval training based on
-whether the relevancy of document is human judged or by answer exactly matching.
 
-### 1. Relevancy Judged Dataset
-If the relevancy of a passage is annotated, (e.g. MS MARCO passage ranking),
-an instance in the dataset can usually be organized in following format:
+There are usually two types of dataset format for dense retrieval training, depending on whether document relevance is human-judged or decided by answer exact matching.
+
+### 1. Relevance-judged dataset
+
+If passages are labeled relevant or not (e.g. MS MARCO passage ranking), an instance often looks like:
+
 ```json
 {
    "query_id": "<query id>",
@@ -19,12 +20,13 @@ an instance in the dataset can usually be organized in following format:
    ]
 }
 ```
-where the passages in `positive_passages` are the annotated relevant passages of the `query` 
-and passages in `negative_passages` are usually non-relevant passages from top results of a retrieval system (e.g. BM25).
 
-### 2.Exactly Matched Dataset
-If the relevancy of a passage is judged by answer exactly matching, (e.g. Natural Question),
-an instance in the dataset can usually be organized in following format:
+`positive_passages` are annotated relevant documents to the `query`; `negative_passages` are usually hard negatives from the top results of a retriever (e.g. BM25).
+
+### 2. Exact matching dataset
+
+If relevance is defined by an answer span (e.g. Natural Questions), an instance often looks like:
+
 ```json
 {
    "query_id": "<query id>",
@@ -38,34 +40,31 @@ an instance in the dataset can usually be organized in following format:
    ]
 }
 ```
-where the passages in `positive_passages` has subsequence that exactly matches one of the answer string in `answers`.
-And passages in `negative_passages` are usually passages from top results of a retrieval system but doesn't have 
-subsequence exactly matches any of answer in `answers`.
 
-## Self-Contained Dataset
-Tevatron self-contained following common use datasets for dense retrieval. 
-(via [HuggingFace](https://huggingface.co/Tevatron)).
-These datasets will be downloaded and tokenized automatically during training and encoding
-by setting `--dataset_name <hgf dataset name>`.
+`positive_passages` should contain text that matches an answer string; negatives are typically top-k retriever results that do not.
 
-| dataset      | dataset HuggingFace name     | type             |
-|--------------|------------------------------|------------------|
-| MS MARCO     | `Tevatron/msmarco-passage`   | Relevancy Judged |
-| SciFact      | `Tevatron/scifact`           | Relevancy Judged |
-| NQ           | `Tevatron/wikipedia-nq`      | Exactly Match    |
-| TriviaQA     | `Tevatron/wikipedia-trivia`  | Exactly Match    |
-| WebQuestions | `Tevatron/wikipedia-wq`      | Exactly Match    |
-| CuratedTREC  | `Tevatron/wikipedia-curated` | Exactly Match    |
-| SQuAD        | `Tevatron/wikipedia-squad`   | Exactly Match    |
+## Self-contained datasets
 
-> Note: the self-contained datasets come with BM25 negative passages by default
+Tevatron self-contains common retrieval benchmarks on the Hugging Face Hub under the [Tevatron](https://huggingface.co/Tevatron) org. They are downloaded and cached automatically when you set `--dataset_name` during training or encoding.
 
-Take SciFact as an example:
+| Dataset      | Hugging Face name            | Type             |
+|--------------|-------------------------------|------------------|
+| MS MARCO     | `Tevatron/msmarco-passage`   | Relevance judged |
+| SciFact      | `Tevatron/scifact`           | Relevance judged |
+| NQ           | `Tevatron/wikipedia-nq`      | Answer overlap   |
+| TriviaQA     | `Tevatron/wikipedia-trivia`  | Answer overlap   |
+| WebQuestions | `Tevatron/wikipedia-wq`      | Answer overlap   |
+| CuratedTREC  | `Tevatron/wikipedia-curated` | Answer overlap   |
+| SQuAD        | `Tevatron/wikipedia-squad`   | Answer overlap   |
 
-We can directly train with self-contained dataset by:
+> Self-contained training splits include BM25 negatives by default.
+
+### SciFact example
+
+Train:
 
 ```bash
-python -m tevatron.driver.train \
+python -m tevatron.retriever.driver.train \
   --do_train \
   --output_dir model_scifact \
   --dataset_name Tevatron/scifact \
@@ -75,34 +74,38 @@ python -m tevatron.driver.train \
   --num_train_epochs 5
 ```
 
-Then we can encode corresponding self-contained corpus by:
+Encode corpus:
+
 ```bash
-python tevatron.driver.encode \
-  --do_encode \
-  --output_dir=temp_out \
+python -m tevatron.retriever.driver.encode \
+  --output_dir temp_out \
   --model_name_or_path model_scifact \
   --per_device_eval_batch_size 64 \
   --dataset_name Tevatron/scifact-corpus \
-  --p_max_len 512 \
-  --encoded_save_path corpus_emb.pkl
+  --passage_max_len 512 \
+  --encode_output_path corpus_emb.pkl
 ```
 
-And encode corresponding self-contained topics by:
+Encode queries (dev split):
+
 ```bash
-python tevatron.driver.encode \
-  --do_encode \
-  --output_dir=temp_out \
+python -m tevatron.retriever.driver.encode \
+  --output_dir temp_out \
   --model_name_or_path model_scifact \
   --per_device_eval_batch_size 64 \
-  --dataset_name Tevatron/scifact/dev \
-  --encode_is_qry \
-  --q_max_len 64 \
-  --encoded_save_path queries_emb.pkl 
+  --dataset_name Tevatron/scifact \
+  --dataset_split dev \
+  --encode_is_query \
+  --query_max_len 64 \
+  --encode_output_path queries_emb.pkl
 ```
 
 ## Custom dataset
+
 To use custom dataset with Tevatron, there are two ways:
+
 ### 1. Raw data
+
 The first method is to prepare dataset in the same format as one of the above two dataset types.
 - If the dataset was prepared in the `Relevancy Judged` format, then we can directly use the data load process
 defined by `Tevatron/msmarco-passage`.  
@@ -116,29 +119,31 @@ For example, if we have prepared a dataset in Exactly Match format (same as `Tev
 
 We can train by:
 ```bash
-python -m tevatron.driver.train \
+python -m tevatron.retriever.driver.train \
   ... \
   --dataset_name Tevatron/wikipedia-nq \
-  --train_dir train_dir \
+  --dataset_path train_dir/train_data.jsonl \
   ...
 ```
 
-Then we can encode corpus by:
+Encode corpus (reuse NQ *corpus* schema, local file):
+
 ```bash
-python tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   ... \
   --dataset_name Tevatron/wikipedia-nq-corpus \
-  --encode_in_path corpus_dir/corpus_jsonl \
+  --dataset_path corpus_dir/corpus.jsonl \
   ...
 ```
 
-And encode query by:
+Encode dev queries:
+
 ```bash
-python tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   ... \
   --dataset_name Tevatron/wikipedia-nq \
-  --encode_in_path dev_dir/dev_data.jsonl \
-  --encode_is_qry \
+  --dataset_path dev_dir/dev_data.jsonl \
+  --encode_is_query \
   ...
 ```
 > Note: we use `...` here to hide the arguments that irrelevant to dataset setting for a more clear comperision.
@@ -146,6 +151,7 @@ python tevatron.driver.encode \
 
 
 ### 2. Pre-tokenized data
+
 Tevatron also accept pre-tokenized custom dataset.
 By doing this, Tevatron will skip the tokenization step during training or encoding.
 
@@ -162,37 +168,36 @@ The `TEXT_TYPE` here can be either `List[int]` (pre-tokenized) or `string` (non-
 Here we encourage user to use pre-tokenized (i.e. `TEXT_TYPE=List[int]`) 
 as `TEXT_TYPE=string` is not supported for some tokenizer.
 
-To use custom data in pre-tokenized format, use `--dataset_name json` (or leave it as empty)
-during training and encoding.
+- train: `train_dir/train_data.jsonl`
+- dev: `dev_dir/dev_data.jsonl`
+- corpus: `corpus_dir/corpus.jsonl`
 
-For example, if we have prepared a pre-tokenized dataset, with:
-- train data: `train_dir/train_data.jsonl`
-- dev data: `dev_dir/dev_data.jsonl`
-- corpus: `corpus_dir/corpus_jsonl`
+Train:
 
-We can train by:
 ```bash
-python -m tevatron.driver.train \
+python -m tevatron.retriever.driver.train \
   ... \
-  --train_dir train_dir \
+  --dataset_path train_dir/train_data.jsonl \
   ...
 ```
 
-Then we can encode corpus by:
+Encode corpus:
+
 ```bash
-python tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   ... \
-  --encode_in_path corpus_dir/corpus_jsonl \
+  --dataset_path corpus_dir/corpus.jsonl \
   ...
 ```
 
-And encode query by:
+Encode queries:
+
 ```bash
-python tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   ... \
-  --encode_in_path dev_dir/dev_data.jsonl \
-  --encode_is_qry \
+  --dataset_path dev_dir/dev_data.jsonl \
+  --encode_is_query \
   ...
 ```
-> Note: we use `...` here to hide the arguments that irrelevant to dataset setting for a more clear comperision.
-> Please see training and encoding document for detailed arguments.
+
+> `...` contains model path, batch sizes, lengths, `encode_output_path`, and other flags from the training/encoding docs.
