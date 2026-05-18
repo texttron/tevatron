@@ -18,4 +18,5 @@ deepspeed --include localhost:4,5,6,7 --master_port 60000 --module tevatron.rera
   --num_train_epochs 1 \
   --logging_steps 10 \
   --overwrite_output_dir
+  --gra
 ```
