@@ -19,6 +19,7 @@ import glob
 import math
 import datasets
 
+from tevatron.utils.io import ensure_parent_dir
 
 TRAIN_QUERY_FN = "multivent_2_train_queries.csv"
 TRAIN_JUDGEMENT_FN = "multivent_2_train_judgments.jsonl"
@@ -56,8 +57,7 @@ def form_training_pairs(qid2query, query2positive_doc, output_fn):
             "source": "MultiVENT2.0",
         }
     
-    output_dir = os.path.dirname(output_fn)
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_parent_dir(output_fn)
     with open(output_fn, "w") as f:
         for qid, query in tqdm(qid2query.items(), desc="Forming training data"):
             positive_doc_ids = query2positive_doc[qid]

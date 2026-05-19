@@ -1,9 +1,13 @@
 from argparse import ArgumentParser
 
+from tevatron.utils.io import ensure_parent_dir
+
 parser = ArgumentParser()
 parser.add_argument('--input', type=str, required=True)
 parser.add_argument('--output', type=str, required=True)
 args = parser.parse_args()
+
+ensure_parent_dir(args.output)
 
 with open(args.input) as f_in, open(args.output, 'w') as f_out:
     cur_qid = None
