@@ -3,6 +3,8 @@ from argparse import ArgumentParser
 from datasets import load_dataset
 from tqdm import tqdm
 
+from tevatron.utils.io import ensure_parent_dir
+
 def read_result(path):
     retrieval_results = {}
     with open(path) as f:
@@ -29,6 +31,7 @@ parser.add_argument('--depth', type=int, default=1000, required=False)
 parser.add_argument('--cache_dir', type=str, required=False)
 
 args = parser.parse_args()
+ensure_parent_dir(args.output_path)
 query_data = load_dataset(args.query_data_name, cache_dir=args.cache_dir)[args.query_data_split]
 corpus_data = load_dataset(args.corpus_data_name, cache_dir=args.cache_dir)['train']
 query_id_map = {}

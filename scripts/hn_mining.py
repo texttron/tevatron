@@ -1,5 +1,7 @@
 import json
 from argparse import ArgumentParser
+
+from tevatron.utils.io import ensure_parent_dir
 from datasets import load_dataset, concatenate_datasets
 from multiprocessing import Manager
 from tqdm import tqdm
@@ -88,6 +90,8 @@ if __name__ == '__main__':
     parser.add_argument('--regex', action='store_true', required=False)
 
     args = parser.parse_args()
+    ensure_parent_dir(args.output)
+
     train_data = load_dataset(args.train_data_name, cache_dir=args.cache_dir)['train']
     corpus_data = load_dataset(args.corpus_data_name, cache_dir=args.cache_dir)['train']
     if args.em:

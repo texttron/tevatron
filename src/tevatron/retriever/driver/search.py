@@ -8,6 +8,7 @@ from tqdm import tqdm
 import faiss
 
 from tevatron.retriever.searcher import FaissFlatSearcher
+from tevatron.utils.io import ensure_parent_dir
 
 import logging
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def search_queries(retriever, q_reps, p_lookup, args):
 
 
 def write_ranking(corpus_indices, corpus_scores, q_lookup, ranking_save_file):
+    ensure_parent_dir(ranking_save_file)
     with open(ranking_save_file, 'w') as f:
         for qid, q_doc_scores, q_doc_indices in zip(q_lookup, corpus_scores, corpus_indices):
             score_list = [(s, idx) for s, idx in zip(q_doc_scores, q_doc_indices)]
@@ -45,6 +47,7 @@ def pickle_load(path):
 
 
 def pickle_save(obj, path):
+    ensure_parent_dir(path)
     with open(path, 'wb') as f:
         pickle.dump(obj, f)
 
@@ -60,6 +63,8 @@ def main():
     parser.add_argument('--quiet', action='store_true')
 
     args = parser.parse_args()
+
+    ensure_parent_dir(args.save_ranking_to)
 
     index_files = glob.glob(args.passage_reps)
     logger.info(f'Pattern match found {len(index_files)} files; loading them into index.')

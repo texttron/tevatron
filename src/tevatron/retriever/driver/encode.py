@@ -18,6 +18,7 @@ from transformers import (
 from tevatron.retriever.arguments import ModelArguments, DataArguments, \
     TevatronTrainingArguments as TrainingArguments
 from tevatron.retriever.dataset import EncodeDataset
+from tevatron.utils.io import ensure_parent_dir
 from tevatron.retriever.collator import EncodeCollator
 from tevatron.retriever.modeling import EncoderOutput, DenseModel
 
@@ -36,6 +37,8 @@ def main():
 
     if training_args.local_rank > 0 or training_args.n_gpu > 1:
         raise NotImplementedError('Multi-GPU encoding is not supported.')
+
+    ensure_parent_dir(data_args.encode_output_path)
 
     # Setup logging
     logging.basicConfig(
