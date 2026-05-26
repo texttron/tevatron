@@ -60,9 +60,13 @@ def main():
 
     set_seed(training_args.seed)
 
+    tokenizer_kwargs = {'cache_dir': model_args.cache_dir}
+    if model_args.model_revision is not None:
+        tokenizer_kwargs['revision'] = model_args.model_revision
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
+        **tokenizer_kwargs,
     )
 
     if tokenizer.pad_token_id is None:
@@ -79,13 +83,19 @@ def main():
         torch_dtype = torch.float16
     else:
         torch_dtype = torch.float32
-    
+
+    model_load_kwargs = {
+        'cache_dir': model_args.cache_dir,
+        'torch_dtype': torch_dtype,
+        'attn_implementation': model_args.attn_implementation,
+    }
+    if model_args.model_revision is not None:
+        model_load_kwargs['revision'] = model_args.model_revision
+
     model = DenseModel.build(
         model_args,
         training_args,
-        cache_dir=model_args.cache_dir,
-        torch_dtype=torch_dtype,
-        attn_implementation=model_args.attn_implementation,
+        **model_load_kwargs,
     )
 
     train_dataset = TrainDataset(data_args)

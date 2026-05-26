@@ -271,6 +271,7 @@ class EncodeDataset(Dataset):
             split=self.data_args.dataset_split,
             cache_dir=self.data_args.dataset_cache_dir,
             num_proc=self.data_args.num_proc,
+            verification_mode="no_checks",
         )
         if self.data_args.dataset_number_of_shards > 1:
             self.encode_data = self.encode_data.shard(
