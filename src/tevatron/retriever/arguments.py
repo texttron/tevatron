@@ -19,6 +19,11 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
+    model_revision: Optional[str] = field(
+        default=None,
+        metadata={"help": "Revision of the model to use (branch name, tag, or commit id)."},
+    )
+
     pooling: str = field(
         default='cls',
         metadata={"help": "pooling method for query and passage encoder"}

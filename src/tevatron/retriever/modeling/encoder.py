@@ -26,6 +26,11 @@ class EncoderOutput(ModelOutput):
 class EncoderModel(nn.Module):
     TRANSFORMER_CLS = AutoModel
 
+    # HuggingFace Trainer.checkpoint resume calls _issue_warnings_after_load(), which expects
+    # PreTrainedModel-style attributes on `self.model`. EncoderModel wraps a PreTrainedModel in
+    # `.encoder` but is itself an nn.Module, so omitting this triggers AttributeError on resume.
+    _keys_to_ignore_on_save = None
+
     def __init__(self,
                  encoder: PreTrainedModel,
                  pooling: str = 'cls',
