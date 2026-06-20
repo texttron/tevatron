@@ -5,6 +5,9 @@ nav:
     - Training: training.md
     - Encoding: encoding.md
     - Retrieval: retrieval.md
+    - Megatron Reranker:
+        - Installation: megatron_installation.md
+        - Usage: megatron_reranker_usage.md
 
 theme:
   name: 'material'

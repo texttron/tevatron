@@ -70,6 +70,13 @@ def main():
         training_args,
         cache_dir=model_args.cache_dir,
     )
+    # The HF SequenceClassification head reads the last non-pad position by
+    # comparing input_ids to config.pad_token_id. Models like Qwen3 ship
+    # config.pad_token_id=None, in which case .build() defaults it to 0 — but
+    # the tokenizer pads with a different id (e.g. 151643), so the head ends up
+    # reading position 0 instead of the true last token. Pin the config to the
+    # tokenizer's pad id so training and saved-checkpoint inference agree.
+    model.hf_model.config.pad_token_id = tokenizer.pad_token_id
 
     train_dataset = RerankerTrainDataset(data_args)
     train_collator = RerankerTrainCollator(data_args, tokenizer)
@@ -78,7 +85,8 @@ def main():
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=train_collator
+        data_collator=train_collator,
+        processing_class=tokenizer,
     )
     train_dataset.trainer = trainer
 

@@ -1,9 +1,16 @@
 import torch
 import logging
-from transformers import Qwen2_5OmniThinkerForConditionalGeneration
 from .encoder import EncoderModel
 
 logger = logging.getLogger(__name__)
+
+
+def _qwen_omni_cls():
+    # Lazy: the multimodal backbone only exists on recent transformers; importing
+    # it at module top would break the text-only path (SPLADE/dense) on older
+    # transformers (e.g. the 4.51.x LACONIC repro env). Resolved on first use.
+    from transformers import Qwen2_5OmniThinkerForConditionalGeneration
+    return Qwen2_5OmniThinkerForConditionalGeneration
 
 
 class DenseModel(EncoderModel):
@@ -39,8 +46,16 @@ class DenseModel(EncoderModel):
         return reps
 
 
+class _LazyOmniCls:
+    """Descriptor: resolve the Qwen2.5-Omni class on first attribute access
+    (at .build()/.load() time), not at import — keeps the text-only path
+    importable on transformers versions without the multimodal class."""
+    def __get__(self, obj, objtype=None):
+        return _qwen_omni_cls()
+
+
 class MultiModalDenseModel(DenseModel):
-    TRANSFORMER_CLS = Qwen2_5OmniThinkerForConditionalGeneration
+    TRANSFORMER_CLS = _LazyOmniCls()
 
     def __init__(self, encoder, pooling='eos', normalize=True, temperature=0.02):
         super().__init__(encoder, pooling, normalize, temperature)

@@ -83,6 +83,20 @@ class ModelArguments:
         metadata={"help": "Use separate query/passage parameters (JAX dual-encoder training)."},
     )
 
+    # --- causal-LM SPLADE (LACONIC) ---
+    is_bidirectional: bool = field(
+        default=False,
+        metadata={"help": "For decoder-LM SPLADE: convert the backbone to full "
+                          "(bidirectional) attention so every token sees the whole "
+                          "sequence. Validated for Llama 3 / Qwen2.5."},
+    )
+    pooling_strategy: str = field(
+        default="max",
+        metadata={"help": "Sequence aggregation for decoder-LM SPLADE: 'max' "
+                          "(SPLADE max-pool, default), 'mean', or 'last'.",
+                  "choices": ["max", "mean", "last"]},
+    )
+
 
 @dataclass
 class DataArguments:
@@ -186,6 +200,15 @@ class DataArguments:
         default=False, metadata={"help": "append eos token to query and passage, this is currently used for repllama"}
     )
 
+    add_special_tokens: bool = field(
+        default=True,
+        metadata={"help": "Whether tokenization prepends special tokens (e.g. BOS). "
+                          "Default True (backward-compatible). Set False for decoder-LM "
+                          "SPLADE (LACONIC): the BOS token is an attention sink whose "
+                          "hidden state projects large generic-token logits that dominate "
+                          "the SPLADE max-pool and collapse all representations."},
+    )
+
     pad_to_multiple_of: Optional[int] = field(
         default=16,
         metadata={
@@ -230,4 +253,20 @@ class TevatronTrainingArguments(TrainingArguments):
     distil_temperature: float = field(
         default=0.02,
         metadata={"help": "temperature for distillation"}
+    )
+
+
+@dataclass
+class SpladeTrainingArguments(TevatronTrainingArguments):
+    """Adds FLOPS sparsity-regularization knobs for SPLADE training. Used by the
+    causal-SPLADE driver together with ``SpladeTrainer``; the dense path is
+    unaffected."""
+    q_flops_loss_factor: float = field(
+        default=1e-2, metadata={"help": "target FLOPS-regularization weight for query reps"}
+    )
+    p_flops_loss_factor: float = field(
+        default=1e-2, metadata={"help": "target FLOPS-regularization weight for passage reps"}
+    )
+    flops_warmup: int = field(
+        default=1000, metadata={"help": "steps to quadratically ramp the FLOPS weight from 0 to target"}
     )

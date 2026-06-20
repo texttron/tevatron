@@ -3,8 +3,13 @@ import torch
 from typing import List, Tuple
 from dataclasses import dataclass
 from transformers import PreTrainedTokenizer, ProcessorMixin
-from qwen_omni_utils import process_mm_info
-from PIL import Image
+
+# `process_mm_info` and PIL.Image are only needed by the multimodal collators
+# below. Import them lazily so the text-only encode/retrieve path (e.g. SPLADE)
+# doesn't require the heavy `qwen_omni_utils` / `Pillow` dependencies.
+def process_mm_info(*args, **kwargs):
+    from qwen_omni_utils import process_mm_info as _impl
+    return _impl(*args, **kwargs)
 
 from tevatron.retriever.arguments import DataArguments
 
@@ -39,16 +44,16 @@ class TrainCollator:
             max_length=self.data_args.query_max_len-1 if self.data_args.append_eos_token else self.data_args.query_max_len,
             return_attention_mask=False,
             return_token_type_ids=False,
-            add_special_tokens=True,
+            add_special_tokens=self.data_args.add_special_tokens,
         )
         d_collated = self.tokenizer(
             all_passages,
-            padding=False, 
+            padding=False,
             truncation=True,
             max_length=self.data_args.passage_max_len-1 if self.data_args.append_eos_token else self.data_args.passage_max_len,
             return_attention_mask=False,
             return_token_type_ids=False,
-            add_special_tokens=True,
+            add_special_tokens=self.data_args.add_special_tokens,
         )
 
         if self.data_args.append_eos_token:
@@ -204,12 +209,12 @@ class EncodeCollator:
         max_length = self.data_args.query_max_len if self.data_args.encode_is_query else self.data_args.passage_max_len
         collated_inputs = self.tokenizer(
             texts,
-            padding=False, 
+            padding=False,
             truncation=True,
             max_length=max_length-1 if self.data_args.append_eos_token else max_length,
             return_attention_mask=False,
             return_token_type_ids=False,
-            add_special_tokens=True,
+            add_special_tokens=self.data_args.add_special_tokens,
         )
         if self.data_args.append_eos_token:
             collated_inputs['input_ids'] = [x + [self.tokenizer.eos_token_id] for x in collated_inputs['input_ids']]

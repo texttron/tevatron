@@ -98,11 +98,11 @@ class DataArguments:
     )
 
     query_prefix: str = field(
-        default='', metadata={"help": "prefix or instruction for query"}
+        default='query:', metadata={"help": "prefix or instruction for query"}
     )
 
     passage_prefix: str = field(
-        default='', metadata={"help": "prefix or instruction for passage"}
+        default='passage:', metadata={"help": "prefix or instruction for passage"}
     )
 
     append_eos_token: bool = field(
