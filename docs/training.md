@@ -65,12 +65,12 @@ GradCache also works with multi-GPU `torchrun` setups.
 
 ## Training with TPU
 Tevatron implements TPU training via Jax/Flax.
-We provide a separate module `tevatron.driver.jax_train` to train on TPU.
+We provide a separate module `tevatron.retriever.driver.jax_train` to train on TPU.
 The arguments managements aligns with above Pytorch training driver.
 
 By running the following commands on a V3-8 TPU VM is equivalent to the commands above.
 ```bash
-python -m tevatron.driver.jax_train \
+python -m tevatron.retriever.driver.jax_train \
   --output_dir model_nq \
   --dataset_name Tevatron/wikipedia-nq \
   --model_name_or_path bert-base-uncased \
@@ -78,8 +78,8 @@ python -m tevatron.driver.jax_train \
   --per_device_train_batch_size 16 \
   --train_group_size 2 \
   --learning_rate 1e-5 \
-  --q_max_len 32 \
-  --p_max_len 156 \
+  --query_max_len 32 \
+  --passage_max_len 156 \
   --num_train_epochs 40
 ```
 > Note that our Jax training driver also support gradient cache by adding `--grad_cache` option.
@@ -98,12 +98,9 @@ Here we describe the details of the arguments additionally defined for Tevatron'
 | `tokenizer_name`          | Tokenizer name or path if not the same as `model_name_or_path`                                                                                                       | `str`  | same as `model_name_or_path` | pytorch, jax     |
 | `cache_dir`               | Path to the directory to save the cache of models and datasets                                                                                                       | `str`  | `~/.cache/`                  | pytorch, jax     |
 | `untie_encoder`           | Whether query encoder and passage encoder share same parameter                                                                                                       | `bool` | `False`                      | pytorch, jax     |
-| `add_pooler`              | Whether add pooler on top of last layer output                                                                                                                       | `bool` | `False`                      | pytorch          |
-| `projection_in_dim`       | The input dim of pooler                                                                                                                                              | `int`  | `768`                        |                  |
-| `projection_out_dim`      | The output dim of pooler                                                                                                                                             | `int`  | `768`                        | pytorch          |
 | `dataset_name`            | Dataset name that avaliable on HuggingFace                                                                                                                           | `str`  | `json`                       | pytorch, jax     |
-| `train_dir`               | Directory that stores custom training data                                                                                                                           | `str`  | `None`                       | pytorch, jax     |
-| `dataset_proc_num`        | Number of threads to use to preprocess/tokenize data                                                                                                                 | `int`  | `12`                         | pytorch, jax     |
+| `dataset_path`            | Path to local data files or directory                                                                                                                                | `str`  | `None`                       | pytorch, jax     |
+| `num_proc`                | Number of threads to use to preprocess/tokenize data                                                                                                                 | `int`  | `1`                          | pytorch, jax     |
 | `train_group_size`        | Number of passages for each anchor query during training. It will load 1 positive passage + (`train_group_size`-1) negative passages for each example during training | `int`  | `8`                          | pytorch, jax     |
 | `passage_field_separator` | The token to seperate `title` and `text` field for passages                                                                                                          | `str`  | `" "`                        | pytorch          |
 | `query_max_len`               | Maximum query length                                                                                                                                                 | `int`  | `32`                         | pytorch, jax     |

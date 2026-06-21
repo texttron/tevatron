@@ -45,20 +45,20 @@ python prepare_wiki_train.py --input hn.json --output nq-train/hn.bert.json --to
 Pick a pre-trained condenser that is most suitable for the experiment from [Condenser Repo](https://github.com/luyug/Condenser#pre-trained-models).
 Run training,
 ```
-python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
+python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.retriever.driver.train \
   --output_dir model-nq \
   --model_name_or_path CONDENSER_MODEL_NAME \
   --do_train \
   --save_steps 20000 \
-  --train_dir nq-train \
+  --dataset_name json \
+  --dataset_path "nq-train/*.json" \
   --fp16 \
   --per_device_train_batch_size 32 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 5e-6 \
-  --q_max_len 32 \
-  --p_max_len 256 \
+  --query_max_len 32 \
+  --passage_max_len 256 \
   --num_train_epochs 40 \
-  --negatives_x_device \
   --untie_encoder \
   --positive_passage_no_shuffle
 ```
@@ -84,20 +84,20 @@ python prepare_wiki_train.py --input hn.json --output nq-train/hn.bert.json --to
 Pick a pre-trained condenser that is most suitable for the experiment from [Condenser Repo](https://github.com/luyug/Condenser#pre-trained-models).
 Run training,
 ```
-python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.driver.train \
+python -m torch.distributed.launch --nproc_per_node=4 -m tevatron.retriever.driver.train \
   --output_dir model-nq \
   --model_name_or_path CONDENSER_MODEL_NAME \
   --do_train \
   --save_steps 20000 \
-  --train_dir nq-train \
+  --dataset_name json \
+  --dataset_path "nq-train/*.json" \
   --fp16 \
   --per_device_train_batch_size 32 \
-  --train_n_passages 2 \
+  --train_group_size 2 \
   --learning_rate 5e-6 \
-  --q_max_len 32 \
-  --p_max_len 256 \
+  --query_max_len 32 \
+  --passage_max_len 256 \
   --num_train_epochs 20 \
-  --negatives_x_device \
   --untie_encoder \
   --positive_passage_no_shuffle
 ```
@@ -111,32 +111,33 @@ MODEL_DIR=nq-model
 
 for s in $(seq -f "%02g" 0 19)
 do
-python -m tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   --config_name CONDENSER_MODEL_NAME \
   --output_dir=$OUTDIR \
   --model_name_or_path $MODEL_DIR \
   --fp16 \
   --per_device_eval_batch_size 64 \
-  --p_max_len 256 \
-  --dataset_proc_num 8 \
+  --passage_max_len 256 \
+  --num_proc 8 \
   --dataset_name Tevatron/wikipedia-nq-corpus \
-  --encoded_save_path embeddings-nq/$s.pt \
-  --encode_num_shard 20 \
+  --encode_output_path embeddings-nq/$s.pt \
+  --dataset_number_of_shards 20 \
   --passage_field_separator sep_token \
-  --encode_shard_index $s
+  --dataset_shard_index $s
 done
 
-python -m tevatron.driver.encode \
+python -m tevatron.retriever.driver.encode \
   --output_dir=$OUTDIR \
   --model_name_or_path $MODEL_DIR \
   --config_name CONDENSER_MODEL_NAME \
   --fp16 \
   --per_device_eval_batch_size 64 \
-  --q_max_len 32 \
-  --dataset_proc_num 2 \
-  --dataset_name Tevatron/wikipedia-nq/test \
-  --encoded_save_path embeddings-nq-queries/query.pt \
-  --encode_is_qry
+  --query_max_len 32 \
+  --num_proc 2 \
+  --dataset_name Tevatron/wikipedia-nq \
+  --dataset_split test \
+  --encode_output_path embeddings-nq-queries/query.pt \
+  --encode_is_query
 ```
 
 ## Search and Evaluation
@@ -146,7 +147,7 @@ ENCODE_QRY_DIR=embeddings-nq-queries
 ENCODE_DIR=embeddings-nq
 DEPTH=200
 RUN=run.nq.test.txt
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
 --query_reps $ENCODE_QRY_DIR/query.pt \
 --passage_reps $ENCODE_DIR/'*.pt' \
 --depth $DEPTH \

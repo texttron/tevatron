@@ -19,11 +19,12 @@ CUDA_VISIBLE_DEVICES=1 python encode.py \
   --tokenizer_name meta-llama/Llama-2-7b-hf \
   --fp16 \
   --per_device_eval_batch_size 16 \
-  --p_max_len 512 \
-  --dataset_name Tevatron/beir-corpus:scifact \
-  --encoded_save_path beir_embedding_scifact/corpus_scifact.${s}.pkl \
-  --encode_num_shard 4 \
-  --encode_shard_index ${s}
+  --passage_max_len 512 \
+  --dataset_name Tevatron/beir-corpus \
+  --dataset_config scifact \
+  --encode_output_path beir_embedding_scifact/corpus_scifact.${s}.pkl \
+  --dataset_number_of_shards 4 \
+  --dataset_shard_index ${s}
 done
 ```
 > We shard the encoding, so that it can be parallelized on multiple GPUs, when its available.
@@ -36,15 +37,17 @@ CUDA_VISIBLE_DEVICES=6 python encode.py \
   --tokenizer_name meta-llama/Llama-2-7b-hf \
   --fp16 \
   --per_device_eval_batch_size 16 \
-  --q_max_len 512 \
-  --dataset_name Tevatron/beir:scifact/test \
-  --encoded_save_path beir_embedding_scifact/queries_scifact.pkl \
-  --encode_is_qry
+  --query_max_len 512 \
+  --dataset_name Tevatron/beir \
+  --dataset_config scifact \
+  --dataset_split test \
+  --encode_output_path beir_embedding_scifact/queries_scifact.pkl \
+  --encode_is_query
 ```
 
 ### Search
 
-python -m tevatron.faiss_retriever \
+python -m tevatron.retriever.driver.search \
     --query_reps beir_embedding_scifact/queries_scifact.pkl \
     --passage_reps 'beir_embedding_scifact/corpus_scifact.*.pkl' \
     --depth 100 \
@@ -78,15 +81,14 @@ deepspeed --include localhost:0,1,2,3 train.py \
   --per_device_train_batch_size 8 \
   --gradient_accumulation_steps 4 \
   --gradient_checkpointing \
-  --train_n_passages 16 \
+  --train_group_size 16 \
   --learning_rate 1e-4 \
-  --q_max_len 32 \
-  --p_max_len 196 \
+  --query_max_len 32 \
+  --passage_max_len 196 \
   --num_train_epochs 1 \
   --logging_steps 10 \
   --overwrite_output_dir \
-  --dataset_proc_num 32 \
-  --negatives_x_device \
+  --num_proc 32 \
   --warmup_steps 100
 ```
 

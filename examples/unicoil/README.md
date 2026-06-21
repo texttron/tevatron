@@ -7,14 +7,11 @@ CUDA_VISIBLE_DEVICES=0 python examples/unicoil/train_unicoil.py \
   --dataset_name Tevatron/msmarco-passage \
   --fp16 \
   --per_device_train_batch_size 8 \
-  --train_n_passages 8 \
+  --train_group_size 8 \
   --learning_rate 5e-6 \
-  --q_max_len 16 \
-  --p_max_len 128 \
+  --query_max_len 16 \
+  --passage_max_len 128 \
   --num_train_epochs 3 \
-  --add_pooler \
-  --projection_in_dim 768 \
-  --projection_out_dim 1 \
   --logging_steps 500 \
   --overwrite_output_dir
 ```
@@ -28,11 +25,11 @@ CUDA_VISIBLE_DEVICES=0 python examples/unicoil/encode_unicoil.py \
   --model_name_or_path unicoil_distilbert \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --p_max_len 128 \
+  --passage_max_len 128 \
   --dataset_name Tevatron/msmarco-passage-corpus \
-  --encoded_save_path corpus_emb.${s}.jsonl \
-  --encode_num_shard 20 \
-  --encode_shard_index ${s}
+  --encode_output_path corpus_emb.${s}.jsonl \
+  --dataset_number_of_shards 20 \
+  --dataset_shard_index ${s}
 done
 
 ```
@@ -43,10 +40,11 @@ CUDA_VISIBLE_DEVICES=0 python examples/unicoil/encode_unicoil.py \
   --model_name_or_path unicoil_distilbert \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --encode_is_qry \
-  --q_max_len 16 \
-  --dataset_name Tevatron/msmarco-passage/dev \
-  --encoded_save_path queries_emb.tsv
+  --encode_is_query \
+  --query_max_len 16 \
+  --dataset_name Tevatron/msmarco-passage \
+  --dataset_split dev \
+  --encode_output_path queries_emb.tsv
 ```
 
 ## Indexing
