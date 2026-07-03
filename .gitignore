@@ -1,6 +1,27 @@
 .idea/
+.vscode/
 __pycache__/
 *.egg-info/
+*.py[cod]
 examples/**/models/
 examples/**/results/
 examples/**/wandb/
+
+# Virtual environments (multi-GB; rebuild from requirements-*.txt / environment-*.yml)
+.venv/
+.venv-*/
+venv/
+env/
+
+# Run artifacts / experiment outputs
+output/
+outputs/
+wandb/
+tmpdata/
+*.log
+slurm-*.out
+
+# Local caches / scratch
+.cache/
+*.tmp
+.DS_Store
