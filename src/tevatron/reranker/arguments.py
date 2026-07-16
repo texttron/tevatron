@@ -17,6 +17,21 @@ class ModelArguments:
         default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
     )
 
+    reranker_model_type: str = field(
+        default="sequence_classification",
+        metadata={"help": "Reranker model type: sequence_classification or backbone"}
+    )
+
+    reranker_pooling: str = field(
+        default="last",
+        metadata={"help": "Pooling method for backbone rerankers: last or cls"}
+    )
+
+    attn_implementation: Optional[str] = field(
+        default=None,
+        metadata={"help": "Attention implementation to pass to from_pretrained, e.g. sdpa or flash_attention_2"}
+    )
+
     # for lora
     lora: bool = field(default=False,
         metadata={"help": "do parameter-efficient fine-tuning with lora"}
@@ -98,11 +113,11 @@ class DataArguments:
     )
 
     query_prefix: str = field(
-        default='query:', metadata={"help": "prefix or instruction for query"}
+        default='', metadata={"help": "prefix or instruction for query"}
     )
 
     passage_prefix: str = field(
-        default='passage:', metadata={"help": "prefix or instruction for passage"}
+        default='', metadata={"help": "prefix or instruction for passage"}
     )
 
     append_eos_token: bool = field(
