@@ -81,7 +81,6 @@ def main():
         training_args,
         cache_dir=model_args.cache_dir,
         torch_dtype=torch_dtype,
-        attn_implementation=model_args.attn_implementation,
     )
     # The HF SequenceClassification head reads the last non-pad position by
     # comparing input_ids to config.pad_token_id. Models like Qwen3 ship

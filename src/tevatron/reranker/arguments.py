@@ -27,11 +27,6 @@ class ModelArguments:
         metadata={"help": "Pooling method for backbone rerankers: last or cls"}
     )
 
-    attn_implementation: Optional[str] = field(
-        default=None,
-        metadata={"help": "Attention implementation to pass to from_pretrained, e.g. sdpa or flash_attention_2"}
-    )
-
     # for lora
     lora: bool = field(default=False,
         metadata={"help": "do parameter-efficient fine-tuning with lora"}
