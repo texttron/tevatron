@@ -59,9 +59,9 @@ python -m tevatron.retriever.driver.encode \
   --fp16 \
   --per_device_eval_batch_size 156 \
   --dataset_name Tevatron/wikipedia-nq-corpus \
-  --encoded_save_path corpus_emb.$s.pkl \
-  --encode_num_shard 20 \
-  --encode_shard_index $s
+  --encode_output_path corpus_emb.$s.pkl \
+  --dataset_number_of_shards 20 \
+  --dataset_shard_index $s
 done
 ```
 
@@ -72,8 +72,9 @@ python -m tevatron.retriever.driver.encode \
   --model_name_or_path model_nq \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --dataset_name Tevatron/wikipedia-nq/test \
-  --encoded_save_path query_emb.pkl \
+  --dataset_name Tevatron/wikipedia-nq \
+  --dataset_split test \
+  --encode_output_path query_emb.pkl \
   --encode_is_query
 ```
 

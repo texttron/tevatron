@@ -3,17 +3,16 @@ In this example, we take the retrieval results from the first stage retriever (e
 
 ## Train Reranker
 ```
-CUDA_VISIBLE_DEVICES=0 python train_reranker.py \
+CUDA_VISIBLE_DEVICES=0 python reranker_train.py \
   --output_dir reranker_msmarco \
   --model_name_or_path bert-base-uncased \
   --save_steps 20000 \
   --dataset_name Tevatron/msmarco-passage \
   --fp16 \
   --per_device_train_batch_size 8 \
-  --train_n_passages 8 \
+  --train_group_size 8 \
   --learning_rate 5e-6 \
-  --q_max_len 16 \
-  --p_max_len 128 \
+  --rerank_max_len 144 \
   --num_train_epochs 3 \
   --logging_steps 500 \
   --overwrite_output_dir
@@ -40,25 +39,24 @@ The BM25 result has `topk=1000` passages for each query. It gives MRR@10=0.1840 
 ```
 python prepare_rerank_file.py \
     --query_data_name Tevatron/msmarco-passage \
-    --corpus Tevatron/msmarco-passage-corpus \
-    --retrieval run.msmarco-v1-passage.bm25-default.dev.txt \
+    --corpus_data_name Tevatron/msmarco-passage-corpus \
+    --retrieval_results run.msmarco-v1-passage.bm25-default.dev.txt \
     --output_path rerank_input_file.bm25.jsonl
 ```
 
 ### Reranking
 
 ```
-CUDA_VISIBLE_DEVICES=6 python reranker_inference.py \
+CUDA_VISIBLE_DEVICES=6 python -m tevatron.reranker.driver.rerank \
   --output_dir=temp \
   --model_name_or_path reranker_msmarco \
   --tokenizer_name bert-base-uncased \
-  --encode_in_path rerank_input_file.bm25.jsonl \
+  --dataset_path rerank_input_file.bm25.jsonl \
   --fp16 \
   --per_device_eval_batch_size 156 \
-  --q_max_len 16 \
-  --p_max_len 128 \
-  --dataset_name data_script.py \
-  --encoded_save_path rerank_out_file.bm25.monobert.txt
+  --rerank_max_len 144 \
+  --dataset_name json \
+  --rerank_output_path rerank_out_file.bm25.monobert.txt
 ```
 
 ### Evaluation
