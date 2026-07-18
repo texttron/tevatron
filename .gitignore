@@ -4,3 +4,5 @@ __pycache__/
 examples/**/models/
 examples/**/results/
 examples/**/wandb/
+# Decrypted BrowseComp-Plus queries — regenerate locally via decrypt_dataset.py --generate-tsv; never commit
+examples/BrowseComp-Plus/topics-qrels/queries.tsv
