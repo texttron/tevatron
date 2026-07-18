@@ -161,7 +161,13 @@ class RerankerModel(nn.Module):
                 base_model_name_or_path = PeftConfig.from_pretrained(adapter_path).base_model_name_or_path
             base_model = cls.BACKBONE_CLS.from_pretrained(base_model_name_or_path, **hf_kwargs)
         else:
-            base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, num_labels=1, **hf_kwargs, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
+            # setdefault: hf_kwargs may already carry attn_implementation, either
+            # from the caller or from the checkpoint's reranker_config.json above;
+            # passing the keyword again alongside **hf_kwargs would raise
+            # "got multiple values for keyword argument".
+            hf_kwargs.setdefault("torch_dtype", torch.bfloat16)
+            hf_kwargs.setdefault("attn_implementation", "flash_attention_2")
+            base_model = cls.TRANSFORMER_CLS.from_pretrained(model_name_or_path, num_labels=1, **hf_kwargs)
         if base_model.config.pad_token_id is None:
             base_model.config.pad_token_id = 0
         if reranker_model_type == "backbone" and adapter_path:
