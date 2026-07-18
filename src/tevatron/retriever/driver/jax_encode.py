@@ -21,6 +21,8 @@ import optax
 from transformers import (AutoConfig, AutoTokenizer, FlaxAutoModel,
                           HfArgumentParser, TensorType)
 
+from tevatron.utils.io import ensure_parent_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +35,8 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+
+    ensure_parent_dir(data_args.encode_output_path)
 
     # Setup logging
     logging.basicConfig(

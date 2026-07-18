@@ -1,12 +1,15 @@
 import argparse
 import os
 
+from tevatron.utils.io import ensure_parent_dir
+
 parser = argparse.ArgumentParser(description='Reduce retrieval results from multiple shards.')
 parser.add_argument('--results_dir', type=str, help='Directory that contains results from all shards', required=True)
 parser.add_argument('--output', help='Path to final results file', required=True)
 parser.add_argument('--depth', type=int, help='Number of retrieved doc for each query', required=False, default=100)
 args = parser.parse_args()
 
+ensure_parent_dir(args.output)
 
 all_results = {}
 print(f'Merging results from {len(os.listdir(args.results_dir))} result files.')
