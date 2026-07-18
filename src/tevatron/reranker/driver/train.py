@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 
+import torch
 from transformers import AutoTokenizer
 from transformers import (
     HfArgumentParser,
@@ -65,10 +66,22 @@ def main():
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.unk_token_id
     tokenizer.padding_side = 'right'
+    # Load weights in the training compute dtype (mirrors retriever/driver/train.py).
+    # The base model is frozen under LoRA, so fp32 master weights are pure memory
+    # overhead; bf16 load also matches the historical DeepSpeed-bf16 runs, where
+    # params were kept in bf16 as well.
+    if training_args.bf16:
+        torch_dtype = torch.bfloat16
+    elif training_args.fp16:
+        torch_dtype = torch.float16
+    else:
+        torch_dtype = torch.float32
     model = RerankerModel.build(
         model_args,
         training_args,
         cache_dir=model_args.cache_dir,
+        torch_dtype=torch_dtype,
+        attn_implementation=model_args.attn_implementation,
     )
     # The HF SequenceClassification head reads the last non-pad position by
     # comparing input_ids to config.pad_token_id. Models like Qwen3 ship

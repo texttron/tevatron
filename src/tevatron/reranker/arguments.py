@@ -46,6 +46,12 @@ class ModelArguments:
         metadata={"help": "lora target modules"}
     )
 
+    attn_implementation: Optional[str] = field(
+        default=None,
+        metadata={"help": 'Attention implementation passed to from_pretrained, e.g. "sdpa", '
+                          '"flash_attention_2", "eager". Default None keeps the transformers default.'},
+    )
+
 
 
 @dataclass
