@@ -11,20 +11,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SimpleContrastiveLoss:
+    def __init__(self, temperature: float = 1.0, scale : float = 1.0):
+        self.temperature = temperature
+        self.scale = scale
 
     def __call__(self, x: Tensor, y: Tensor, target: Tensor = None, reduction: str = 'mean'):
         if target is None:
             target_per_qry = y.size(0) // x.size(0)
             target = torch.arange(
                 0, x.size(0) * target_per_qry, target_per_qry, device=x.device, dtype=torch.long)
-        logits = torch.matmul(x, y.transpose(0, 1))
-        return F.cross_entropy(logits, target, reduction=reduction)
+        logits = torch.matmul(x, y.transpose(0, 1)) / self.temperature
+        return F.cross_entropy(logits, target, reduction=reduction) * self.scale
 
 
 class DistributedContrastiveLoss(SimpleContrastiveLoss):
-    def __init__(self, n_target: int = 0, scale_loss: bool = True):
+    def __init__(self, n_target: int = 0, scale_loss: bool = True, temperature: float = 1.0, scale : float = 1.0):
         assert dist.is_initialized(), "Distributed training has not been properly initialized."
-        super().__init__()
+        super().__init__(temperature=temperature, scale=scale)
         self.word_size = dist.get_world_size()
         self.rank = dist.get_rank()
         self.scale_loss = scale_loss
@@ -76,7 +79,10 @@ class GradCacheTrainer(TevatronTrainer):
         super(GradCacheTrainer, self).__init__(*args, **kwargs)
 
         loss_fn_cls = DistributedContrastiveLoss if self.is_ddp else SimpleContrastiveLoss
-        loss_fn = loss_fn_cls()
+        loss_fn = loss_fn_cls(
+            temperature=self.model.temperature,
+            scale=1.0 / self.args.gradient_accumulation_steps,
+        )
 
         self.gc = GradCache(
             models=[self.model, self.model],
