@@ -44,6 +44,22 @@ class TevatronTrainer(Trainer):
         # Good practice: save your training arguments together with the trained model
         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
 
+    def _load_from_checkpoint(self, resume_from_checkpoint: str, model=None) -> None:
+        # _save() strips `encoder.`, however `Trainer`'s default loader feed the keys
+        # back to `EncoderModel`, which keys are `encoder.*`
+
+        target = self.model if model is None else model
+        encoder = getattr(target, "encoder", None) #model.encoder
+
+        # Target DDP flows, where the encoder is werraped in `target.module.encoder`
+        if encoder is None and hasattr(target, "module"):
+            encoder = getattr(target.module, "encoder", None)
+
+        # `load_state_dict` should target the encoder
+        if encoder is not None:
+            target = encoder
+        return super()._load_from_checkpoint(resume_from_checkpoint, target)
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage = inputs
         return model(query=query, passage=passage).loss
@@ -61,11 +77,11 @@ class DistilTevatronTrainer(TevatronTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         query, passage, reranker_labels = inputs
         scores = model(query=query, passage=passage).scores
-        
+
         if model.is_ddp:
             # reranker_scores are gathered across all processes
             reranker_labels = model._dist_gather_tensor(reranker_labels)
-        
+
         # Derive student_scores [batch, num_labels]
         batch_size, total_passages = scores.size()
         num_labels = reranker_labels.size(1)
