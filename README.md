@@ -1,7 +1,7 @@
-# Tevatron V2.0
+# Tevatron
 
 <div align="center">
-<a href="https://arxiv.org/abs/2203.05765" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
+<a href="https://arxiv.org/abs/2608.00916" target="_blank"><img src=https://img.shields.io/badge/arXiv-b5212f.svg?logo=arxiv></a>
 <a href="https://huggingface.co/Tevatron" target="_blank"><img src=https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace%20Datasets-27b3b4.svg></a>
 <a href="https://opensource.org/license/apache-2-0"><img src="https://img.shields.io/static/v1?label=License&message=Apache-2.0&color=red"></a>
 <a href="https://pepy.tech/projects/tevatron"><img src="https://static.pepy.tech/badge/tevatron" alt="PyPI Downloads"></a>
@@ -11,17 +11,21 @@
 
 Tevatron: Unified Document Retrieval Toolkit across Scale, Language, and Modality.
 
-> Some of the features in Tevatron v1 is not yet migrated to Tevatron v2.0. We are working on it.
-> If you are looking for the Tevatron v1 features, please pull the [v1 branch](https://github.com/texttron/tevatron/tree/tevatron-v1).
+> For legacy Tevatron v1 features, see the [v1 branch](https://github.com/texttron/tevatron/tree/tevatron-v1).
 
 ## Features
+
 - Training billion-scale LLM neural retriever on GPUs and TPUs.
 - Parameter efficient tuning with LoRA.
 - Integration with vLLM, DeepSpeed, FlashAttention, gradient accumulation, and other efficient training and inference techniques.
 - Self-contained [huggingface datasets](https://huggingface.co/Tevatron) for multi-modal and multilingual neural retrieval and open-domain QA tasks.
 - Direct loading and finetuning SoTA pre-trained models (BGE-Embbedding, Instruct-E5) from HuggingFace.
+- LLM reranker training with Megatron-Core, including expert parallelism for MoE models and support for full-parameter tuning and LoRA.
+- Unified retrieval and reranker evaluation with Hugging Face and vLLM backends, plus offline teacher annotation for distillation.
 
 ## Installation
+
+For Megatron reranker training, see the [installation guide](./docs/megatron_installation.md) and [environment notes](./docs/environments.md).
 
 <details><summary><b>PyTorch (GPU)</b></summary>
 
@@ -135,6 +139,8 @@ In this example, we will use the self-contained dataset `Tevatron/msmarco-passag
 
 
 <details><summary><b>Run with PyTorch (GPU)</b></summary>
+
+> Some examples may be outdated; use each command's `--help` output as the reference for current CLI options.
 
 ### Training
 
@@ -332,28 +338,68 @@ The output file is in the format of `<query_id> <passage_id> <score>` in each li
 
 </details>
 
+## Megatron Training Backend and Reranker Support
+
+Tevatron supports cross-encoder reranker training through Hugging Face Trainer and Megatron-Core. The Megatron backend adds tensor, pipeline, and expert parallelism for dense and MoE LLM rerankers, with full-parameter tuning, LoRA, and offline distillation. It exports Hugging Face-compatible checkpoints for inference and evaluation.
+
+- **Training recipes:** see the [Megatron reranker examples](./examples/megatron/README.md) and [configuration reference](./docs/megatron_reranker_usage.md), or the [Hugging Face reranker example](./examples/reranker/README.md).
+- **Setup and dependencies:** see the [Megatron installation guide](./docs/megatron_installation.md) and [environment notes](./docs/environments.md), which explain the pinned [Megatron](./requirements-megatron.txt) and [LoRA](./requirements-lora.txt) dependency manifests.
+- **Inference and evaluation:** see the [unified reranker evaluation guide](./src/tevatron/eval/README.md) for Hugging Face and vLLM workflows.
+
+## vLLM Integration
+
+We are actively ramping up vLLM integration. Here are the functionalities already supported:
+
+- **Text embedding:** encode queries and documents with configurable pooling, normalization, and optional LoRA, then search with the existing FAISS driver. See the [RepLLaMA example](./examples/example_repllama_vllm.md).
+- **Multimodal embedding:** encode text and image inputs with optional LoRA through [`tevatron.retriever.driver.vllm_encode_mm`](./src/tevatron/retriever/driver/vllm_encode_mm.py).
+- **Offline reranking:** score causal-LM rerankers using yes/no log-probabilities, with Tevatron and Qwen3 reranker prompt templates, tensor parallelism, and optional LoRA. See the [reranking example](./src/tevatron/eval/README.md#2-rerank-then-score-one-checkpoint-one-dataset).
+- **Persistent scoring servers:** keep models loaded and distribute benchmark evaluation requests across an HTTP scoring pool. See the [serving example](./src/tevatron/eval/README.md#3-rerank--score-a-full-sweep-over-a-persistent-backend-pool).
+- **Offline teacher annotation:** precompute teacher reranker scores for distillation training. See the [annotation and distillation recipe](./examples/megatron/README.md#2-distillation-training-listwise-kl-vs-a-teacher).
+
+Embedding drivers currently support one visible GPU per process; reranking supports tensor parallelism. See the [environment notes](./docs/environments.md#4-reranking--teacher-annotation-vllm--venv-eval) for the vLLM evaluation setup, and use each command's `--help` output for current CLI options.
+
 ## Examples
+
 + [Unified multi-modal and multilingual retrieval](./examples/multimodal)
 + [vLLM encoding and retrieval](./examples/example_repllama_vllm.md)
++ [Megatron reranker training and distillation](./examples/megatron/README.md)
++ [Unified retrieval and reranker evaluation](./src/tevatron/eval/README.md)
++ [Decoder-LM SPLADE / LACONIC](./examples/laconic/README.md) · [LACONIC repository](https://github.com/zhichaoxu-shufe/laconic-sparse-retrieval)
++ [Tevatron-Elastic](https://github.com/zhichaoxu-shufe/tevatron-elastic)
 
 ## Citation
-If you find Tevatron helpful, please consider citing our [paper](https://arxiv.org/abs/2203.05765).
+
+If you find Tevatron helpful, please consider citing the relevant papers below. The [Tevatron 3.0 paper](https://arxiv.org/abs/2608.00916) is accepted to SIGIR-AP 2026.
+
 ```bibtex
-@article{Gao2022TevatronAE,
-  title={Tevatron: An Efficient and Flexible Toolkit for Dense Retrieval},
-  author={Luyu Gao and Xueguang Ma and Jimmy J. Lin and Jamie Callan},
-  journal={ArXiv},
-  year={2022},
-  volume={abs/2203.05765}
+@inproceedings{Gao2022TevatronAE,
+  title={Tevatron: An efficient and flexible toolkit for neural retrieval},
+  author={Gao, Luyu and Ma, Xueguang and Lin, Jimmy and Callan, Jamie},
+  booktitle={Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={3120--3124},
+  year={2023}
 }
 ```
 
 ```bibtex
-@article{ma2025tevatron,
-  title={Tevatron 2.0: Unified Document Retrieval Toolkit across Scale, Language, and Modality},
+@inproceedings{ma2025tevatron,
+  title={Tevatron 2.0: Unified document retrieval toolkit across scale, language, and modality},
   author={Ma, Xueguang and Gao, Luyu and Zhuang, Shengyao and Zhan, Jiaqi Samantha and Callan, Jamie and Lin, Jimmy},
-  journal={arXiv preprint arXiv:2505.02466},
+  booktitle={Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages={4061--4065},
   year={2025}
+}
+```
+
+```bibtex
+@misc{xu2026tevatronmeetsmegatronexpertparallel,
+  title={Tevatron Meets Megatron: Expert-Parallel LLM Reranker Training on an Academic Budget},
+  author={Zhichao Xu and Xueguang Ma and Shengyao Zhuang and Luyu Gao and Wenqian Ye and Yu Wang and Jamie Callan and Jimmy Lin},
+  year={2026},
+  eprint={2608.00916},
+  archivePrefix={arXiv},
+  primaryClass={cs.IR},
+  url={https://arxiv.org/abs/2608.00916},
 }
 ```
 
